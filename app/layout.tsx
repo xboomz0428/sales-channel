@@ -17,11 +17,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-TW" className="h-full">
-      <body className={`${inter.className} h-full bg-gray-50`}>
+      <body className={`${inter.className} h-full`} style={{ backgroundColor: "var(--bg)", color: "var(--text)" }}>
         <div className="flex h-screen">
           <Navigation />
           <main className="flex-1 overflow-auto">
-            <div className="p-8">{children}</div>
+            <div className="p-4 md:p-6 lg:p-8">{children}</div>
           </main>
         </div>
       </body>
