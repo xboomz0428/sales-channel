@@ -75,20 +75,59 @@ export default function MatchingPage() {
 }
 
 function CollectSection() {
+  const [keywords, setKeywords] = useState<string[]>([]);
+  const [keywordInput, setKeywordInput] = useState("");
+  const [selectedCities, setSelectedCities] = useState<string[]>([]);
+
+  const cities = [
+    "台北市", "新北市", "桃園市", "新竹市", "新竹縣",
+    "苗栗縣", "台中市", "彰化縣", "南投縣", "雲林縣",
+    "嘉義市", "嘉義縣", "台南市", "高雄市", "屏東縣",
+    "宜蘭縣", "花蓮縣", "台東縣", "澎湖縣", "金門縣",
+    "連江縣"
+  ];
+
+  const addKeyword = () => {
+    if (keywordInput.trim() && !keywords.includes(keywordInput.trim())) {
+      setKeywords([...keywords, keywordInput.trim()]);
+      setKeywordInput("");
+    }
+  };
+
+  const removeKeyword = (k: string) => {
+    setKeywords(keywords.filter((x) => x !== k));
+  };
+
+  const toggleCity = (city: string) => {
+    setSelectedCities(
+      selectedCities.includes(city)
+        ? selectedCities.filter((c) => c !== city)
+        : [...selectedCities, city]
+    );
+  };
+
+  const estimatedRequests = (keywords.length || 0) * (selectedCities.length || 0);
+  const estimatedCost = estimatedRequests * 0.5; // 每個請求 NT$0.5
+
   return (
     <div className="space-y-6">
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         {[
-          { label: "待採集", value: 45 },
-          { label: "採集中", value: 12 },
-          { label: "已完成", value: 234 },
+          { label: "待採集", value: 45, icon: "⏳" },
+          { label: "採集中", value: 12, icon: "⚡" },
+          { label: "已完成", value: 234, icon: "✓" },
         ].map((s, i) => (
-          <div key={i} className="card py-4 text-center">
-            <p className="text-2xl font-medium text-[color:var(--primary)]">
-              {s.value}
-            </p>
-            <p className="text-xs text-muted mt-1">{s.label}</p>
+          <div key={i} className="card py-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-2xl font-medium text-[color:var(--primary)]">
+                  {s.value}
+                </p>
+                <p className="text-xs text-muted mt-1">{s.label}</p>
+              </div>
+              <span className="text-2xl">{s.icon}</span>
+            </div>
           </div>
         ))}
       </div>
@@ -96,56 +135,136 @@ function CollectSection() {
       {/* Task Config */}
       <div className="card space-y-4">
         <h3 className="section-title">建立採集任務</h3>
-        <div className="space-y-3">
-          <div>
-            <label className="text-sm font-medium text-[color:var(--text)]">
-              關鍵字 Tag
-            </label>
+
+        {/* Keywords */}
+        <div>
+          <label className="text-sm font-medium text-[color:var(--text)] block mb-2">
+            關鍵字 Tag ({keywords.length})
+          </label>
+          <div className="flex gap-2 mb-2">
             <input
               type="text"
-              placeholder="e.g. 養生館、美容、長照..."
-              className="input mt-2"
+              value={keywordInput}
+              onChange={(e) => setKeywordInput(e.target.value)}
+              onKeyPress={(e) => e.key === "Enter" && addKeyword()}
+              placeholder="輸入關鍵字後按 Enter"
+              className="input flex-1"
             />
+            <button onClick={addKeyword} className="btn-primary px-4">
+              加入
+            </button>
           </div>
-          <div>
-            <label className="text-sm font-medium text-[color:var(--text)]">
-              城市
-            </label>
-            <div className="flex flex-wrap gap-2 mt-2">
-              {["台北", "新北", "台中", "高雄"].map((city) => (
-                <button
-                  key={city}
-                  className="px-3 py-1 rounded-[8px] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:bg-[color:var(--primary)] hover:text-white transition-all"
+          {keywords.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {keywords.map((k) => (
+                <div
+                  key={k}
+                  className="inline-flex items-center gap-2 px-3 py-1 rounded-[8px] bg-[color:var(--primary)] text-white text-sm"
                 >
-                  {city}
-                </button>
+                  {k}
+                  <button
+                    onClick={() => removeKeyword(k)}
+                    className="hover:opacity-70 transition-all"
+                  >
+                    ✕
+                  </button>
+                </div>
               ))}
             </div>
+          )}
+        </div>
+
+        {/* Cities */}
+        <div>
+          <label className="text-sm font-medium text-[color:var(--text)] block mb-2">
+            城市 ({selectedCities.length})
+          </label>
+          <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
+            {cities.map((city) => (
+              <button
+                key={city}
+                onClick={() => toggleCity(city)}
+                className={`px-3 py-2 rounded-[8px] text-sm transition-all ${
+                  selectedCities.includes(city)
+                    ? "bg-[color:var(--primary)] text-white"
+                    : "bg-[color:var(--surface-2)] text-[color:var(--text)] hover:bg-[color:var(--primary-50)]"
+                }`}
+              >
+                {city.slice(0, 4)}
+              </button>
+            ))}
           </div>
         </div>
-        <button className="btn-primary w-full">啟動採集任務</button>
+
+        {/* Estimate */}
+        {(keywords.length > 0 || selectedCities.length > 0) && (
+          <div className="p-4 bg-[color:var(--primary-50)] rounded-[10px] space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-muted">預估請求數</span>
+              <span className="font-medium text-[color:var(--primary)]">
+                {estimatedRequests.toLocaleString()}
+              </span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted">預估費用</span>
+              <span className="font-medium text-[color:var(--primary)]">
+                NT${estimatedCost.toLocaleString()}
+              </span>
+            </div>
+          </div>
+        )}
+
+        <button
+          disabled={keywords.length === 0 || selectedCities.length === 0}
+          className={`w-full py-2 rounded-[10px] font-medium transition-all ${
+            keywords.length === 0 || selectedCities.length === 0
+              ? "bg-[color:var(--border)] text-muted cursor-not-allowed opacity-50"
+              : "btn-primary"
+          }`}
+        >
+          🚀 啟動採集任務
+        </button>
       </div>
 
       {/* Task List */}
       <div className="card">
         <h3 className="section-title mb-4">進行中的任務</h3>
-        <div className="space-y-2">
+        <div className="space-y-3">
           {[
-            { keyword: "養生館", city: "台北", progress: 75 },
-            { keyword: "長照", city: "中部", progress: 45 },
+            { keyword: "養生館", cities: ["台北", "台中"], progress: 75, status: "採集中" },
+            { keyword: "長照", cities: ["台中", "高雄"], progress: 45, status: "採集中" },
           ].map((task, i) => (
-            <div key={i} className="p-3 bg-[color:var(--surface-2)] rounded-[10px]">
-              <div className="flex justify-between items-center mb-2">
-                <p className="font-medium text-[color:var(--text)]">
-                  {task.keyword} - {task.city}
-                </p>
-                <span className="text-sm text-muted">{task.progress}%</span>
+            <div key={i} className="p-4 bg-[color:var(--surface-2)] rounded-[10px] space-y-3">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="font-medium text-[color:var(--text)]">{task.keyword}</p>
+                  <p className="text-xs text-muted mt-1">
+                    {task.cities.join(" • ")}
+                  </p>
+                </div>
+                <span className="text-xs px-2 py-1 rounded-[6px] bg-[color:var(--primary)] text-white">
+                  {task.status}
+                </span>
               </div>
-              <div className="h-2 bg-white rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-[color:var(--primary)]"
-                  style={{ width: `${task.progress}%` }}
-                />
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-muted">
+                  <span>進度</span>
+                  <span>{task.progress}%</span>
+                </div>
+                <div className="h-2 bg-white rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-[color:var(--primary)]"
+                    style={{ width: `${task.progress}%` }}
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button className="flex-1 py-1 text-xs rounded-[6px] bg-white text-[color:var(--primary)] hover:opacity-80 transition-all">
+                  暫停
+                </button>
+                <button className="flex-1 py-1 text-xs rounded-[6px] bg-[color:var(--danger)] bg-opacity-10 text-[color:var(--danger)] hover:opacity-80 transition-all">
+                  取消
+                </button>
               </div>
             </div>
           ))}
