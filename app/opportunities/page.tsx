@@ -1,24 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AlertCircle } from "lucide-react";
 
 interface Opportunity {
-  id: number;
-  brand: string;
-  product: string;
-  est_annual: number;
-  probability: number;
-  stage: "new" | "contacted" | "sampling" | "quoting" | "negotiating" | "won" | "lost";
-  stage_days: number;
+  id: string;
+  brand_id: string;
+  brands?: { name: string };
+  product_line?: string;
+  est_annual_value?: number;
+  probability?: number;
+  stage: string;
+  stage_entered_at: string;
 }
-
-const mockOpportunities: Opportunity[] = [
-  { id: 1, brand: "6星集", product: "足浴套組", est_annual: 1800000, probability: 60, stage: "quoting", stage_days: 12 },
-  { id: 2, brand: "悅禾莊園", product: "草本精油", est_annual: 2400000, probability: 40, stage: "sampling", stage_days: 18 },
-  { id: 3, brand: "青松健康", product: "長照套組", est_annual: 1200000, probability: 80, stage: "negotiating", stage_days: 5 },
-  { id: 4, brand: "大甲鎮瀾宮", product: "香品組合", est_annual: 600000, probability: 30, stage: "contacted", stage_days: 2 },
-];
 
 const STAGES = ["new", "contacted", "sampling", "quoting", "negotiating", "won", "lost"] as const;
 
@@ -32,21 +26,33 @@ const STAGE_LABELS = {
   lost: "流失",
 };
 
-const STAGE_COLORS = {
-  new: "badge-new",
-  contacted: "badge-contacted",
-  sampling: "badge-sampling",
-  quoting: "badge-quoting",
-  negotiating: "badge-negotiating",
-  won: "badge-won",
-  lost: "badge-lost",
-};
-
 export default function OpportunitiesPage() {
-  const [opportunities] = useState(mockOpportunities);
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // 載入資料
+  useEffect(() => {
+    const fetchOpportunities = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch("/api/opportunities");
+        const result = await response.json();
+
+        if (result.success) {
+          setOpportunities(result.data);
+        }
+      } catch (error) {
+        console.error("載入商機失敗:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchOpportunities();
+  }, []);
 
   const totalValue = opportunities.reduce(
-    (sum, opp) => sum + opp.est_annual * (opp.probability / 100),
+    (sum, opp) => sum + ((opp.est_annual_value || 0) * ((opp.probability || 0) / 100)),
     0
   );
 
@@ -56,10 +62,22 @@ export default function OpportunitiesPage() {
   }, {} as Record<string, Opportunity[]>);
 
   const isStalled = (opp: Opportunity) => {
-    if (opp.stage === "sampling" && opp.stage_days > 14) return true;
-    if (opp.stage === "quoting" && opp.stage_days > 30) return true;
+    const daysInStage = Math.floor(
+      (Date.now() - new Date(opp.stage_entered_at).getTime()) / (1000 * 60 * 60 * 24)
+    );
+    if (opp.stage === "sampling" && daysInStage > 14) return true;
+    if (opp.stage === "quoting" && daysInStage > 30) return true;
     return false;
   };
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <h1 className="page-title">商機進度看板</h1>
+        <p className="text-muted mt-2">載入中...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -77,7 +95,10 @@ export default function OpportunitiesPage() {
         </p>
         <p className="text-xs text-muted mt-2">
           {opportunities.length} 個商機 · 平均機率{" "}
-          {(opportunities.reduce((sum, o) => sum + o.probability, 0) / opportunities.length).toFixed(0)}%
+          {opportunities.length > 0
+            ? (opportunities.reduce((sum, o) => sum + (o.probability || 0), 0) / opportunities.length).toFixed(0)
+            : 0}
+          %
         </p>
       </div>
 
@@ -101,17 +122,19 @@ export default function OpportunitiesPage() {
                         <AlertCircle size={14} className="text-white" />
                       </div>
                     )}
-                    <p className="font-medium text-sm text-text truncate">{opp.brand}</p>
-                    <p className="text-xs text-muted mt-1 truncate">{opp.product}</p>
+                    <p className="font-medium text-sm text-text truncate">
+                      {opp.brands?.name}
+                    </p>
+                    <p className="text-xs text-muted mt-1 truncate">{opp.product_line}</p>
                     <div className="space-y-2 mt-3">
                       <div className="flex justify-between text-xs text-muted">
-                        <span>NT${opp.est_annual / 1000}K</span>
+                        <span>NT${((opp.est_annual_value || 0) / 1000).toLocaleString()}K</span>
                         <span>{opp.probability}%</span>
                       </div>
                       <div className="w-full h-1 bg-[var(--surface-2)] rounded-full overflow-hidden">
                         <div
                           className="h-full bg-primary"
-                          style={{ width: `${opp.probability}%` }}
+                          style={{ width: `${opp.probability || 0}%` }}
                         />
                       </div>
                     </div>
@@ -138,10 +161,10 @@ export default function OpportunitiesPage() {
                       <AlertCircle size={18} className="text-danger" />
                     </div>
                   )}
-                  <p className="font-medium">{opp.brand}</p>
-                  <p className="text-sm text-muted mt-1">{opp.product}</p>
+                  <p className="font-medium">{opp.brands?.name}</p>
+                  <p className="text-sm text-muted mt-1">{opp.product_line}</p>
                   <div className="flex justify-between items-center mt-3 text-sm">
-                    <span className="text-muted">NT${opp.est_annual / 1000}K</span>
+                    <span className="text-muted">NT${((opp.est_annual_value || 0) / 1000).toLocaleString()}K</span>
                     <span className="font-medium text-primary">{opp.probability}%</span>
                   </div>
                 </div>
@@ -150,6 +173,12 @@ export default function OpportunitiesPage() {
           </div>
         ))}
       </div>
+
+      {opportunities.length === 0 && (
+        <div className="card text-center py-12">
+          <p className="text-muted">無商機資料</p>
+        </div>
+      )}
     </div>
   );
 }
