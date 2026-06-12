@@ -43,15 +43,8 @@ export default function MatchingPage() {
         <p className="text-muted mt-2">採集任務 & 名冊比對</p>
       </div>
 
-      {/* Desktop-only Warning */}
-      <div className="m-only card bg-[color:var(--status-lost-bg)] text-[color:var(--status-lost-text)]">
-        <p className="text-sm font-medium">
-          此功能僅支援桌機版，請用電腦操作
-        </p>
-      </div>
-
-      {/* Tabs */}
-      <div className="d-only flex gap-2 mb-6">
+      {/* Tabs - 所有設備都可見 */}
+      <div className="flex gap-2 mb-6 flex-wrap">
         {[
           { id: "collect", label: "採集任務" },
           { id: "match", label: "比對中心" },
@@ -59,7 +52,7 @@ export default function MatchingPage() {
           <button
             key={tab.id}
             onClick={() => setCurrentTab(tab.id as any)}
-            className={`px-4 py-2 rounded-[10px] transition-all ${
+            className={`px-4 py-2 rounded-[10px] transition-all text-sm md:text-base ${
               currentTab === tab.id
                 ? "bg-[color:var(--primary)] text-white"
                 : "bg-[color:var(--surface-2)] text-[color:var(--text)]"
@@ -83,9 +76,9 @@ export default function MatchingPage() {
 
 function CollectSection() {
   return (
-    <div className="d-only space-y-6">
+    <div className="space-y-6">
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         {[
           { label: "待採集", value: 45 },
           { label: "採集中", value: 12 },
@@ -166,7 +159,7 @@ function MatchSection({ matches }: { matches: MatchRecord[] }) {
   const [confirmed, setConfirmed] = useState<number[]>([]);
 
   return (
-    <div className="d-only space-y-6">
+    <div className="space-y-6">
       {/* Stats */}
       <div className="card">
         <p className="text-sm text-muted mb-1">待比對數量</p>
@@ -198,7 +191,7 @@ function MatchSection({ matches }: { matches: MatchRecord[] }) {
             </div>
 
             {/* Comparison */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="p-3 bg-[color:var(--surface-2)] rounded-[10px]">
                 <p className="text-xs font-medium text-muted mb-2">Google Places</p>
                 <div className="space-y-1 text-sm">
