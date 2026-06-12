@@ -1,10 +1,54 @@
 "use client";
 
 import { useState } from "react";
-import { Users, TrendingUp, Zap } from "lucide-react";
+import { Users, TrendingUp, Zap, MapPin } from "lucide-react";
+
+// 台灣地圖數據
+const COUNTIES = [
+  [98, 36, "台北"],
+  [87, 50, "新北"],
+  [78, 62, "桃園"],
+  [68, 76, "新竹"],
+  [58, 92, "苗栗"],
+  [55, 116, "台中"],
+  [46, 133, "彰化"],
+  [73, 136, "南投"],
+  [42, 153, "雲林"],
+  [44, 168, "嘉義"],
+  [38, 190, "台南"],
+  [60, 213, "高雄"],
+  [80, 233, "屏東"],
+  [128, 56, "宜蘭"],
+  [140, 142, "花蓮"],
+  [128, 202, "台東"],
+];
+
+const INDUSTRY_COLORS = {
+  "養生館": "#6B8F71",
+  "越式洗髮": "#5B7C99",
+  "宮廟": "#D9B68C",
+  "長照": "#A8BCA1",
+  "禮儀": "#8A8678",
+  "寵物": "#C98A6B",
+  "旅宿": "#8FA3B0",
+};
+
+const PINS = [
+  { brand: "6星集", industry: "養生館", city: "台北", x: 98, y: 36 },
+  { brand: "6星集", industry: "養生館", city: "台中", x: 55, y: 116 },
+  { brand: "6星集", industry: "養生館", city: "高雄", x: 60, y: 213 },
+  { brand: "悅禾莊園", industry: "養生館", city: "台北", x: 98, y: 36 },
+  { brand: "小林越式", industry: "越式洗髮", city: "新北", x: 87, y: 50 },
+  { brand: "大甲鎮瀾宮", industry: "宮廟", city: "台中", x: 55, y: 116 },
+  { brand: "青松健康", industry: "長照", city: "台中", x: 55, y: 116 },
+  { brand: "龍巖人本", industry: "禮儀", city: "台北", x: 98, y: 36 },
+  { brand: "龍巖人本", industry: "禮儀", city: "台中", x: 55, y: 116 },
+  { brand: "龍巖人本", industry: "禮儀", city: "高雄", x: 60, y: 213 },
+];
 
 export default function Dashboard() {
   const [mapMode, setMapMode] = useState<"leads" | "won">("leads");
+  const [hoveredPin, setHoveredPin] = useState<any>(null);
 
   const stats = [
     { label: "總名單數", value: 1250, icon: Users, trend: 12 },
@@ -22,17 +66,6 @@ export default function Dashboard() {
     { stage: "成交", count: 6, color: "bg-[#DCE9DC]" },
   ];
 
-  const counties = [
-    { name: "台北市", leads: 86 },
-    { name: "新北市", leads: 74 },
-    { name: "桃園市", leads: 41 },
-    { name: "台中市", leads: 58 },
-    { name: "高雄市", leads: 47 },
-    { name: "台南市", leads: 33 },
-    { name: "彰化縣", leads: 19 },
-  ];
-
-  const maxLeads = Math.max(...counties.map((c) => c.leads));
 
   return (
     <div className="space-y-6">
@@ -94,32 +127,136 @@ export default function Dashboard() {
             </button>
           </div>
 
-          <div className="bg-[color:var(--surface-2)] rounded-[12px] p-6 min-h-[300px] flex items-center justify-center">
-            <div className="text-center text-muted">
-              <p className="text-sm mb-4">台灣縣市地圖</p>
-              <p className="text-xs">
-                {mapMode === "leads"
-                  ? "按縣市顯示名單分布"
-                  : "按縣市顯示成交客戶"}
-              </p>
-            </div>
-          </div>
+          {/* Taiwan Map */}
+          <div className="flex gap-4 flex-wrap lg:flex-nowrap mb-4">
+            <svg
+              viewBox="0 0 180 268"
+              className="w-full lg:w-48 h-auto flex-shrink-0"
+              style={{ minHeight: 240 }}
+            >
+              {/* 台灣主島 */}
+              <path
+                d="M 90,8 L 118,15 L 140,35 L 150,65 L 148,105 L 142,150 L 130,200 L 112,234 L 90,249 L 68,244 L 48,224 L 32,194 L 22,154 L 18,110 L 22,68 L 35,38 L 55,18 Z"
+                fill="var(--surface-2)"
+                stroke="var(--border)"
+                strokeWidth="1.5"
+              />
+              {/* 縣市點 */}
+              {COUNTIES.map(([x, y, name]) => (
+                <g key={name}>
+                  <circle cx={x} cy={y} r={1.5} fill="var(--text-muted)" opacity={0.5} />
+                  <text
+                    x={x + 3}
+                    y={y}
+                    fontSize={5}
+                    fill="var(--text-muted)"
+                    fontFamily="Noto Sans TC"
+                    dominantBaseline="middle"
+                  >
+                    {name.slice(0, 2)}
+                  </text>
+                </g>
+              ))}
+              {/* Pin 標記 */}
+              {mapMode === "won" &&
+                PINS.map((pin, idx) => {
+                  const color =
+                    INDUSTRY_COLORS[pin.industry as keyof typeof INDUSTRY_COLORS] ||
+                    "var(--primary)";
+                  return (
+                    <g
+                      key={idx}
+                      style={{ cursor: "pointer" }}
+                      onMouseEnter={() => setHoveredPin(pin)}
+                      onMouseLeave={() => setHoveredPin(null)}
+                    >
+                      <circle
+                        cx={pin.x}
+                        cy={pin.y}
+                        r={5}
+                        fill={color}
+                        stroke="white"
+                        strokeWidth={1.2}
+                        opacity={0.9}
+                      />
+                      <text
+                        x={pin.x}
+                        y={pin.y + 0.5}
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        fontSize={3.5}
+                        fill="white"
+                        fontWeight="700"
+                        fontFamily="Noto Sans TC"
+                      >
+                        {pin.industry[0]}
+                      </text>
+                    </g>
+                  );
+                })}
+              {/* Hover Tooltip */}
+              {hoveredPin && (
+                <g>
+                  <rect
+                    x={Math.min(hoveredPin.x + 6, 100)}
+                    y={hoveredPin.y - 14}
+                    width={70}
+                    height={24}
+                    rx={3}
+                    fill="white"
+                    stroke="var(--border)"
+                    strokeWidth={0.8}
+                  />
+                  <text
+                    x={Math.min(hoveredPin.x + 10, 104)}
+                    y={hoveredPin.y - 5}
+                    fontSize={6}
+                    fill="var(--text)"
+                    fontWeight="600"
+                    fontFamily="Noto Sans TC"
+                  >
+                    {hoveredPin.brand}
+                  </text>
+                  <text
+                    x={Math.min(hoveredPin.x + 10, 104)}
+                    y={hoveredPin.y + 4}
+                    fontSize={5}
+                    fill="var(--text-muted)"
+                    fontFamily="Noto Sans TC"
+                  >
+                    {hoveredPin.city} · {hoveredPin.industry}
+                  </text>
+                </g>
+              )}
+            </svg>
 
-          {/* County Legend */}
-          <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-            {counties.slice(0, 4).map((c) => (
-              <div key={c.name} className="flex items-center gap-2">
-                <div
-                  className="w-3 h-3 rounded-full"
-                  style={{
-                    background: `rgba(107, 143, 113, ${c.leads / maxLeads})`,
-                  }}
-                />
-                <span className="text-muted">
-                  {c.name} ({c.leads})
-                </span>
+            {/* 圖例 */}
+            <div className="flex-1 min-w-[140px]">
+              <p className="text-xs font-medium text-muted mb-3">
+                {mapMode === "leads" ? "名單分布" : "產業分布"}
+              </p>
+              <div className="space-y-2">
+                {mapMode === "won" &&
+                  Object.entries(INDUSTRY_COLORS).map(([ind, color]) => {
+                    const count = PINS.filter((p) => p.industry === ind).length;
+                    return count > 0 ? (
+                      <div key={ind} className="flex items-center gap-2">
+                        <div
+                          className="w-3 h-3 rounded-full"
+                          style={{ background: color }}
+                        />
+                        <span className="text-xs text-[color:var(--text)]">
+                          {ind}
+                        </span>
+                        <span className="text-xs text-muted ml-auto">{count}</span>
+                      </div>
+                    ) : null;
+                  })}
+                {mapMode === "leads" && (
+                  <p className="text-xs text-muted">總名單數: 1,250</p>
+                )}
               </div>
-            ))}
+            </div>
           </div>
         </div>
 
