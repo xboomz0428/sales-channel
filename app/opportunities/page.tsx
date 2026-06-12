@@ -1,184 +1,288 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { AlertCircle } from "lucide-react";
+import { C, STAGES, STAGE_CFG, downloadCSV, StatusKey } from "@/lib/design";
+import Icon from "@/components/Icon";
+import MobileTabBar from "@/components/MobileTabBar";
 
-interface Opportunity {
-  id: string;
-  brand_id: string;
-  brands?: { name: string };
-  product_line?: string;
-  est_annual_value?: number;
-  probability?: number;
-  stage: string;
-  stage_entered_at: string;
+interface Opp {
+  id: string | number;
+  brand: string;
+  product: string;
+  stage: StatusKey;
+  est: number;
+  prob: number;
+  days: number;
+  lost_reason?: string;
 }
 
-const STAGES = ["new", "contacted", "sampling", "quoting", "negotiating", "won", "lost"] as const;
+// 種子資料（API 無資料時顯示）
+const SEED_OPPS: Opp[] = [
+  { id: 1, brand: "6星集足體養生會館", product: "足浴包OEM", stage: "quoting", est: 1800000, prob: 60, days: 12 },
+  { id: 2, brand: "悅禾莊園SPA", product: "艾草浴包OEM", stage: "sampling", est: 2400000, prob: 40, days: 18 },
+  { id: 3, brand: "小林越式洗髮", product: "精油足浴包", stage: "contacted", est: 600000, prob: 20, days: 5 },
+  { id: 4, brand: "大甲鎮瀾宮", product: "禮盒客製", stage: "new", est: 300000, prob: 15, days: 2 },
+  { id: 5, brand: "青松健康(長照)", product: "足浴包長照版", stage: "won", est: 960000, prob: 100, days: 0 },
+  { id: 6, brand: "龍巖人本", product: "禮儀香氛系列", stage: "lost", est: 1200000, prob: 0, days: 45, lost_reason: "已有供應商" },
+  { id: 7, brand: "春天養生館", product: "艾草浴包OEM", stage: "negotiating", est: 720000, prob: 75, days: 8 },
+];
 
-const STAGE_LABELS = {
-  new: "新名單",
-  contacted: "已聯繫",
-  sampling: "打樣中",
-  quoting: "報價中",
-  negotiating: "議約中",
-  won: "成交",
-  lost: "流失",
-};
-
-export default function OpportunitiesPage() {
-  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  // 載入資料
-  useEffect(() => {
-    const fetchOpportunities = async () => {
-      try {
-        setLoading(true);
-        const response = await fetch("/api/opportunities");
-        const result = await response.json();
-
-        if (result.success) {
-          setOpportunities(result.data);
-        }
-      } catch (error) {
-        console.error("載入商機失敗:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchOpportunities();
-  }, []);
-
-  const totalValue = opportunities.reduce(
-    (sum, opp) => sum + ((opp.est_annual_value || 0) * ((opp.probability || 0) / 100)),
-    0
-  );
-
-  const grouped = STAGES.reduce((acc, stage) => {
-    acc[stage] = opportunities.filter((o) => o.stage === stage);
-    return acc;
-  }, {} as Record<string, Opportunity[]>);
-
-  const isStalled = (opp: Opportunity) => {
-    const daysInStage = Math.floor(
-      (Date.now() - new Date(opp.stage_entered_at).getTime()) / (1000 * 60 * 60 * 24)
-    );
-    if (opp.stage === "sampling" && daysInStage > 14) return true;
-    if (opp.stage === "quoting" && daysInStage > 30) return true;
-    return false;
-  };
-
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <h1 className="page-title">商機進度看板</h1>
-        <p className="text-muted mt-2">載入中...</p>
-      </div>
-    );
-  }
+// ── 看板卡片 ─────────────────────────────────────────
+function KanbanCard({ opp, onMove, stageIdx }: { opp: Opp; onMove: (id: Opp["id"], dir: number) => void; stageIdx: number }) {
+  const cfg = STAGE_CFG[opp.stage];
+  const stale = cfg.stale != null && opp.days > cfg.stale;
+  const canBack = stageIdx > 0 && opp.stage !== "won" && opp.stage !== "lost";
+  const canFwd = stageIdx < STAGES.length - 3; // 不含 won/lost
 
   return (
-    <div className="space-y-6">
-      {/* 標題 */}
-      <div>
-        <h1 className="page-title">商機進度看板</h1>
-        <p className="text-muted mt-2">跟蹤業務開發進度</p>
+    <div
+      className="kcard"
+      style={{
+        background: C.surface,
+        borderRadius: 13,
+        border: `1px solid ${stale ? C.danger + "60" : C.border}`,
+        marginBottom: 9,
+        overflow: "hidden",
+        boxShadow: "0 1px 6px rgba(58,92,87,.05)",
+      }}
+    >
+      {stale && (
+        <div style={{ background: `${C.danger}20`, padding: "4px 12px", fontSize: 11, color: C.danger, fontWeight: 700, display: "flex", alignItems: "center", gap: 5 }}>
+          <Icon n="warn" size={11} color={C.danger} />
+          停留 {opp.days} 天，建議跟進
+        </div>
+      )}
+      <div style={{ padding: "11px 12px" }}>
+        <div style={{ fontWeight: 600, fontSize: 13, color: C.text, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={opp.brand}>
+          {opp.brand}
+        </div>
+        <div style={{ fontSize: 11, color: C.muted, marginBottom: 9 }}>{opp.product}</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: C.text, fontVariantNumeric: "tabular-nums" }}>NT${(opp.est / 10000).toFixed(0)}萬</span>
+          {opp.prob > 0 && (
+            <span style={{ padding: "2px 8px", borderRadius: 999, background: C.p50, color: C.primary, fontSize: 11, fontWeight: 600 }}>{opp.prob}%</span>
+          )}
+        </div>
+        {opp.days > 0 && (
+          <div style={{ fontSize: 11, color: stale ? C.danger : C.muted, marginBottom: 9, display: "flex", alignItems: "center", gap: 4 }}>
+            <Icon n="clock" size={10} color={stale ? C.danger : C.muted} />
+            {opp.days} 天
+          </div>
+        )}
+        {opp.stage !== "won" && opp.stage !== "lost" && (
+          <div style={{ display: "flex", gap: 5 }}>
+            {canBack && (
+              <button
+                onClick={() => onMove(opp.id, -1)}
+                className="pressable"
+                style={{ flex: 1, padding: "5px 0", borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", cursor: "pointer", fontSize: 11, color: C.muted, display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}
+              >
+                <Icon n="chL" size={11} color={C.muted} />退
+              </button>
+            )}
+            {canFwd && (
+              <button
+                onClick={() => onMove(opp.id, 1)}
+                className="pressable"
+                style={{ flex: 2, padding: "5px 0", borderRadius: 8, border: "none", background: C.p50, cursor: "pointer", fontSize: 11, color: C.primary, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}
+              >
+                推進
+                <Icon n="chR" size={11} color={C.primary} />
+              </button>
+            )}
+          </div>
+        )}
+        {opp.stage === "won" && <div style={{ textAlign: "center", fontSize: 12, color: STAGE_CFG.won.color, fontWeight: 600 }}>🎉 已成交</div>}
+        {opp.stage === "lost" && <div style={{ textAlign: "center", fontSize: 12, color: STAGE_CFG.lost.color }}>{opp.lost_reason || "已流失"}</div>}
+      </div>
+    </div>
+  );
+}
+
+// ── 看板欄位 ─────────────────────────────────────────
+function KanbanCol({ stageKey, opps, onMove }: { stageKey: StatusKey; opps: Opp[]; onMove: (id: Opp["id"], dir: number) => void }) {
+  const cfg = STAGE_CFG[stageKey];
+  const stageIdx = STAGES.indexOf(stageKey);
+  const total = opps.reduce((s, o) => s + (o.prob > 0 ? (o.est * o.prob) / 100 : 0), 0);
+
+  return (
+    <div style={{ width: 216, flexShrink: 0, display: "flex", flexDirection: "column" }}>
+      <div style={{ padding: "10px 12px 9px", borderRadius: "12px 12px 0 0", background: cfg.bg, border: `1px solid ${cfg.color}30`, borderBottom: "none", marginBottom: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: cfg.color }}>{cfg.label}</span>
+          <span style={{ width: 20, height: 20, borderRadius: "50%", background: cfg.color + "25", color: cfg.color, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {opps.length}
+          </span>
+        </div>
+        {total > 0 && <div style={{ fontSize: 11, color: cfg.color, fontVariantNumeric: "tabular-nums", opacity: 0.8 }}>NT${(total / 10000).toFixed(0)}萬</div>}
+      </div>
+      <div
+        style={{
+          flex: 1,
+          background: C.surf2 + "80",
+          border: `1px solid ${cfg.color}20`,
+          borderTop: "none",
+          borderRadius: "0 0 12px 12px",
+          padding: 8,
+          minHeight: 160,
+          overflowY: "auto",
+          maxHeight: "calc(100vh - 220px)",
+        }}
+      >
+        {opps.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "24px 8px", fontSize: 12, color: C.muted, opacity: 0.6 }}>暫無</div>
+        ) : (
+          opps.map((o) => <KanbanCard key={o.id} opp={o} onMove={onMove} stageIdx={stageIdx} />)
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── 手機階段列表 ─────────────────────────────────────
+function MobileList({ opps, onMove }: { opps: Opp[]; onMove: (id: Opp["id"], dir: number) => void }) {
+  const [activeStage, setActiveStage] = useState<StatusKey>("quoting");
+  const stageOpps = opps.filter((o) => o.stage === activeStage);
+  return (
+    <div>
+      <div style={{ overflowX: "auto", display: "flex", gap: 6, padding: "12px 16px", borderBottom: `1px solid ${C.border}`, background: C.surface }}>
+        {STAGES.map((s) => {
+          const cfg = STAGE_CFG[s];
+          const on = s === activeStage;
+          const count = opps.filter((o) => o.stage === s).length;
+          return (
+            <button
+              key={s}
+              onClick={() => setActiveStage(s)}
+              style={{
+                flexShrink: 0,
+                padding: "6px 12px",
+                borderRadius: 999,
+                border: `1px solid ${on ? cfg.color : C.border}`,
+                background: on ? cfg.bg : "transparent",
+                color: on ? cfg.color : C.muted,
+                fontSize: 12,
+                fontWeight: on ? 700 : 400,
+                cursor: "pointer",
+              }}
+            >
+              {cfg.label} {count > 0 && <span style={{ opacity: 0.7 }}>·{count}</span>}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ padding: "12px 16px", overflowY: "auto", paddingBottom: 80 }}>
+        {stageOpps.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "40px 20px", color: C.muted, fontSize: 14 }}>🌿 此階段暫無商機</div>
+        ) : (
+          stageOpps.map((o) => <KanbanCard key={o.id} opp={o} onMove={onMove} stageIdx={STAGES.indexOf(o.stage)} />)
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── 主頁面 ───────────────────────────────────────────
+export default function OpportunitiesPage() {
+  const [opps, setOpps] = useState<Opp[]>(SEED_OPPS);
+  const [usingApi, setUsingApi] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/opportunities")
+      .then((r) => r.json())
+      .then((result) => {
+        if (result.success && Array.isArray(result.data) && result.data.length > 0) {
+          setOpps(
+            result.data.map((o: Record<string, unknown>) => {
+              const entered = o.stage_entered_at ? new Date(o.stage_entered_at as string).getTime() : Date.now();
+              const days = Math.max(0, Math.floor((Date.now() - entered) / 86400000));
+              const brands = o.brands as { name?: string } | undefined;
+              return {
+                id: o.id as string,
+                brand: brands?.name || "未命名",
+                product: (o.product_line as string) || "—",
+                stage: ((o.stage as string) || "new") as StatusKey,
+                est: (o.est_annual_value as number) || 0,
+                prob: (o.probability as number) || 0,
+                days,
+              };
+            })
+          );
+          setUsingApi(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const move = (id: Opp["id"], dir: number) => {
+    let nextStage: StatusKey | undefined;
+    setOpps((prev) =>
+      prev.map((o) => {
+        if (o.id !== id) return o;
+        const idx = STAGES.indexOf(o.stage);
+        const next = STAGES[idx + dir];
+        if (!next) return o;
+        nextStage = next;
+        return { ...o, stage: next, days: 0 };
+      })
+    );
+    if (usingApi && nextStage) {
+      fetch("/api/opportunities", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, stage: nextStage }),
+      }).catch(() => {});
+    }
+  };
+
+  const weighted = opps.filter((o) => !["won", "lost"].includes(o.stage)).reduce((s, o) => s + (o.est * o.prob) / 100, 0);
+  const wonTotal = opps.filter((o) => o.stage === "won").reduce((s, o) => s + o.est, 0);
+
+  const exportCSV = () => {
+    const hdrs = ["品牌", "產品", "階段", "預估年營收(NT$)", "成交機率(%)", "停留天數"];
+    const rows = opps.map((o) => [o.brand, o.product, STAGE_CFG[o.stage]?.label || o.stage, o.est, o.prob, o.days]);
+    downloadCSV("HeroHerb_商機看板.csv", hdrs, rows);
+  };
+
+  return (
+    <>
+      {/* Top bar */}
+      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, flexWrap: "wrap", rowGap: 8 }}>
+        <h1 style={{ fontSize: 17, fontWeight: 600, color: C.text, margin: 0, whiteSpace: "nowrap" }}>商機進度看板</h1>
+        <div style={{ display: "flex", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
+          <div style={{ padding: "6px 14px", borderRadius: 10, background: `${C.primary}15` }}>
+            <span style={{ fontSize: 12, color: C.muted }}>開發中加權商機</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: C.primary, marginLeft: 8, fontVariantNumeric: "tabular-nums" }}>NT${(weighted / 10000).toFixed(0)}萬</span>
+          </div>
+          <div style={{ padding: "6px 14px", borderRadius: 10, background: "#DCE9DC" }}>
+            <span style={{ fontSize: 12, color: "#4A6B50" }}>已成交</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: "#4A6B50", marginLeft: 8, fontVariantNumeric: "tabular-nums" }}>NT${(wonTotal / 10000).toFixed(0)}萬</span>
+          </div>
+          <button
+            onClick={exportCSV}
+            className="pressable"
+            style={{ padding: "6px 13px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
+          >
+            ↓ CSV
+          </button>
+        </div>
       </div>
 
-      {/* 加權總值 */}
-      <div className="card">
-        <p className="text-sm text-muted mb-1">加權商機總值</p>
-        <p className="text-3xl font-medium text-primary">
-          NT${(totalValue / 1000000).toFixed(2)}M
-        </p>
-        <p className="text-xs text-muted mt-2">
-          {opportunities.length} 個商機 · 平均機率{" "}
-          {opportunities.length > 0
-            ? (opportunities.reduce((sum, o) => sum + (o.probability || 0), 0) / opportunities.length).toFixed(0)
-            : 0}
-          %
-        </p>
-      </div>
-
-      {/* 看板視圖（桌機） */}
-      <div className="d-only">
-        <div className="grid grid-cols-7 gap-4 overflow-x-auto pb-4">
-          {STAGES.map((stage) => (
-            <div key={stage}>
-              <div className="bg-[var(--surface-2)] rounded-lg p-3 mb-3 sticky top-0">
-                <p className="text-sm font-medium text-text">{STAGE_LABELS[stage]}</p>
-                <p className="text-xs text-muted">{grouped[stage].length} 個</p>
-              </div>
-              <div className="space-y-2 min-h-[400px]">
-                {grouped[stage].map((opp) => (
-                  <div
-                    key={opp.id}
-                    className="card p-3 relative hover:shadow-md transition-shadow cursor-grab"
-                  >
-                    {isStalled(opp) && (
-                      <div className="absolute -top-2 -right-2 w-6 h-6 bg-danger rounded-full flex items-center justify-center">
-                        <AlertCircle size={14} className="text-white" />
-                      </div>
-                    )}
-                    <p className="font-medium text-sm text-text truncate">
-                      {opp.brands?.name}
-                    </p>
-                    <p className="text-xs text-muted mt-1 truncate">{opp.product_line}</p>
-                    <div className="space-y-2 mt-3">
-                      <div className="flex justify-between text-xs text-muted">
-                        <span>NT${((opp.est_annual_value || 0) / 1000).toLocaleString()}K</span>
-                        <span>{opp.probability}%</span>
-                      </div>
-                      <div className="w-full h-1 bg-[var(--surface-2)] rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-primary"
-                          style={{ width: `${opp.probability || 0}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+      {/* Desktop kanban */}
+      <div className="d-only" style={{ flex: 1, overflowX: "auto", overflowY: "hidden", padding: "16px 20px" }}>
+        <div style={{ display: "flex", gap: 10, height: "100%", alignItems: "flex-start" }}>
+          {STAGES.map((s) => (
+            <KanbanCol key={s} stageKey={s} opps={opps.filter((o) => o.stage === s)} onMove={move} />
           ))}
         </div>
       </div>
 
-      {/* 列表視圖（手機） */}
-      <div className="m-only space-y-4">
-        {STAGES.map((stage) => (
-          <div key={stage}>
-            <h3 className="section-title mb-3 px-4">
-              {STAGE_LABELS[stage]} ({grouped[stage].length})
-            </h3>
-            <div className="space-y-2">
-              {grouped[stage].map((opp) => (
-                <div key={opp.id} className="card p-4 relative">
-                  {isStalled(opp) && (
-                    <div className="absolute top-2 right-2">
-                      <AlertCircle size={18} className="text-danger" />
-                    </div>
-                  )}
-                  <p className="font-medium">{opp.brands?.name}</p>
-                  <p className="text-sm text-muted mt-1">{opp.product_line}</p>
-                  <div className="flex justify-between items-center mt-3 text-sm">
-                    <span className="text-muted">NT${((opp.est_annual_value || 0) / 1000).toLocaleString()}K</span>
-                    <span className="font-medium text-primary">{opp.probability}%</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
+      {/* Mobile list */}
+      <div className="m-only" style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        <MobileList opps={opps} onMove={move} />
       </div>
 
-      {opportunities.length === 0 && (
-        <div className="card text-center py-12">
-          <p className="text-muted">無商機資料</p>
-        </div>
-      )}
-    </div>
+      <MobileTabBar />
+    </>
   );
 }

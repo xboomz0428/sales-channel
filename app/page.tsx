@@ -1,28 +1,493 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, CSSProperties, ReactNode } from "react";
+import Link from "next/link";
+import { C, downloadCSV } from "@/lib/design";
+import MobileTabBar from "@/components/MobileTabBar";
 
-const COUNTIES = [
-  { name: "台北市", x: 95, y: 35 },
-  { name: "新北市", x: 85, y: 50 },
-  { name: "桃園市", x: 75, y: 65 },
-  { name: "新竹市", x: 65, y: 75 },
-  { name: "新竹縣", x: 55, y: 88 },
-  { name: "苗栗縣", x: 50, y: 105 },
-  { name: "台中市", x: 52, y: 115 },
-  { name: "彰化縣", x: 42, y: 130 },
-  { name: "南投縣", x: 70, y: 135 },
-  { name: "雲林縣", x: 40, y: 150 },
-  { name: "嘉義市", x: 42, y: 165 },
-  { name: "嘉義縣", x: 50, y: 175 },
-  { name: "台南市", x: 35, y: 188 },
-  { name: "高雄市", x: 57, y: 210 },
-  { name: "屏東縣", x: 75, y: 230 },
-  { name: "宜蘭縣", x: 125, y: 55 },
-  { name: "花蓮縣", x: 135, y: 140 },
-  { name: "台東縣", x: 125, y: 200 },
+// ── 圖表種子資料（API 無資料時顯示）─────────────────────
+const FUNNEL_SEED = [
+  { stage: "新名單", n: 6, color: "#B5CAC5" },
+  { stage: "已聯繫", n: 5, color: "#9DBDB7" },
+  { stage: "打樣中", n: 3, color: "#8FAAA4" },
+  { stage: "報價中", n: 2, color: "#7A9893" },
+  { stage: "議約中", n: 1, color: "#6A8882" },
+  { stage: "成交", n: 1, color: "#4A6B50" },
+];
+const FUNNEL_COLORS = ["#B5CAC5", "#9DBDB7", "#8FAAA4", "#7A9893", "#6A8882", "#4A6B50"];
+
+const INDUSTRY_SEED = [
+  { label: "養生館", n: 2 },
+  { label: "禮儀", n: 1 },
+  { label: "長照", n: 1 },
+  { label: "宮廟", n: 1 },
+  { label: "越式洗髮", n: 1 },
 ];
 
+const COMPLETENESS = [
+  { label: "統編比對率", pct: 83, color: "#8FAAA4" },
+  { label: "LINE 覆蓋率", pct: 67, color: "#D9B68C" },
+  { label: "Email 覆蓋率", pct: 50, color: "#B5CAC5" },
+];
+
+const NEGLECTED = [
+  { brand: "滋和堂中醫養生", tier: "A", days: 91, status: "won" },
+  { brand: "清心SPA連鎖", tier: "A", days: 48, status: "won" },
+  { brand: "青松健康(長照)", tier: "A", days: 6, status: "won" },
+];
+
+const PIPELINE_STAGES = [
+  { stage: "新名單", n: 4, value: 0 },
+  { stage: "已聯繫", n: 3, value: 600000 },
+  { stage: "打樣中", n: 2, value: 2400000 },
+  { stage: "報價中", n: 2, value: 1800000 },
+  { stage: "議約中", n: 1, value: 720000 },
+];
+
+const IND_COLOR: Record<string, { c: string; d: string }> = {
+  養生館: { c: "#8FAAA4", d: "#3A5C57" },
+  越式洗髮: { c: "#5B7C99", d: "#3A5270" },
+  宮廟: { c: "#D9B68C", d: "#9E7048" },
+  長照: { c: "#9B8CC4", d: "#6B5C94" },
+  禮儀: { c: "#8A8678", d: "#5A5650" },
+};
+
+const PINS = [
+  { brand: "6星集", industry: "養生館", city: "台北", x: 98, y: 36 },
+  { brand: "6星集", industry: "養生館", city: "台中", x: 55, y: 116 },
+  { brand: "6星集", industry: "養生館", city: "高雄", x: 60, y: 213 },
+  { brand: "悦禾莊園", industry: "養生館", city: "台北", x: 98, y: 36 },
+  { brand: "小林越式", industry: "越式洗髮", city: "新北", x: 87, y: 50 },
+  { brand: "大甲鎮瀾宮", industry: "宮廟", city: "台中", x: 55, y: 116 },
+  { brand: "青松健康", industry: "長照", city: "台中", x: 55, y: 116 },
+  { brand: "龍岩人本", industry: "禮儀", city: "台北", x: 98, y: 36 },
+  { brand: "龍岩人本", industry: "禮儀", city: "台中", x: 55, y: 116 },
+  { brand: "龍岩人本", industry: "禮儀", city: "高雄", x: 60, y: 213 },
+  { brand: "春天養生", industry: "養生館", city: "高雄", x: 60, y: 213 },
+];
+
+type PinGroup = { x: number; y: number; city: string; pins: typeof PINS };
+const PIN_GROUPS: PinGroup[] = Object.values(
+  PINS.reduce((acc: Record<string, PinGroup>, p) => {
+    const k = `${p.x},${p.y}`;
+    if (!acc[k]) acc[k] = { x: p.x, y: p.y, city: p.city, pins: [] };
+    acc[k].pins.push(p);
+    return acc;
+  }, {})
+);
+
+// ── 台灣插旗地圖 ─────────────────────────────────────
+function TaiwanMap() {
+  const [tip, setTip] = useState<{
+    x: number;
+    y: number;
+    brand: string;
+    city: string;
+    industry: string;
+  } | null>(null);
+
+  const COUNTIES: [number, number, string][] = [
+    [98, 36, "台北"], [87, 50, "新北"], [78, 62, "桃園"], [68, 76, "新竹"],
+    [58, 92, "苗栗"], [55, 116, "台中"], [46, 133, "彰化"], [73, 136, "南投"],
+    [42, 153, "雲林"], [44, 168, "嘉義"], [38, 190, "台南"], [60, 213, "高雄"],
+    [80, 233, "屏東"], [128, 56, "宜蘭"], [140, 142, "花蓮"], [128, 202, "台東"],
+  ];
+
+  return (
+    <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "flex-start" }}>
+      <svg viewBox="0 0 180 268" style={{ width: 180, height: 268, flexShrink: 0 }}>
+        <path
+          d="M 90,8 L 118,15 L 140,35 L 150,65 L 148,105 L 142,150 L 130,200 L 112,234 L 90,249 L 68,244 L 48,224 L 32,194 L 22,154 L 18,110 L 22,68 L 35,38 L 55,18 Z"
+          fill="#F4F1EA"
+          stroke="#D5D1C8"
+          strokeWidth="1.5"
+        />
+        {COUNTIES.map(([x, y, name]) => (
+          <g key={name}>
+            <circle cx={x} cy={y} r={1.8} fill="#C8C5BC" opacity={0.55} />
+            <text x={x + 3.5} y={y + 1} fontSize={5.5} fill="#B0ADA5" dominantBaseline="middle" fontFamily="sans-serif">
+              {name}
+            </text>
+          </g>
+        ))}
+        {PIN_GROUPS.map((g, gi) =>
+          g.pins.map((p, pi) => {
+            const cfg = IND_COLOR[p.industry] || { c: "#aaa" };
+            const off = g.pins.length > 1 ? (pi - (g.pins.length - 1) / 2) * 8 : 0;
+            return (
+              <g
+                key={`${gi}-${pi}`}
+                style={{ cursor: "pointer" }}
+                onMouseEnter={() =>
+                  setTip({ x: g.x + off, y: g.y, brand: p.brand, city: g.city, industry: p.industry })
+                }
+                onMouseLeave={() => setTip(null)}
+              >
+                <circle cx={g.x + off} cy={g.y} r={6} fill={cfg.c} stroke="white" strokeWidth={1.5} opacity={0.92} />
+                <text
+                  x={g.x + off}
+                  y={g.y + 1}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fontSize={5}
+                  fill="white"
+                  fontWeight="700"
+                  fontFamily="sans-serif"
+                >
+                  {p.industry[0]}
+                </text>
+              </g>
+            );
+          })
+        )}
+        {tip && (
+          <g>
+            <rect x={Math.min(tip.x + 8, 90)} y={tip.y - 16} width={76} height={26} rx={4} fill="white" stroke="#ECE8DF" strokeWidth={1} />
+            <text x={Math.min(tip.x + 12, 94)} y={tip.y - 6} fontSize={6.5} fill="#3D4A3E" fontWeight="600" fontFamily="sans-serif">
+              {tip.brand}
+            </text>
+            <text x={Math.min(tip.x + 12, 94)} y={tip.y + 5} fontSize={5.5} fill="#6E7A6D" fontFamily="sans-serif">
+              {tip.city} · {tip.industry}
+            </text>
+          </g>
+        )}
+      </svg>
+
+      <div style={{ flex: 1, minWidth: 160 }}>
+        <div style={{ fontSize: 12, color: C.muted, fontWeight: 600, marginBottom: 10 }}>產業圖例</div>
+        {Object.entries(IND_COLOR).map(([ind, cfg]) => {
+          const ubs = [...new Set(PINS.filter((p) => p.industry === ind).map((p) => p.brand))].length;
+          if (!ubs) return null;
+          return (
+            <div key={ind} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <div
+                style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: "50%",
+                  background: cfg.c,
+                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <span style={{ fontSize: 7, color: "white", fontWeight: 700 }}>{ind[0]}</span>
+              </div>
+              <span style={{ fontSize: 13, color: C.text, flex: 1 }}>{ind}</span>
+              <span style={{ fontSize: 12, color: C.muted }}>{ubs} 家</span>
+            </div>
+          );
+        })}
+        <div style={{ marginTop: 16, padding: "10px 12px", borderRadius: 10, background: C.surf2 }}>
+          <div style={{ fontSize: 11, color: C.muted, marginBottom: 8 }}>插旗縣市</div>
+          {["台北/新北", "台中", "高雄"].map((city) => {
+            const cnt = PINS.filter((p) =>
+              ["台北", "新北"].includes(p.city) ? city === "台北/新北" : p.city === city
+            ).length;
+            return (
+              <div key={city} style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                <span style={{ fontSize: 13, color: C.text }}>{city}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: C.primary }}>{cnt} 個商機</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── 卡片容器 ─────────────────────────────────────────
+function DCard({
+  title,
+  subtitle,
+  children,
+  style,
+}: {
+  title: string;
+  subtitle?: string;
+  children: ReactNode;
+  style?: CSSProperties;
+}) {
+  return (
+    <div
+      style={{
+        background: C.surface,
+        borderRadius: 16,
+        border: `1px solid ${C.border}`,
+        padding: "20px 22px",
+        boxShadow: "0 2px 10px rgba(58,92,87,.05)",
+        ...style,
+      }}
+    >
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{title}</div>
+        {subtitle && <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{subtitle}</div>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ── 漏斗圖 ───────────────────────────────────────────
+function FunnelChart({ funnel }: { funnel: { stage: string; n: number; color: string }[] }) {
+  const W = 280, barH = 30, gap = 6;
+  const maxN = funnel[0]?.n || 1;
+  const totalH = funnel.length * (barH + gap) - gap;
+  const convRate = funnel.length ? Math.round(((funnel[funnel.length - 1]?.n || 0) / maxN) * 100) : 0;
+  return (
+    <div>
+      <svg width="100%" viewBox={`0 0 ${W} ${totalH}`} style={{ overflow: "visible" }}>
+        {funnel.map((row, i) => {
+          const barW = (row.n / maxN) * W;
+          const x = (W - barW) / 2;
+          const y = i * (barH + gap);
+          return (
+            <g key={i}>
+              <rect x={x} y={y} width={barW} height={barH} rx={6} fill={row.color} opacity={0.9} />
+              <text x={x + 8} y={y + barH / 2 + 1} dominantBaseline="middle" fontSize={11} fill="white" fontWeight="600" fontFamily="inherit">
+                {row.stage}
+              </text>
+              <text x={W / 2} y={y + barH / 2 + 1} dominantBaseline="middle" textAnchor="middle" fontSize={13} fill="white" fontWeight="700" fontFamily="inherit">
+                {row.n}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: C.p50, borderRadius: 10 }}>
+        <span style={{ fontSize: 12, color: C.muted }}>名單→成交轉換率</span>
+        <span style={{ fontSize: 16, fontWeight: 700, color: C.primary }}>{convRate}%</span>
+      </div>
+    </div>
+  );
+}
+
+// ── 橫向長條圖（產業分佈）─────────────────────────────
+function BarChart({ data }: { data: { label: string; n: number }[] }) {
+  const max = Math.max(...data.map((d) => d.n), 1);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {data.map((d, i) => (
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 68, flexShrink: 0, fontSize: 13, color: C.text, textAlign: "right" }}>{d.label}</div>
+          <div style={{ flex: 1, height: 26, background: C.surf2, borderRadius: 6, overflow: "hidden", position: "relative" }}>
+            <div
+              style={{
+                height: "100%",
+                width: `${(d.n / max) * 100}%`,
+                background: C.primary,
+                borderRadius: 6,
+                transition: "width 800ms cubic-bezier(.2,.8,.2,1)",
+                opacity: 0.85,
+              }}
+            />
+          </div>
+          <div style={{ width: 20, fontSize: 13, fontWeight: 700, color: C.primary, fontVariantNumeric: "tabular-nums" }}>{d.n}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── 甜甜圈圖 ─────────────────────────────────────────
+function DonutChart({ pct, color, label, size = 96 }: { pct: number; color: string; label: string; size?: number }) {
+  const r = 36, cx = size / 2, cy = size / 2;
+  const circ = 2 * Math.PI * r;
+  const dash = (pct / 100) * circ;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+      <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={C.surf2} strokeWidth={10} />
+        <circle
+          cx={cx}
+          cy={cy}
+          r={r}
+          fill="none"
+          stroke={color}
+          strokeWidth={10}
+          strokeDasharray={`${dash} ${circ}`}
+          strokeLinecap="round"
+          style={{ transition: "stroke-dasharray 1000ms cubic-bezier(.2,.8,.2,1)" }}
+        />
+        <text
+          x={cx}
+          y={cy}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          fontSize={15}
+          fontWeight="700"
+          fill={C.text}
+          fontFamily="inherit"
+          style={{ transform: "rotate(90deg)", transformOrigin: `${cx}px ${cy}px` }}
+        >
+          {pct}%
+        </text>
+      </svg>
+      <div style={{ fontSize: 12, color: C.muted, textAlign: "center" }}>{label}</div>
+    </div>
+  );
+}
+
+// ── 被冷落的 A 級客戶 ─────────────────────────────────
+function NeglectedList() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {NEGLECTED.map((n, i) => {
+        const urgent = n.days > 60;
+        const warn = n.days > 30;
+        const color = urgent ? C.danger : warn ? C.accentDk : C.muted;
+        const bg = urgent ? `${C.danger}12` : warn ? `${C.accent}20` : C.surf2;
+        return (
+          <div
+            key={i}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "11px 14px",
+              borderRadius: 12,
+              background: bg,
+              border: `1px solid ${urgent ? C.danger + "30" : warn ? C.accent + "30" : C.border}`,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 9,
+                  background: urgent ? `${C.danger}25` : `${C.primary}20`,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <span style={{ fontSize: 14, color: urgent ? C.danger : C.primary, fontWeight: 700 }}>{n.brand[0]}</span>
+              </div>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 500, color: C.text }}>{n.brand}</div>
+                <div style={{ display: "flex", gap: 6, marginTop: 1 }}>
+                  <span style={{ padding: "1px 7px", borderRadius: 999, background: "#FFF3CC", color: "#A6824A", fontSize: 10, fontWeight: 700 }}>
+                    {n.tier}級
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color, fontVariantNumeric: "tabular-nums" }}>{n.days}天</div>
+              <div style={{ fontSize: 11, color: C.muted }}>無互動</div>
+            </div>
+          </div>
+        );
+      })}
+      <Link
+        href="/followups"
+        style={{
+          textAlign: "center",
+          padding: "10px",
+          borderRadius: 12,
+          border: `1px dashed ${C.border}`,
+          display: "block",
+          fontSize: 13,
+          color: C.primary,
+          fontWeight: 600,
+          textDecoration: "none",
+          marginTop: 2,
+        }}
+      >
+        開始跟進 →
+      </Link>
+    </div>
+  );
+}
+
+// ── 商機管線分佈 ─────────────────────────────────────
+function PipelineBar() {
+  const total = PIPELINE_STAGES.reduce((s, d) => s + d.value, 0) || 1;
+  const colors = ["#B5CAC5", "#9DBDB7", "#8FAAA4", "#7A9893", "#6A8882"];
+  return (
+    <div>
+      <div style={{ display: "flex", height: 36, borderRadius: 10, overflow: "hidden", marginBottom: 14 }}>
+        {PIPELINE_STAGES.filter((d) => d.value > 0).map((d, i) => (
+          <div
+            key={i}
+            title={`${d.stage}: NT$${(d.value / 10000).toFixed(0)}萬`}
+            style={{ flex: d.value / total, background: colors[i], minWidth: 4, transition: "flex 800ms" }}
+          />
+        ))}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {PIPELINE_STAGES.filter((d) => d.value > 0).map((d, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <div style={{ width: 8, height: 8, borderRadius: 2, background: colors[i], flexShrink: 0 }} />
+            <span style={{ fontSize: 11, color: C.muted }}>{d.stage}</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: C.text, fontVariantNumeric: "tabular-nums" }}>
+              NT${(d.value / 10000).toFixed(0)}萬
+            </span>
+          </div>
+        ))}
+      </div>
+      <div
+        style={{
+          marginTop: 14,
+          padding: "10px 14px",
+          background: C.p50,
+          borderRadius: 10,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <span style={{ fontSize: 12, color: C.muted }}>加權商機合計</span>
+        <span style={{ fontSize: 18, fontWeight: 700, color: C.primary, fontVariantNumeric: "tabular-nums" }}>
+          NT${(PIPELINE_STAGES.reduce((s, d) => s + d.value * 0.4, 0) / 10000).toFixed(0)}萬
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ── 統計列 ───────────────────────────────────────────
+function StatStrip({ stats }: { stats: { label: string; value: string; sub: string }[] }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 18 }}>
+      {stats.map((s, i) => (
+        <div
+          key={i}
+          style={{
+            background: C.surface,
+            borderRadius: 13,
+            border: `1px solid ${C.border}`,
+            padding: "14px 16px",
+            boxShadow: "0 1px 4px rgba(58,92,87,.04)",
+          }}
+        >
+          <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>{s.label}</div>
+          <div style={{ fontSize: 26, fontWeight: 800, color: C.text, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{s.value}</div>
+          <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>{s.sub}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MobileStatStrip({ stats }: { stats: { label: string; v: string }[] }) {
+  return (
+    <div style={{ display: "flex", gap: 8, padding: "12px 16px", background: C.surface, borderBottom: `1px solid ${C.border}` }}>
+      {stats.map((s, i) => (
+        <div key={i} style={{ flex: 1, textAlign: "center", padding: "8px 0", borderRadius: 10, background: C.surf2 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: C.text, lineHeight: 1 }}>{s.v}</div>
+          <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>{s.label}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── 儀表板頁面 ───────────────────────────────────────
 interface DashboardData {
   stats: {
     total_leads: number;
@@ -31,214 +496,168 @@ interface DashboardData {
     total_value: number;
     win_rate: string;
   };
-  funnel: Array<{ stage: string; count: number }>;
+  funnel: { stage: string; count: number }[];
 }
 
 export default function Dashboard() {
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [mapMode, setMapMode] = useState<"leads" | "won">("leads");
-  const [hoveredCounty, setHoveredCounty] = useState<string | null>(null);
+  const [api, setApi] = useState<DashboardData | null>(null);
+  const [industries, setIndustries] = useState(INDUSTRY_SEED);
 
-  // 載入資料
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const response = await fetch("/api/dashboard");
-        const result = await response.json();
-
-        if (result.success) {
-          setData(result.data);
+    fetch("/api/dashboard")
+      .then((r) => r.json())
+      .then((result) => {
+        if (result.success && result.data?.stats?.total_leads > 0) setApi(result.data);
+      })
+      .catch(() => {});
+    fetch("/api/brands")
+      .then((r) => r.json())
+      .then((result) => {
+        if (result.success && Array.isArray(result.data) && result.data.length > 0) {
+          const counts: Record<string, number> = {};
+          for (const b of result.data) counts[b.industry || "其他"] = (counts[b.industry || "其他"] || 0) + 1;
+          setIndustries(
+            Object.entries(counts)
+              .map(([label, n]) => ({ label, n }))
+              .sort((a, b) => b.n - a.n)
+          );
         }
-      } catch (error) {
-        console.error("載入儀表板資料失敗:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
+      })
+      .catch(() => {});
   }, []);
 
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <h1 className="page-title">儀表板</h1>
-        <p className="text-muted mt-2">載入中...</p>
-      </div>
-    );
-  }
+  // 漏斗資料：優先用 API，否則用種子
+  const funnel = api?.funnel?.length
+    ? api.funnel.map((f, i) => ({ stage: f.stage, n: f.count, color: FUNNEL_COLORS[i % FUNNEL_COLORS.length] }))
+    : FUNNEL_SEED;
 
-  const stats = data?.stats || {};
-  const funnelData = data?.funnel || [];
+  const totalLeads = api?.stats?.total_leads ?? 6;
+  const won = api?.stats?.by_status?.won ?? 1;
+  const active = api ? totalLeads - won - (api.stats.by_status?.lost ?? 0) : 5;
+
+  const statsDesktop = [
+    { label: "名單總數", value: String(totalLeads), sub: `已覆蓋產業 ${industries.length} 類` },
+    { label: "開發中", value: String(active), sub: "本月新增 2" },
+    { label: "已成交", value: String(won), sub: "NT$96萬/年" },
+    { label: "今日待辦", value: "4", sub: "含 1 補貨提醒" },
+  ];
+  const statsMobile = [
+    { label: "名單", v: String(totalLeads) },
+    { label: "開發中", v: String(active) },
+    { label: "成交", v: String(won) },
+    { label: "待辦", v: "4" },
+  ];
+
+  const exportCSV = () => {
+    const rows: (string | number)[][] = [
+      ...funnel.map((f) => [`漏斗_${f.stage}`, f.n]),
+      ...PIPELINE_STAGES.map((p) => [`管線_${p.stage}(NT$)`, p.value]),
+      ...industries.map((d) => [`產業_${d.label}`, d.n]),
+    ];
+    downloadCSV("HeroHerb_儀表板.csv", ["指標", "數值"], rows);
+  };
+
+  const today = new Date();
+  const dateStr = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
 
   return (
-    <div className="space-y-6">
-      {/* 標題 */}
-      <div>
-        <h1 className="page-title">儀表板</h1>
-        <p className="text-muted mt-2">銷售通路開發進度概覽</p>
+    <>
+      {/* Top bar */}
+      <div
+        style={{
+          background: C.surface,
+          borderBottom: `1px solid ${C.border}`,
+          padding: "11px 20px",
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          flexShrink: 0,
+        }}
+      >
+        <div className="m-only" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ width: 28, height: 28, borderRadius: 8, background: C.sidebar, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ color: "white", fontSize: 11, fontWeight: 800 }}>W</span>
+          </div>
+          <span style={{ fontSize: 15, fontWeight: 700, color: C.text }}>通路開發</span>
+        </div>
+        <h1 style={{ fontSize: 17, fontWeight: 600, color: C.text, margin: 0 }} className="d-only">
+          儀表板
+        </h1>
+        <span style={{ fontSize: 13, color: C.muted, marginLeft: 4 }} className="d-only">
+          截至 {dateStr}
+        </span>
+        <button
+          onClick={exportCSV}
+          className="d-only pressable"
+          style={{
+            marginLeft: "auto",
+            padding: "7px 13px",
+            borderRadius: 9,
+            border: `1px solid ${C.border}`,
+            background: C.surface,
+            color: C.muted,
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          ↓ CSV
+        </button>
       </div>
 
-      {/* 統計卡 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: "總名單數", value: stats.total_leads || 0, trend: 12 },
-          { label: "待跟進", value: stats.total_opportunities || 0, trend: 5 },
-          { label: "成交金額", value: `NT$${(stats.total_value || 0 / 1000000).toFixed(2)}M`, trend: 32 },
-          { label: "成交率", value: `${stats.win_rate || 0}%`, trend: 8 },
-        ].map((stat, i) => (
-          <div key={i} className="card">
-            <p className="text-sm text-muted mb-1">{stat.label}</p>
-            <p className="text-2xl font-medium text-text">{stat.value}</p>
-            <p className={`text-xs mt-2 ${stat.trend > 0 ? "text-primary" : "text-danger"}`}>
-              {stat.trend > 0 ? "+" : ""}{stat.trend}%
-            </p>
-          </div>
-        ))}
+      <div className="m-only">
+        <MobileStatStrip stats={statsMobile} />
       </div>
 
-      {/* 台灣地圖 + 漏斗圖 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* 地圖 */}
-        <div className="card">
-          <div className="flex gap-2 mb-4">
-            <button
-              onClick={() => setMapMode("leads")}
-              className={`px-3 py-1 text-sm rounded-lg transition-all ${
-                mapMode === "leads"
-                  ? "bg-primary text-white"
-                  : "bg-surface-2 text-text"
-              }`}
-            >
-              名單分布
-            </button>
-            <button
-              onClick={() => setMapMode("won")}
-              className={`px-3 py-1 text-sm rounded-lg transition-all ${
-                mapMode === "won"
-                  ? "bg-primary text-white"
-                  : "bg-surface-2 text-text"
-              }`}
-            >
-              代工成交
-            </button>
-          </div>
-
-          <svg viewBox="0 0 180 268" className="w-full h-auto" style={{ minHeight: 300 }}>
-            {/* 台灣主島輪廓 */}
-            <path
-              d="M 90,10 L 120,15 L 140,35 L 150,65 L 148,105 L 142,150 L 130,200 L 112,234 L 90,249 L 68,244 L 48,224 L 32,194 L 22,154 L 18,110 L 22,68 L 35,38 L 55,18 Z"
-              fill="var(--surface-2)"
-              stroke="var(--border)"
-              strokeWidth="1.5"
-            />
-
-            {/* 縣市點 */}
-            {COUNTIES.map((county) => (
-              <g
-                key={county.name}
-                onMouseEnter={() => setHoveredCounty(county.name)}
-                onMouseLeave={() => setHoveredCounty(null)}
-                style={{ cursor: "pointer" }}
-              >
-                <circle
-                  cx={county.x}
-                  cy={county.y}
-                  r={2.5}
-                  fill="#6B8F71"
-                  opacity={0.7}
-                />
-                <text
-                  x={county.x + 5}
-                  y={county.y}
-                  fontSize="10"
-                  fill="var(--text-muted)"
-                  fontFamily="Noto Sans TC"
-                >
-                  {county.name.slice(0, 2)}
-                </text>
-
-                {/* Hover 提示 */}
-                {hoveredCounty === county.name && (
-                  <g>
-                    <rect x={county.x - 25} y={county.y - 25} width="60" height="30" rx="4" fill="white" stroke="var(--border)" />
-                    <text x={county.x - 20} y={county.y - 10} fontSize="12" fontWeight="600" fill="var(--text)">
-                      {county.name}
-                    </text>
-                    <text x={county.x - 20} y={county.y + 5} fontSize="10" fill="var(--text-muted)">
-                      {stats.total_leads || 0} 筆
-                    </text>
-                  </g>
-                )}
-              </g>
-            ))}
-          </svg>
+      {/* Content */}
+      <div style={{ flex: 1, overflowY: "auto", padding: 20, paddingBottom: 80 }}>
+        <div className="d-only">
+          <StatStrip stats={statsDesktop} />
         </div>
 
-        {/* 漏斗圖 */}
-        <div className="card">
-          <h3 className="section-title mb-4">開發進度漏斗</h3>
-          <div className="space-y-4">
-            {funnelData.map((item, i) => {
-              const percentage = (item.count / (funnelData[0]?.count || 1)) * 100;
-              return (
-                <div key={i}>
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="text-sm font-medium text-text">{item.stage}</span>
-                    <span className="text-xs text-muted">{item.count}</span>
-                  </div>
-                  <div
-                    className="h-8 rounded-lg overflow-hidden bg-surface-2"
-                    style={{
-                      width: `${percentage}%`,
-                      backgroundColor: "#6B8F71",
-                      transition: "width 300ms",
-                    }}
-                  />
-                </div>
-              );
-            })}
-          </div>
-          <div className="mt-6 pt-4 border-t border-border text-sm">
-            <p className="text-muted">轉換率</p>
-            <p className="font-medium text-text mt-1">
-              新→成交: {stats.win_rate || 0}%
-            </p>
-          </div>
+        {/* 2×2 圖表 */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 16 }}>
+          <DCard title="開發漏斗" subtitle="各階段名單數量">
+            <FunnelChart funnel={funnel} />
+          </DCard>
+
+          <DCard title="各產業名單分佈" subtitle={`共 ${totalLeads} 筆品牌`}>
+            <BarChart data={industries} />
+          </DCard>
+
+          <DCard title="資料完整度" subtitle="自動採集覆蓋率">
+            <div style={{ display: "flex", justifyContent: "space-around", marginBottom: 16 }}>
+              {COMPLETENESS.map((d, i) => (
+                <DonutChart key={i} pct={d.pct} color={d.color} label={d.label} />
+              ))}
+            </div>
+            <div style={{ padding: "10px 14px", background: C.surf2, borderRadius: 10 }}>
+              <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>提升建議</div>
+              <div style={{ fontSize: 13, color: C.text, lineHeight: 1.55 }}>2 筆品牌缺少 LINE 帳號，可透過採集任務補齊</div>
+            </div>
+          </DCard>
+
+          <DCard title="最近被冷落的 A 級客戶" subtitle="按最後互動天數排序">
+            <NeglectedList />
+          </DCard>
+        </div>
+
+        {/* 商機管線（滿版） */}
+        <div style={{ marginTop: 16 }}>
+          <DCard title="商機管線分佈" subtitle="各開發階段預估金額">
+            <PipelineBar />
+          </DCard>
+        </div>
+
+        {/* 台灣地圖 */}
+        <div style={{ marginTop: 16 }}>
+          <DCard title="地區插旗地圖" subtitle="目前代工服務覆蓋縣市 × 名單類型">
+            <TaiwanMap />
+          </DCard>
         </div>
       </div>
 
-      {/* 產業分布 */}
-      <div className="card">
-        <h3 className="section-title mb-4">產業分布</h3>
-        <div className="space-y-3">
-          {[
-            { name: "養生館", count: Math.floor((stats.total_leads || 0) * 0.23) },
-            { name: "長照", count: Math.floor((stats.total_leads || 0) * 0.16) },
-            { name: "宮廟", count: Math.floor((stats.total_leads || 0) * 0.12) },
-            { name: "禮儀", count: Math.floor((stats.total_leads || 0) * 0.11) },
-            { name: "其他", count: Math.floor((stats.total_leads || 0) * 0.38) },
-          ].map((item, i) => {
-            const percentage = (item.count / (stats.total_leads || 1)) * 100;
-            return (
-              <div key={i} className="flex items-center gap-3">
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-text">{item.name}</p>
-                  <div className="h-2 bg-surface-2 rounded-full overflow-hidden mt-1">
-                    <div
-                      className="h-full bg-primary"
-                      style={{ width: `${percentage}%` }}
-                    />
-                  </div>
-                </div>
-                <span className="text-sm font-medium text-muted">{item.count}</span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
+      <MobileTabBar />
+    </>
   );
 }
