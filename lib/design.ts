@@ -81,7 +81,21 @@ export const CHANNELS: Record<string, { label: string; bg: string; abbr: string 
   ig: { label: "IG", bg: "#C13584", abbr: "IG" },
   email: { label: "Mail", bg: "#6B8F71", abbr: "EM" },
   phone: { label: "Tel", bg: "#D9B68C", abbr: "TEL" },
+  website: { label: "Web", bg: "#5B7C99", abbr: "WWW" },
+  map: { label: "Map", bg: "#D97706", abbr: "MAP" },
 };
+
+export const CHANNEL_ORDER = ["line", "fb", "ig", "email", "phone", "website", "map"];
+
+// 將管道值轉成可點擊連結
+export function channelHref(channel: string, value: string): string {
+  if (!value) return "#";
+  if (channel === "email") return value.startsWith("mailto:") ? value : `mailto:${value}`;
+  if (channel === "phone") return `tel:${value.replace(/[^+\d]/g, "")}`;
+  if (channel === "line" && !value.startsWith("http")) return `https://line.me/R/ti/p/${value}`;
+  if (!value.startsWith("http")) return `https://${value}`;
+  return value;
+}
 
 export const INDUSTRIES = ["養生館", "越式洗髮", "宮廟", "長照", "禮儀"];
 

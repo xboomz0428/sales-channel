@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Fragment, ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { C, STATUS, STAGE_ORDER, CHANNELS, INDUSTRIES, downloadCSV, StatusKey } from "@/lib/design";
+import { C, STATUS, STAGE_ORDER, CHANNELS, CHANNEL_ORDER, INDUSTRIES, downloadCSV, channelHref, StatusKey } from "@/lib/design";
 import Icon from "@/components/Icon";
 import MobileTabBar from "@/components/MobileTabBar";
 
@@ -16,6 +16,7 @@ export interface BrandVM {
   channels: string[];
   score: number;
   status: string;
+  channelLinks?: Record<string, string>;
   owner?: string;
   tax_id?: string;
   est_annual?: number;
@@ -38,19 +39,26 @@ const SEED_BRANDS: BrandVM[] = [
 ];
 
 // ── 基礎元件 ─────────────────────────────────────────
-function ChannelDots({ channels }: { channels: string[] }) {
+function ChannelDots({ channels, links }: { channels: string[]; links?: Record<string, string> }) {
   return (
     <div style={{ display: "flex", gap: 4 }}>
       {channels.map((ch) => {
         const c = CHANNELS[ch] || { abbr: ch.slice(0, 2).toUpperCase(), bg: "#aaa", label: ch };
-        return (
+        const href = links?.[ch] ? channelHref(ch, links[ch]) : null;
+        const dot = (
           <div
-            key={ch}
-            title={c.label || ch}
-            style={{ width: 26, height: 26, borderRadius: 7, background: c.bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+            title={href ? `${c.label}：${links?.[ch]}` : c.label || ch}
+            style={{ width: 26, height: 26, borderRadius: 7, background: c.bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: href ? 1 : 0.85 }}
           >
             <span style={{ color: "white", fontSize: 9, fontWeight: 700, letterSpacing: -0.3 }}>{c.abbr}</span>
           </div>
+        );
+        return href ? (
+          <a key={ch} href={href} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} style={{ display: "block" }}>
+            {dot}
+          </a>
+        ) : (
+          <span key={ch}>{dot}</span>
         );
       })}
     </div>
@@ -476,7 +484,7 @@ function BrandTable({
               <td style={{ padding: 16, textAlign: "center", fontWeight: 600, fontVariantNumeric: "tabular-nums", color: C.text }}>{b.stores}</td>
               <td style={{ padding: 16, color: C.muted, fontSize: 13, whiteSpace: "nowrap" }}>{b.cities}</td>
               <td style={{ padding: 16 }}>
-                <ChannelDots channels={b.channels} />
+                <ChannelDots channels={b.channels} links={b.channelLinks} />
               </td>
               <td style={{ padding: 16 }}>
                 <ScoreBar score={b.score} />
@@ -569,7 +577,7 @@ function BrandCard({
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <ChannelDots channels={b.channels} />
+        <ChannelDots channels={b.channels} links={b.channelLinks} />
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {b.reorder_in_days != null && (
             <span style={{ fontSize: 11, color: C.danger, display: "flex", alignItems: "center", gap: 3 }}>
@@ -655,14 +663,22 @@ function BrandDrawer({
               {b.channels.length === 0 && <span style={{ fontSize: 13, color: C.muted }}>尚未採集到聯絡管道</span>}
               {b.channels.map((ch) => {
                 const cfg = CHANNELS[ch] || { label: ch, bg: "#aaa", abbr: ch };
-                return (
-                  <div key={ch} style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 12px", borderRadius: 9, background: C.surface, border: `1px solid ${C.border}` }}>
+                const link = b.channelLinks?.[ch];
+                const chip = (
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 12px", borderRadius: 9, background: C.surface, border: `1px solid ${C.border}` }}>
                     <div style={{ width: 20, height: 20, borderRadius: 5, background: cfg.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
                       <span style={{ color: "white", fontSize: 8, fontWeight: 700 }}>{cfg.abbr}</span>
                     </div>
                     <span style={{ fontSize: 13, color: C.text }}>{cfg.label}</span>
-                    <span style={{ fontSize: 11, color: C.primary, fontWeight: 600 }}>已驗證</span>
+                    <span style={{ fontSize: 11, color: C.primary, fontWeight: 600 }}>{link ? "開啟 →" : "已驗證"}</span>
                   </div>
+                );
+                return link ? (
+                  <a key={ch} href={channelHref(ch, link)} target="_blank" rel="noopener" style={{ textDecoration: "none" }} title={link}>
+                    {chip}
+                  </a>
+                ) : (
+                  <span key={ch}>{chip}</span>
                 );
               })}
             </div>
@@ -1041,18 +1057,29 @@ export default function LeadsPage() {
       .then((result) => {
         if (result.success && Array.isArray(result.data) && result.data.length > 0) {
           setBrands(
-            result.data.map((b: Record<string, unknown>) => ({
-              id: b.id as string,
-              name: (b.name as string) || "未命名",
-              industry: (b.industry as string) || "其他",
-              stores: (b.store_count as number) || 1,
-              cities: (b.cities as string) || "—",
-              channels: Array.isArray(b.channels) ? (b.channels as string[]) : [],
-              score: (b.priority_score as number) ?? 50,
-              status: (b.status as string) || "new",
-              owner: b.owner_name as string | undefined,
-              tax_id: b.tax_id as string | undefined,
-            }))
+            result.data.map((b: Record<string, unknown>) => {
+              // 管道：來自 brand_channels join，依固定順序排列
+              const chRows = (Array.isArray(b.brand_channels) ? b.brand_channels : []) as { channel: string; value: string }[];
+              const channelLinks: Record<string, string> = {};
+              for (const c of chRows) if (c.channel && c.value) channelLinks[c.channel] = c.value;
+              const channels = CHANNEL_ORDER.filter((ch) => channelLinks[ch]);
+              // 城市：來自 stores join 的去重清單
+              const storeRows = (Array.isArray(b.stores) ? b.stores : []) as { city: string | null }[];
+              const cities = [...new Set(storeRows.map((s) => (s.city || "").replace(/[市縣]$/, "")).filter(Boolean))];
+              return {
+                id: b.id as string,
+                name: (b.name as string) || "未命名",
+                industry: (b.industry as string) || "其他",
+                stores: (b.store_count as number) || 1,
+                cities: cities.length ? cities.slice(0, 3).join("/") : "—",
+                channels,
+                channelLinks,
+                score: (b.priority_score as number) ?? 50,
+                status: (b.status as string) || "new",
+                owner: b.owner_name as string | undefined,
+                tax_id: b.tax_id as string | undefined,
+              };
+            })
           );
           setUsingApi(true);
         }

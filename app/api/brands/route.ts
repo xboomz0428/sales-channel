@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get("status");
     const search = searchParams.get("search");
 
-    let query = supabase.from("brands").select("*");
+    let query = supabase.from("brands").select("*, brand_channels(channel, value), stores(city)");
 
     // 篩選條件
     if (industry) {

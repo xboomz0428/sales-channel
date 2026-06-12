@@ -709,7 +709,40 @@ export default function MatchingPage() {
   const [tab, setTab] = useState("tasks");
   const [isMobile, setIsMobile] = useState(false);
   const [jobPanelOpen, setJobPanelOpen] = useState(false);
+  const [bulkRunning, setBulkRunning] = useState<string | null>(null);
+  const [bulkMsg, setBulkMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  // 批次政府登記比對 / 管道補齊
+  const runBulk = async (kind: "gov" | "channels") => {
+    if (bulkRunning) return;
+    setBulkRunning(kind);
+    setBulkMsg(null);
+    try {
+      const url = kind === "gov" ? "/api/gov/lookup" : "/api/enrich/channels";
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ all: true }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        const d = json.data;
+        setBulkMsg({
+          ok: true,
+          text:
+            kind === "gov"
+              ? `工商登記比對完成：${d.total} 筆中 ${d.matched} 筆高信心回寫（統編/負責人/資本額），${d.low_confidence} 筆待人工確認`
+              : `管道補齊完成：${d.total} 個品牌中 ${d.enriched} 個取得官網/電話/地圖/社群連結`,
+        });
+      } else {
+        setBulkMsg({ ok: false, text: json.error || "執行失敗" });
+      }
+    } catch {
+      setBulkMsg({ ok: false, text: "網路錯誤" });
+    }
+    setBulkRunning(null);
+  };
 
   useEffect(() => {
     const fn = () => setIsMobile(window.innerWidth < 900);
@@ -788,6 +821,22 @@ export default function MatchingPage() {
           ⚡ 新增採集任務
         </button>
         <button
+          onClick={() => runBulk("gov")}
+          disabled={!!bulkRunning}
+          className="pressable"
+          style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid #7B6E9960`, background: "#EAE5F0", color: "#7B6E99", fontSize: 13, fontWeight: 700, cursor: bulkRunning ? "default" : "pointer", flexShrink: 0 }}
+        >
+          {bulkRunning === "gov" ? <span className="spin">↻</span> : "🏛"} 工商登記比對
+        </button>
+        <button
+          onClick={() => runBulk("channels")}
+          disabled={!!bulkRunning}
+          className="pressable"
+          style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid #5B7C9960`, background: "#E3EDFB", color: "#5B7C99", fontSize: 13, fontWeight: 700, cursor: bulkRunning ? "default" : "pointer", flexShrink: 0 }}
+        >
+          {bulkRunning === "channels" ? <span className="spin">↻</span> : "🔗"} 管道補齊
+        </button>
+        <button
           onClick={exportCSV}
           className="pressable"
           style={{ padding: "7px 13px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
@@ -795,6 +844,12 @@ export default function MatchingPage() {
           ↓ CSV
         </button>
       </div>
+      {bulkMsg && (
+        <div style={{ padding: "8px 20px", background: bulkMsg.ok ? C.successBg : C.dangerBg, borderBottom: `1px solid ${C.border}`, fontSize: 13, color: bulkMsg.ok ? C.success : C.danger, display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          {bulkMsg.ok ? "✓" : "✕"} {bulkMsg.text}
+          <button onClick={() => setBulkMsg(null)} style={{ marginLeft: "auto", border: "none", background: "none", cursor: "pointer", color: "inherit", fontSize: 16, lineHeight: 1 }}>×</button>
+        </div>
+      )}
       <SummaryBar brands={brands} />
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         <BrandList
