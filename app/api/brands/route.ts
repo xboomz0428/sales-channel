@@ -1,59 +1,52 @@
 import { NextRequest, NextResponse } from "next/server";
-
-// Mock 品牌資料
-const mockBrands = [
-  {
-    id: 1,
-    name: "6星集足體養生會館",
-    industry: "養生會館",
-    stores: 9,
-    cities: "北/中/南",
-    channels: ["line", "fb", "ig", "email"],
-    score: 92,
-    status: "quoting",
-    tax_id: "16830000",
-    owner: "江○○",
-  },
-  {
-    id: 2,
-    name: "悅禾莊園SPA",
-    industry: "養生會館",
-    stores: 12,
-    cities: "北/中/南",
-    channels: ["line", "fb", "ig"],
-    score: 89,
-    status: "sampling",
-  },
-];
+import { getSupabaseServerClient } from "@/lib/supabase-server";
 
 /**
  * GET /api/brands
  * 查詢品牌列表（支援篩選）
  */
 export async function GET(request: NextRequest) {
-  const searchParams = request.nextUrl.searchParams;
-  const industry = searchParams.get("industry");
-  const status = searchParams.get("status");
-  const city = searchParams.get("city");
+  try {
+    const supabase = getSupabaseServerClient();
+    const searchParams = request.nextUrl.searchParams;
 
-  let results = [...mockBrands];
+    const industry = searchParams.get("industry");
+    const status = searchParams.get("status");
+    const search = searchParams.get("search");
 
-  // 篩選
-  if (industry) {
-    results = results.filter((b) => b.industry === industry);
-  }
-  if (status) {
-    results = results.filter((b) => b.status === status);
-  }
-  if (city) {
-    results = results.filter((b) => b.cities.includes(city));
-  }
+    let query = supabase.from("brands").select("*");
 
-  return NextResponse.json({
-    success: true,
-    data: results,
-    count: results.length,
-  });
+    // 篩選條件
+    if (industry) {
+      query = query.eq("industry", industry);
+    }
+    if (status) {
+      query = query.eq("status", status);
+    }
+    if (search) {
+      query = query.ilike("name", `%${search}%`);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: data || [],
+      count: data?.length || 0,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { success: false, error: "查詢失敗" },
+      { status: 500 }
+    );
+  }
 }
 
 /**
@@ -63,6 +56,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+    const supabase = getSupabaseServerClient();
 
     // 驗證必填欄位
     if (!body.name || !body.industry) {
@@ -72,17 +66,33 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 新增邏輯（實際應連接 Supabase）
-    const newBrand = {
-      id: mockBrands.length + 1,
-      ...body,
-      status: "new",
-      created_at: new Date().toISOString(),
-    };
+    // 新增到 Supabase
+    const { data, error } = await supabase
+      .from("brands")
+      .insert([
+        {
+          name: body.name,
+          industry: body.industry,
+          registered_name: body.registered_name,
+          tax_id: body.tax_id,
+          owner_name: body.owner_name,
+          store_count: body.store_count || 1,
+          status: "new",
+          priority_score: body.priority_score,
+        },
+      ])
+      .select();
+
+    if (error) {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: 400 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
-      data: newBrand,
+      data: data?.[0],
       message: "品牌新增成功",
     });
   } catch (error) {
