@@ -58,13 +58,13 @@
 }
 
 html, body {
-  height: 100%;
-  font-family: 'Noto Sans TC', system-ui, sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  font-size: var(--font-base);
-  line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
+  height: 100% !important;
+  font-family: 'Noto Sans TC', system-ui, sans-serif !important;
+  background: var(--bg) !important;
+  color: var(--text) !important;
+  font-size: var(--font-base) !important;
+  line-height: 1.6 !important;
+  -webkit-font-smoothing: antialiased !important;
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -174,36 +174,36 @@ html, body {
 
 /* 導航欄 */
 .nav-sidebar {
-  width: 16rem;
-  padding: 1.5rem;
-  background: var(--surface);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  height: 100%;
+  width: 16rem !important;
+  padding: 1.5rem !important;
+  background: var(--surface) !important;
+  border-right: 1px solid var(--border) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
 }
 
 .nav-link {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  border-radius: 10px;
-  color: var(--text);
-  text-decoration: none;
-  transition: all 120ms;
-  font-weight: 400;
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.75rem !important;
+  padding: 0.75rem 1rem !important;
+  border-radius: 10px !important;
+  color: var(--text) !important;
+  text-decoration: none !important;
+  transition: all 120ms !important;
+  font-weight: 400 !important;
 }
 
 .nav-link:hover {
-  background: var(--primary-50);
-  color: var(--primary);
+  background: var(--primary-50) !important;
+  color: var(--primary) !important;
 }
 
 .nav-link-active {
-  background: var(--primary-50);
-  color: var(--primary);
-  font-weight: 500;
+  background: var(--primary-50) !important;
+  color: var(--primary) !important;
+  font-weight: 500 !important;
 }
 
 .nav-footer {
