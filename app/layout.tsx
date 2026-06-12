@@ -17,7 +17,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-TW" className="h-full">
-      <body className={`${inter.className} h-full`} style={{ backgroundColor: "var(--bg)", color: "var(--text)" }}>
+      <body className={`${inter.className} h-full`}>
         <div className="flex h-screen">
           <Navigation />
           <main className="flex-1 overflow-auto">

@@ -168,6 +168,46 @@ html, body {
 .status-won { background: var(--status-won-bg); color: var(--status-won-text); }
 .status-lost { background: var(--status-lost-bg); color: var(--status-lost-text); }
 
+/* 導航欄 */
+.nav-sidebar {
+  width: 16rem;
+  padding: 1.5rem;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  color: var(--text);
+  text-decoration: none;
+  transition: all 120ms;
+  font-weight: 400;
+}
+
+.nav-link:hover {
+  background: var(--primary-50);
+  color: var(--primary);
+}
+
+.nav-link-active {
+  background: var(--primary-50);
+  color: var(--primary);
+  font-weight: 500;
+}
+
+.nav-footer {
+  margin-top: auto;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
 /* 響應式 */
 @media (max-width: 767px) {
   .d-only { display: none !important; }
