@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { Search, Download, Filter } from "lucide-react";
+import { exportToExcel, generateExcelFilename } from "@/lib/export";
 
 interface Brand {
   id: number;
@@ -112,6 +113,7 @@ export default function LeadsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [industryFilter, setIndustryFilter] = useState<string>("");
+  const [isExporting, setIsExporting] = useState(false);
 
   const filtered = useMemo(() => {
     return mockBrands.filter((brand) => {
@@ -125,6 +127,20 @@ export default function LeadsPage() {
   }, [searchTerm, statusFilter, industryFilter]);
 
   const industries = [...new Set(mockBrands.map((b) => b.industry))];
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      exportToExcel({
+        brands: filtered,
+        filename: generateExcelFilename("leads"),
+      });
+    } catch (error) {
+      console.error("匯出失敗:", error);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -187,9 +203,13 @@ export default function LeadsPage() {
           </div>
 
           {/* 匯出按鈕 */}
-          <button className="btn-secondary">
+          <button
+            onClick={handleExport}
+            disabled={isExporting}
+            className="btn-secondary disabled:opacity-50"
+          >
             <Download size={18} />
-            匯出 Excel
+            {isExporting ? "匯出中..." : "匯出 CSV"}
           </button>
         </div>
       </div>
