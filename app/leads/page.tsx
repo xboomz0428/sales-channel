@@ -1,157 +1,280 @@
 "use client";
 
 import { useState } from "react";
-import { Search, Plus, Filter } from "lucide-react";
-import Card from "@/components/Card";
+import { Search, Plus, Download } from "lucide-react";
 
-interface Lead {
+interface Brand {
   id: number;
   name: string;
-  address: string;
-  phone: string;
-  status: "新增" | "跟進中" | "成交" | "未決定";
   industry: string;
-  lastContact?: string;
+  stores: number;
+  cities: string;
+  channels: string[];
+  score: number;
+  status: "new" | "contacted" | "sampling" | "quoting" | "negotiating" | "won" | "lost";
 }
 
-const mockLeads: Lead[] = [
+const mockBrands: Brand[] = [
   {
     id: 1,
-    name: "範例商家一號",
-    address: "台北市信義區",
-    phone: "02-1234-5678",
-    status: "新增",
-    industry: "餐飲",
-    lastContact: "2024-06-10",
+    name: "6星集足體養生會館",
+    industry: "養生會館",
+    stores: 9,
+    cities: "北/中/南",
+    channels: ["line", "fb", "ig", "email"],
+    score: 92,
+    status: "quoting",
   },
   {
     id: 2,
-    name: "範例商家二號",
-    address: "台中市西屯區",
-    phone: "04-5678-9012",
-    status: "跟進中",
-    industry: "美容",
+    name: "悅禾莊園SPA",
+    industry: "養生會館",
+    stores: 12,
+    cities: "北/中/南",
+    channels: ["line", "fb", "ig"],
+    score: 89,
+    status: "sampling",
   },
   {
     id: 3,
-    name: "範例商家三號",
-    address: "高雄市左營區",
-    phone: "07-9012-3456",
-    status: "成交",
-    industry: "零售",
+    name: "小林越式洗髮",
+    industry: "越式洗髮",
+    stores: 5,
+    cities: "新北",
+    channels: ["fb"],
+    score: 61,
+    status: "contacted",
+  },
+  {
+    id: 4,
+    name: "大甲鎮瀾宮",
+    industry: "宮廟",
+    stores: 1,
+    cities: "台中",
+    channels: ["fb", "line"],
+    score: 95,
+    status: "new",
+  },
+  {
+    id: 5,
+    name: "青松健康(長照)",
+    industry: "長照",
+    stores: 23,
+    cities: "中部",
+    channels: ["email", "fb"],
+    score: 88,
+    status: "won",
+  },
+  {
+    id: 6,
+    name: "龍巖人本",
+    industry: "禮儀",
+    stores: 40,
+    cities: "全台",
+    channels: ["email"],
+    score: 85,
+    status: "lost",
   },
 ];
 
-const statusColor = {
-  新增: "bg-blue-100 text-blue-800",
-  跟進中: "bg-yellow-100 text-yellow-800",
-  成交: "bg-green-100 text-green-800",
-  未決定: "bg-gray-100 text-gray-800",
+const statusMap = {
+  new: "status-new",
+  contacted: "status-contacted",
+  sampling: "status-sampling",
+  quoting: "status-quoting",
+  negotiating: "status-negotiating",
+  won: "status-won",
+  lost: "status-lost",
+};
+
+const statusLabel = {
+  new: "新名單",
+  contacted: "已聯繫",
+  sampling: "打樣中",
+  quoting: "報價中",
+  negotiating: "議約中",
+  won: "成交",
+  lost: "流失",
+};
+
+const channelEmoji = {
+  email: "📧",
+  line: "💬",
+  fb: "📘",
+  ig: "📷",
 };
 
 export default function LeadsPage() {
   const [searchTerm, setSearchTerm] = useState("");
-  const [leads] = useState(mockLeads);
+  const [filterStatus, setFilterStatus] = useState<string | null>(null);
+  const [filterIndustry, setFilterIndustry] = useState<string | null>(null);
 
-  const filteredLeads = leads.filter(
-    (lead) =>
-      lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      lead.address.includes(searchTerm) ||
-      lead.industry.includes(searchTerm)
-  );
+  const filtered = mockBrands.filter((b) => {
+    const matchSearch =
+      b.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      b.industry.includes(searchTerm);
+    const matchStatus = !filterStatus || b.status === filterStatus;
+    const matchIndustry = !filterIndustry || b.industry === filterIndustry;
+    return matchSearch && matchStatus && matchIndustry;
+  });
+
+  const industries = [...new Set(mockBrands.map((b) => b.industry))];
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-8">
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">名單總覽</h1>
-          <p className="text-gray-600 mt-1">共 {leads.length} 筆名單</p>
+          <h1 className="page-title">名單總覽</h1>
+          <p className="text-muted mt-2">共 {mockBrands.length} 筆名單</p>
         </div>
-        <button className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
-          <Plus size={20} />
-          新增名單
-        </button>
-      </div>
-
-      <Card title="搜尋與過濾">
-        <div className="flex gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-3 text-gray-400" size={20} />
-            <input
-              type="text"
-              placeholder="搜尋商家名稱、地址或產業..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <button className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
-            <Filter size={20} />
-            篩選
+        <div className="flex gap-3">
+          <button className="btn-secondary flex items-center gap-2">
+            <Download size={18} />
+            匯出 Excel
+          </button>
+          <button className="btn-primary flex items-center gap-2">
+            <Plus size={18} />
+            新增品牌
           </button>
         </div>
-      </Card>
+      </div>
 
-      <div className="mt-6 bg-white rounded-lg shadow overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr>
-              <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">
-                商家名稱
-              </th>
-              <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">
-                地址
-              </th>
-              <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">
-                產業
-              </th>
-              <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">
-                電話
-              </th>
-              <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">
-                狀態
-              </th>
-              <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">
-                操作
-              </th>
+      {/* Filter Bar */}
+      <div className="card space-y-4">
+        <div className="flex gap-4">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-3 w-5 h-5 text-muted" />
+            <input
+              type="text"
+              placeholder="搜尋品牌名稱或產業..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="input pl-10"
+            />
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <div className="space-y-2">
+            <label className="text-sm text-muted">產業</label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setFilterIndustry(null)}
+                className={`px-3 py-1 rounded-full text-sm transition-all ${
+                  !filterIndustry
+                    ? "bg-[color:var(--primary)] text-white"
+                    : "bg-[color:var(--surface-2)] text-[color:var(--text)]"
+                }`}
+              >
+                全部
+              </button>
+              {industries.map((ind) => (
+                <button
+                  key={ind}
+                  onClick={() => setFilterIndustry(ind)}
+                  className={`px-3 py-1 rounded-full text-sm transition-all ${
+                    filterIndustry === ind
+                      ? "bg-[color:var(--primary)] text-white"
+                      : "bg-[color:var(--surface-2)] text-[color:var(--text)]"
+                  }`}
+                >
+                  {ind}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="card overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-[color:var(--border)]">
+              <th className="px-4 py-4 text-left font-medium text-[color:var(--text)]">品牌名稱</th>
+              <th className="px-4 py-4 text-left font-medium text-[color:var(--text)]">產業</th>
+              <th className="px-4 py-4 text-left font-medium text-[color:var(--text)]">分店</th>
+              <th className="px-4 py-4 text-left font-medium text-[color:var(--text)]">城市</th>
+              <th className="px-4 py-4 text-left font-medium text-[color:var(--text)]">聯繫方式</th>
+              <th className="px-4 py-4 text-left font-medium text-[color:var(--text)]">優先度</th>
+              <th className="px-4 py-4 text-left font-medium text-[color:var(--text)]">狀態</th>
             </tr>
           </thead>
           <tbody>
-            {filteredLeads.map((lead) => (
+            {filtered.map((brand) => (
               <tr
-                key={lead.id}
-                className="border-b border-gray-200 hover:bg-gray-50"
+                key={brand.id}
+                className="border-b border-[color:var(--border)] hover:bg-[color:var(--primary-50)] transition-colors cursor-pointer"
+                onClick={() => console.log("Click brand:", brand.id)}
               >
-                <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                  {lead.name}
+                <td className="px-4 py-4 font-medium text-[color:var(--text)]">{brand.name}</td>
+                <td className="px-4 py-4 text-muted">{brand.industry}</td>
+                <td className="px-4 py-4 text-muted">{brand.stores}</td>
+                <td className="px-4 py-4 text-muted">{brand.cities}</td>
+                <td className="px-4 py-4">
+                  <div className="flex gap-1">
+                    {brand.channels.map((ch) => (
+                      <span key={ch} title={ch}>
+                        {channelEmoji[ch as keyof typeof channelEmoji] || "•"}
+                      </span>
+                    ))}
+                  </div>
                 </td>
-                <td className="px-6 py-4 text-sm text-gray-600">
-                  {lead.address}
+                <td className="px-4 py-4">
+                  <div className="w-12 h-2 bg-[color:var(--surface-2)] rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-[color:var(--accent)]"
+                      style={{ width: `${brand.score}%` }}
+                    />
+                  </div>
                 </td>
-                <td className="px-6 py-4 text-sm text-gray-600">
-                  {lead.industry}
-                </td>
-                <td className="px-6 py-4 text-sm text-gray-600">
-                  {lead.phone}
-                </td>
-                <td className="px-6 py-4 text-sm">
-                  <span
-                    className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
-                      statusColor[lead.status]
-                    }`}
-                  >
-                    {lead.status}
+                <td className="px-4 py-4">
+                  <span className={`status-badge ${statusMap[brand.status]}`}>
+                    {statusLabel[brand.status]}
                   </span>
-                </td>
-                <td className="px-6 py-4 text-sm">
-                  <a href="#" className="text-blue-600 hover:underline">
-                    查看詳情
-                  </a>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
+
+      {/* Mobile: Card View */}
+      <div className="m-only space-y-3">
+        {filtered.map((brand) => (
+          <div
+            key={brand.id}
+            className="card p-4 cursor-pointer hover:shadow-md transition-shadow"
+            onClick={() => console.log("Click brand:", brand.id)}
+          >
+            <div className="flex justify-between items-start mb-3">
+              <div className="flex-1">
+                <h3 className="font-medium text-[color:var(--text)]">{brand.name}</h3>
+                <p className="text-sm text-muted">{brand.industry}</p>
+              </div>
+              <span className={`status-badge ${statusMap[brand.status]}`}>
+                {statusLabel[brand.status]}
+              </span>
+            </div>
+            <div className="flex gap-4 text-sm text-muted mb-3">
+              <span>分店: {brand.stores}</span>
+              <span>城市: {brand.cities}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex gap-1">
+                {brand.channels.map((ch) => (
+                  <span key={ch}>{channelEmoji[ch as keyof typeof channelEmoji]}</span>
+                ))}
+              </div>
+              <div className="w-24 h-2 bg-[color:var(--surface-2)] rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-[color:var(--accent)]"
+                  style={{ width: `${brand.score}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

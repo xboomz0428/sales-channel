@@ -1,33 +1,261 @@
 "use client";
 
-import { Upload, CheckCircle2, AlertCircle } from "lucide-react";
-import Card from "@/components/Card";
+import { useState } from "react";
+import { Check, X, AlertCircle } from "lucide-react";
 
-interface MatchingResult {
+interface MatchRecord {
   id: number;
-  companyName: string;
-  googleMatch: "成功" | "部分" | "未找到";
-  registrationMatch: "已找到" | "部分信息" | "未找到";
-  dataCompleteness: number;
-  status: "已核對" | "待核對" | "有誤";
+  googleName: string;
+  registeredName: string;
+  googleData: Record<string, any>;
+  registeredData: Record<string, any>;
+  confidence: number;
 }
 
-const mockResults: MatchingResult[] = [
+const mockMatches: MatchRecord[] = [
   {
     id: 1,
-    companyName: "範例商家一號",
-    googleMatch: "成功",
-    registrationMatch: "已找到",
-    dataCompleteness: 95,
-    status: "已核對",
+    googleName: "6星集足體養生會館",
+    registeredName: "六星集足體",
+    googleData: {
+      phone: "02-2234-5678",
+      address: "台北市信義區",
+      website: "www.6stars.com",
+    },
+    registeredData: {
+      phone: "02-2234-5678",
+      address: "台北市信義區123號",
+      website: "www.6stars.com",
+    },
+    confidence: 92,
   },
-  {
-    id: 2,
-    companyName: "範例商家二號",
-    googleMatch: "部分",
-    registrationMatch: "部分信息",
-    dataCompleteness: 65,
-    status: "待核對",
+];
+
+export default function MatchingPage() {
+  const [currentTab, setCurrentTab] = useState<"collect" | "match">("collect");
+  const [matches] = useState(mockMatches);
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="page-title">資料中心</h1>
+        <p className="text-muted mt-2">採集任務 & 名冊比對</p>
+      </div>
+
+      {/* Desktop-only Warning */}
+      <div className="m-only card bg-[color:var(--status-lost-bg)] text-[color:var(--status-lost-text)]">
+        <p className="text-sm font-medium">
+          此功能僅支援桌機版，請用電腦操作
+        </p>
+      </div>
+
+      {/* Tabs */}
+      <div className="d-only flex gap-2 mb-6">
+        {[
+          { id: "collect", label: "採集任務" },
+          { id: "match", label: "比對中心" },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setCurrentTab(tab.id as any)}
+            className={`px-4 py-2 rounded-[10px] transition-all ${
+              currentTab === tab.id
+                ? "bg-[color:var(--primary)] text-white"
+                : "bg-[color:var(--surface-2)] text-[color:var(--text)]"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {currentTab === "collect" && (
+        <CollectSection />
+      )}
+
+      {currentTab === "match" && (
+        <MatchSection matches={matches} />
+      )}
+    </div>
+  );
+}
+
+function CollectSection() {
+  return (
+    <div className="d-only space-y-6">
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-4">
+        {[
+          { label: "待採集", value: 45 },
+          { label: "採集中", value: 12 },
+          { label: "已完成", value: 234 },
+        ].map((s, i) => (
+          <div key={i} className="card py-4 text-center">
+            <p className="text-2xl font-medium text-[color:var(--primary)]">
+              {s.value}
+            </p>
+            <p className="text-xs text-muted mt-1">{s.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Task Config */}
+      <div className="card space-y-4">
+        <h3 className="section-title">建立採集任務</h3>
+        <div className="space-y-3">
+          <div>
+            <label className="text-sm font-medium text-[color:var(--text)]">
+              關鍵字 Tag
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. 養生館、美容、長照..."
+              className="input mt-2"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium text-[color:var(--text)]">
+              城市
+            </label>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {["台北", "新北", "台中", "高雄"].map((city) => (
+                <button
+                  key={city}
+                  className="px-3 py-1 rounded-[8px] bg-[color:var(--surface-2)] text-[color:var(--text)] hover:bg-[color:var(--primary)] hover:text-white transition-all"
+                >
+                  {city}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <button className="btn-primary w-full">啟動採集任務</button>
+      </div>
+
+      {/* Task List */}
+      <div className="card">
+        <h3 className="section-title mb-4">進行中的任務</h3>
+        <div className="space-y-2">
+          {[
+            { keyword: "養生館", city: "台北", progress: 75 },
+            { keyword: "長照", city: "中部", progress: 45 },
+          ].map((task, i) => (
+            <div key={i} className="p-3 bg-[color:var(--surface-2)] rounded-[10px]">
+              <div className="flex justify-between items-center mb-2">
+                <p className="font-medium text-[color:var(--text)]">
+                  {task.keyword} - {task.city}
+                </p>
+                <span className="text-sm text-muted">{task.progress}%</span>
+              </div>
+              <div className="h-2 bg-white rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-[color:var(--primary)]"
+                  style={{ width: `${task.progress}%` }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MatchSection({ matches }: { matches: MatchRecord[] }) {
+  const [confirmed, setConfirmed] = useState<number[]>([]);
+
+  return (
+    <div className="d-only space-y-6">
+      {/* Stats */}
+      <div className="card">
+        <p className="text-sm text-muted mb-1">待比對數量</p>
+        <p className="text-3xl font-medium text-[color:var(--primary)]">
+          {matches.length}
+        </p>
+      </div>
+
+      {/* Match Queue */}
+      <div className="space-y-4">
+        {matches.map((match) => (
+          <div
+            key={match.id}
+            className="card p-6 space-y-4"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium">信心度: {match.confidence}%</span>
+                {match.confidence > 80 && (
+                  <Check size={16} className="text-[color:var(--primary)]" />
+                )}
+                {match.confidence < 60 && (
+                  <AlertCircle
+                    size={16}
+                    className="text-[color:var(--danger)]"
+                  />
+                )}
+              </div>
+            </div>
+
+            {/* Comparison */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-3 bg-[color:var(--surface-2)] rounded-[10px]">
+                <p className="text-xs font-medium text-muted mb-2">Google Places</p>
+                <div className="space-y-1 text-sm">
+                  <p className="font-medium text-[color:var(--text)]">
+                    {match.googleName}
+                  </p>
+                  {Object.entries(match.googleData).map(([k, v]) => (
+                    <p key={k} className="text-muted">
+                      <span className="text-xs">{k}:</span> {v}
+                    </p>
+                  ))}
+                </div>
+              </div>
+              <div className="p-3 bg-[color:var(--status-new-bg)] rounded-[10px]">
+                <p className="text-xs font-medium text-muted mb-2">政府名冊</p>
+                <div className="space-y-1 text-sm">
+                  <p className="font-medium text-[color:var(--text)]">
+                    {match.registeredName}
+                  </p>
+                  {Object.entries(match.registeredData).map(([k, v]) => (
+                    <p key={k} className="text-muted">
+                      <span className="text-xs">{k}:</span> {v}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            {!confirmed.includes(match.id) && (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setConfirmed([...confirmed, match.id])}
+                  className="flex-1 btn-primary flex items-center justify-center gap-2"
+                >
+                  <Check size={18} />
+                  確認配對
+                </button>
+                <button className="flex-1 btn-secondary flex items-center justify-center gap-2">
+                  <X size={18} />
+                  拒絕
+                </button>
+              </div>
+            )}
+            {confirmed.includes(match.id) && (
+              <div className="text-center py-2 bg-[color:var(--primary-50)] rounded-[10px]">
+                <p className="text-sm font-medium text-[color:var(--primary)]">
+                  ✓ 已確認
+                </p>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
   },
   {
     id: 3,

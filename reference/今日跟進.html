@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HeroHerb 通路開發 — 今日跟進</title>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body, #root { height: 100%; }
+    body { font-family: "Noto Sans TC", "PingFang TC", system-ui, sans-serif;
+      background: #FBFAF7; color: #3D4A3E; font-size: 16px; line-height: 1.6;
+      -webkit-font-smoothing: antialiased; }
+    button { font-family: inherit; }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-thumb { background: #B5CAC5; border-radius: 4px; }
+    @media (max-width: 767px) { .d-only { display: none !important; } }
+    @media (min-width: 768px) { .m-only { display: none !important; } }
+    @keyframes slideInUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+    @keyframes fadeIn    { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes checkPop  { 0%{transform:scale(0)} 60%{transform:scale(1.2)} 100%{transform:scale(1)} }
+    .nav-btn { transition: background 120ms; }
+    .nav-btn:hover { background: rgba(255,255,255,.12) !important; }
+    .pressable { transition: transform 100ms, opacity 130ms; }
+    .pressable:active { transform: scale(.96); }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+// ── Tokens (莫蘭迪馬卡龍) ─────────────────────────────
+const C = {
+  primary:  '#8FAAA4',
+  p50:      '#EDF3F2',
+  accent:   '#D9B68C',
+  accentDk: '#9E7048',
+  danger:   '#C98A6B',
+  bg:       '#FBFAF7',
+  surface:  '#FFFFFF',
+  surf2:    '#F4F1EA',
+  text:     '#3D4A3E',
+  muted:    '#6E7A6D',
+  border:   '#ECE8DF',
+  sidebar:  '#3A5C57',
+  done:     '#6AAF8A',
+};
+
+// ── Section types ─────────────────────────────────────
+const SEC = {
+  reorder:  { label:'回購提醒', emoji:'🔁', color:'#5E8880', light:'#EDF4F2' },
+  stagnant: { label:'停滯商機', emoji:'⏳', color:'#A66A4F', light:'#FFF0E8' },
+  festival: { label:'三節任務', emoji:'🎁', color:'#9E7048', light:'#FFF8ED' },
+  visit:    { label:'拜訪到期', emoji:'📍', color:'#5B7C99', light:'#EEF2F8' },
+};
+
+// ── Mock tasks ────────────────────────────────────────
+const INIT_TASKS = [
+  { id:1, section:'reorder',  brand:'青松健康(長照)',      tier:'A', title:'預估補貨日剩 6 天',      desc:'上次出貨 5月5日 · 預估月用量 20包', channels:['email','fb']    },
+  { id:2, section:'stagnant', brand:'悅禾莊園SPA',                  title:'打樣中 — 停留 18 天',    desc:'已超過建議跟進時限（14天），建議本週追蹤', channels:['line','fb'] },
+  { id:3, section:'festival', brand:'6星集足體養生會館',             title:'端午節送禮任務',          desc:'去年：足浴禮盒×3 · 本週最後機會',  channels:['line','fb']    },
+  { id:4, section:'visit',    brand:'滋和堂中醫養生',      tier:'A', title:'A 級客戶季拜訪到期',     desc:'上次拜訪 3月12日 · 間隔已 91 天',  channels:['line','phone']  },
+];
+
+const CHANNELS = {
+  line:  { label:'LINE', bg:'#06C755', abbr:'LN'  },
+  fb:    { label:'FB',   bg:'#1877F2', abbr:'FB'  },
+  email: { label:'Mail', bg:'#8FAAA4', abbr:'EM'  },
+  phone: { label:'Tel',  bg:'#D9B68C', abbr:'TEL' },
+};
+
+const NAV = [
+  { id:'dashboard', label:'儀表板',  sym:'◈' },
+  { id:'brands',    label:'名單總覽', sym:'≡', href:'名單總覽.html' },
+  { id:'pipeline',  label:'商機進度', sym:'↗' },
+  { id:'care',      label:'今日跟進', sym:'♡' },
+  { id:'match',     label:'比對中心', sym:'⟳' },
+  { id:'collect',   label:'採集任務', sym:'⚡' },
+];
+
+// ── Icon ─────────────────────────────────────────────
+const P = {
+  check: 'M20 6 9 17 4 12',
+  x:     'M18 6 6 18M6 6l12 12',
+  phone: 'M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.56 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z',
+  msg:   'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 0 2 2z',
+  chR:   'M9 18l6-6-6-6',
+  warn:  'M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01',
+};
+const Icon = ({ n, size=16, color, style }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke={color||'currentColor'} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"
+    style={{ flexShrink:0, display:'block', ...style }}
+    dangerouslySetInnerHTML={{ __html: P[n]||'' }} />
+);
+
+// ── Sidebar ───────────────────────────────────────────
+const Sidebar = ({ active }) => (
+  <nav style={{ width:220, flexShrink:0, height:'100vh', position:'sticky', top:0,
+    background:C.sidebar, display:'flex', flexDirection:'column', zIndex:10 }}>
+    <div style={{ padding:'22px 18px 16px', borderBottom:'1px solid rgba(255,255,255,.07)' }}>
+      <img src="assets/wesmile-logo-white.png" alt="WeSmile"
+        style={{ height:26, opacity:.9, display:'block' }}
+        onError={e=>{ e.target.style.display='none'; e.target.nextSibling.style.display='block'; }} />
+      <span style={{ display:'none', fontWeight:800, fontSize:15, color:'white' }}>WeSmile</span>
+      <div style={{ marginTop:5, fontSize:10, color:'rgba(255,255,255,.68)', letterSpacing:1.8, textTransform:'uppercase' }}>通路開發系統</div>
+    </div>
+    <div style={{ flex:1, padding:'10px 9px', display:'flex', flexDirection:'column', gap:1 }}>
+      {NAV.map(item => {
+        const on = active === item.id;
+        return (
+          <a key={item.id} href={item.href || '#'}
+            className="nav-btn"
+            style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 13px',
+              borderRadius:10, textDecoration:'none',
+              background: on ? 'rgba(255,255,255,.16)' : 'transparent',
+              color: on ? 'white' : 'rgba(255,255,255,.82)',
+              fontSize:14, fontWeight: on ? 500 : 400 }}>
+            <span style={{ fontSize:14, lineHeight:1, width:16, textAlign:'center', flexShrink:0 }}>{item.sym}</span>
+            {item.label}
+          </a>
+        );
+      })}
+    </div>
+    <div style={{ padding:'12px 14px 22px', borderTop:'1px solid rgba(255,255,255,.07)' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+        <div style={{ width:32, height:32, borderRadius:'50%', background:C.primary,
+          display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <span style={{ color:'white', fontSize:13, fontWeight:700 }}>W</span>
+        </div>
+        <div>
+          <div style={{ color:'rgba(255,255,255,.88)', fontSize:13, fontWeight:500 }}>Wei</div>
+          <div style={{ color:'rgba(255,255,255,.62)', fontSize:11 }}>創辦人</div>
+        </div>
+      </div>
+    </div>
+  </nav>
+);
+
+// ── Mobile tab bar ────────────────────────────────────
+const MobileTabBar = ({ active }) => {
+  const tabs = [
+    { id:'brands',   label:'名單', sym:'≡', href:'名單總覽.html' },
+    { id:'care',     label:'跟進', sym:'♡' },
+    { id:'pipeline', label:'進度', sym:'↗' },
+    { id:'dashboard',label:'我的', sym:'◈' },
+  ];
+  return (
+    <div className="m-only" style={{ position:'fixed', bottom:0, left:0, right:0, zIndex:30,
+      background:C.surface, borderTop:`1px solid ${C.border}`, display:'flex',
+      paddingBottom:'env(safe-area-inset-bottom)' }}>
+      {tabs.map(t => {
+        const on = active === t.id;
+        return (
+          <a key={t.id} href={t.href||'#'} style={{ flex:1, display:'flex', flexDirection:'column',
+            alignItems:'center', justifyContent:'center', gap:2, padding:'9px 0',
+            textDecoration:'none', color: on ? C.primary : C.muted }}>
+            <span style={{ fontSize:17, lineHeight:1 }}>{t.sym}</span>
+            <span style={{ fontSize:10, fontWeight: on ? 700 : 400 }}>{t.label}</span>
+          </a>
+        );
+      })}
+    </div>
+  );
+};
+
+// ── Greeting bar ──────────────────────────────────────
+const GreetingBar = ({ taskCount }) => {
+  const now   = new Date();
+  const hour  = now.getHours();
+  const greet = hour < 12 ? '早安' : hour < 18 ? '午安' : '晚安';
+  const emoji = hour < 12 ? '☀️' : hour < 18 ? '🌿' : '🌙';
+  const days  = ['日','一','二','三','四','五','六'];
+  const dateStr = `${now.getMonth()+1}月${now.getDate()}日 星期${days[now.getDay()]}`;
+
+  return (
+    <div style={{ background:C.sidebar, padding:'22px 20px 20px' }}>
+      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between' }}>
+        <div>
+          <div style={{ fontSize:22, fontWeight:700, color:'white', lineHeight:1.2 }}>
+            {greet}，Wei {emoji}
+          </div>
+          <div style={{ fontSize:13, color:'rgba(255,255,255,.55)', marginTop:5 }}>{dateStr}</div>
+        </div>
+        {taskCount > 0 ? (
+          <div style={{ background:'rgba(255,255,255,.15)', borderRadius:12,
+            padding:'8px 16px', textAlign:'center' }}>
+            <div style={{ fontSize:26, fontWeight:800, color:'white', lineHeight:1, fontVariantNumeric:'tabular-nums' }}>{taskCount}</div>
+            <div style={{ fontSize:11, color:'rgba(255,255,255,.6)', marginTop:2 }}>項待辦</div>
+          </div>
+        ) : (
+          <div style={{ background:'rgba(255,255,255,.12)', borderRadius:12, padding:'8px 16px', textAlign:'center' }}>
+            <div style={{ fontSize:22 }}>✅</div>
+            <div style={{ fontSize:11, color:'rgba(255,255,255,.6)', marginTop:2 }}>全完成</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ── Task card ─────────────────────────────────────────
+const TaskCard = ({ task, onComplete }) => {
+  const [done, setDone] = useState(false);
+  const sec = SEC[task.section];
+
+  const handleDone = () => {
+    setDone(true);
+    setTimeout(() => onComplete(task.id), 700);
+  };
+
+  return (
+    <div style={{
+      background: done ? '#F8F8F6' : C.surface,
+      borderRadius:16,
+      border:`1px solid ${C.border}`,
+      marginBottom:10,
+      boxShadow: done ? 'none' : '0 2px 10px rgba(58,92,87,.06)',
+      opacity: done ? 0.5 : 1,
+      transition:'all 600ms cubic-bezier(.2,.8,.2,1)',
+      overflow:'hidden',
+    }}>
+      {/* Coloured top stripe */}
+      <div style={{ height:3, background: done ? C.border : sec.color, borderRadius:'16px 16px 0 0' }} />
+
+      <div style={{ padding:'14px 16px 14px' }}>
+        {/* Top row: section tag + complete btn */}
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:11 }}>
+          <span style={{
+            display:'inline-flex', alignItems:'center', gap:5,
+            padding:'3px 10px', borderRadius:999, fontSize:11, fontWeight:700,
+            background: done ? C.surf2 : sec.light,
+            color: done ? C.muted : sec.color,
+          }}>
+            {sec.emoji} {sec.label}
+          </span>
+
+          <button onClick={handleDone} disabled={done} className="pressable" style={{
+            width:32, height:32, borderRadius:'50%', border:'none', cursor: done ? 'default' : 'pointer',
+            background: done ? C.done : 'transparent',
+            border: done ? 'none' : `2px solid ${C.border}`,
+            display:'flex', alignItems:'center', justifyContent:'center',
+            animation: done ? 'checkPop 300ms ease-out' : 'none',
+          }}>
+            <Icon n="check" size={15} color={done ? 'white' : C.muted} />
+          </button>
+        </div>
+
+        {/* Brand + tier */}
+        <div style={{ display:'flex', alignItems:'center', gap:9, marginBottom:8 }}>
+          <div style={{ width:38, height:38, borderRadius:11, background: done ? C.surf2 : C.p50,
+            display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+            <span style={{ fontSize:15, color: done ? C.muted : C.primary, fontWeight:700 }}>{task.brand[0]}</span>
+          </div>
+          <div>
+            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+              <span style={{ fontWeight:600, fontSize:15, color: done ? C.muted : C.text,
+                textDecoration: done ? 'line-through' : 'none' }}>{task.brand}</span>
+              {task.tier && (
+                <span style={{ padding:'1px 7px', borderRadius:999, fontSize:10, fontWeight:700,
+                  background:'#FFF3CC', color:'#A6824A' }}>{task.tier}級</span>
+              )}
+            </div>
+            <div style={{ fontSize:13, fontWeight:500, color: done ? C.muted : sec.color, marginTop:1 }}>
+              {task.title}
+            </div>
+          </div>
+        </div>
+
+        {/* Description */}
+        <div style={{ fontSize:13, color:C.muted, lineHeight:1.55, marginBottom:12, paddingLeft:47 }}>
+          {task.desc}
+        </div>
+
+        {/* Action buttons */}
+        {!done && (
+          <div style={{ display:'flex', gap:8, paddingLeft:47 }}>
+            {task.channels.includes('line') && (
+              <a href="https://line.me" target="_blank" rel="noopener" style={{
+                display:'inline-flex', alignItems:'center', gap:6,
+                padding:'8px 14px', borderRadius:10, textDecoration:'none',
+                background:'#06C75518', color:'#06C755', fontSize:13, fontWeight:600,
+              }}>
+                <span style={{ fontSize:15 }}>💬</span> LINE
+              </a>
+            )}
+            {task.channels.includes('phone') && (
+              <a href="tel:+886-2-2631-8499" style={{
+                display:'inline-flex', alignItems:'center', gap:6,
+                padding:'8px 14px', borderRadius:10, textDecoration:'none',
+                background:`${C.primary}18`, color:C.primary, fontSize:13, fontWeight:600,
+              }}>
+                <Icon n="phone" size={14} color={C.primary} /> 撥號
+              </a>
+            )}
+            {task.channels.includes('email') && (
+              <a href="mailto:service@heroherb.co" style={{
+                display:'inline-flex', alignItems:'center', gap:6,
+                padding:'8px 14px', borderRadius:10, textDecoration:'none',
+                background:`${C.primary}18`, color:C.primary, fontSize:13, fontWeight:600,
+              }}>
+                ✉️ Email
+              </a>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ── Task section ──────────────────────────────────────
+const TaskSection = ({ sectionKey, tasks, onComplete }) => {
+  const sec = SEC[sectionKey];
+  if (!tasks.length) return null;
+  return (
+    <div style={{ marginBottom:4 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:8,
+        padding:'14px 20px 8px', position:'sticky', top:0, zIndex:5,
+        background: 'rgba(251,250,247,.95)', backdropFilter:'blur(6px)' }}>
+        <span style={{ fontSize:15 }}>{sec.emoji}</span>
+        <span style={{ fontSize:13, fontWeight:700, color:C.text }}>{sec.label}</span>
+        <span style={{ padding:'2px 8px', borderRadius:999, background:sec.light,
+          color:sec.color, fontSize:11, fontWeight:700 }}>{tasks.length}</span>
+      </div>
+      <div style={{ padding:'0 16px' }}>
+        {tasks.map(t => <TaskCard key={t.id} task={t} onComplete={onComplete} />)}
+      </div>
+    </div>
+  );
+};
+
+// ── All done state ────────────────────────────────────
+const AllDone = () => (
+  <div style={{ textAlign:'center', padding:'60px 32px', color:C.muted }}>
+    <div style={{ fontSize:52, marginBottom:16 }}>🌿</div>
+    <div style={{ fontSize:18, fontWeight:600, color:C.text, marginBottom:8 }}>今日任務全完成！</div>
+    <div style={{ fontSize:14, lineHeight:1.7 }}>好好休息，明天繼續加油</div>
+  </div>
+);
+
+// ── App ───────────────────────────────────────────────
+const App = () => {
+  const [tasks, setTasks] = useState(INIT_TASKS);
+  const complete = (id) => setTasks(prev => prev.filter(t => t.id !== id));
+
+  const exportCSV = () => {
+    const hdrs = ['品牌','類型','標題','描述'];
+    const rows = tasks.map(t=>[
+      t.brand||'', t.section, t.title, t.desc||''
+    ]);
+    const csv=[hdrs,...rows].map(r=>r.map(c=>`"${String(c??'').replace(/"/g,'""')}"`).join(',')).join('\n');
+    const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv);a.download='HeroHerb_\u4eca\u65e5\u8ddf\u9032.csv';a.click();
+  };
+
+  return (
+    <div style={{ display:'flex', height:'100vh', overflow:'hidden' }}>
+      {/* Sidebar desktop */}
+      <div className="d-only" style={{ display:'flex' }}>
+        <Sidebar active="care" />
+      </div>
+
+      {/* Main */}
+      <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minWidth:0 }}>
+        {/* Greeting */}
+        <GreetingBar taskCount={tasks.length} />
+        {/* CSV export bar */}
+        <div className="d-only" style={{display:'flex',justifyContent:'flex-end',padding:'8px 20px',background:C.surface,borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+          <button onClick={exportCSV} className="pressable" style={{padding:'6px 12px',borderRadius:8,border:`1px solid ${C.border}`,background:'transparent',color:C.muted,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit'}}>&#x2193; CSV 匯出</button>
+        </div>
+
+        {/* Scroll area */}
+        <div style={{ flex:1, overflowY:'auto', paddingBottom:80 }}>
+          {tasks.length === 0
+            ? <AllDone />
+            : ['reorder','stagnant','festival','visit'].map(s => (
+                <TaskSection key={s} sectionKey={s}
+                  tasks={tasks.filter(t => t.section === s)}
+                  onComplete={complete} />
+              ))
+          }
+
+          {/* Desktop nav hint */}
+          <div className="d-only" style={{ textAlign:'center', padding:'24px 20px', color:C.muted, fontSize:13 }}>
+            <a href="名單總覽.html" style={{ color:C.primary, textDecoration:'none', fontWeight:500 }}>
+              ← 返回名單總覽
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <MobileTabBar active="care" />
+    </div>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

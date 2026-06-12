@@ -1,196 +1,233 @@
 "use client";
 
 import { useState } from "react";
-import { Clock, Check, Phone, Mail } from "lucide-react";
-import Card from "@/components/Card";
+import { Phone, MessageCircle, CheckCircle2, Clock, Gift, MapPin } from "lucide-react";
 
-interface FollowUp {
+interface Task {
   id: number;
-  companyName: string;
-  contactPerson: string;
-  method: "電話" | "郵件" | "LINE";
-  status: "未開始" | "進行中" | "已完成";
-  dueTime: string;
-  notes?: string;
+  brand: string;
+  type: "reorder" | "festival" | "visit" | "stopped";
+  title: string;
+  daysLeft?: number;
+  completed: boolean;
 }
 
-const mockFollowUps: FollowUp[] = [
+const mockTasks: Task[] = [
   {
     id: 1,
-    companyName: "範例商家一號",
-    contactPerson: "陳經理",
-    method: "電話",
-    status: "未開始",
-    dueTime: "10:00 AM",
-    notes: "確認採購需求",
+    brand: "青松健康",
+    type: "reorder",
+    title: "預估補貨日剩 6 天",
+    daysLeft: 6,
+    completed: false,
   },
   {
     id: 2,
-    companyName: "範例商家二號",
-    contactPerson: "王主任",
-    method: "郵件",
-    status: "進行中",
-    dueTime: "02:00 PM",
-    notes: "送出產品資料",
+    brand: "6星集",
+    type: "festival",
+    title: "端午送禮(去年:足浴禮盒×3)",
+    completed: false,
   },
   {
     id: 3,
-    companyName: "範例商家三號",
-    contactPerson: "李店長",
-    method: "LINE",
-    status: "已完成",
-    dueTime: "11:30 AM",
-    notes: "討論合作細節",
+    brand: "滋和堂",
+    type: "visit",
+    title: "A級季拜訪到期",
+    daysLeft: 0,
+    completed: false,
+  },
+  {
+    id: 4,
+    brand: "悅禾莊園",
+    type: "stopped",
+    title: "停滯商機超過 14 天",
+    daysLeft: 14,
+    completed: false,
   },
 ];
 
-const methodIcon = {
-  電話: Phone,
-  郵件: Mail,
-  LINE: Clock,
-};
+const now = new Date();
+const greeting =
+  now.getHours() < 12
+    ? "早安"
+    : now.getHours() < 18
+      ? "午安"
+      : "晚安";
 
-const statusColor = {
-  未開始: "bg-gray-100 text-gray-800",
-  進行中: "bg-blue-100 text-blue-800",
-  已完成: "bg-green-100 text-green-800",
-};
+export default function FollowupsPage() {
+  const [tasks, setTasks] = useState(mockTasks);
 
-export default function FollowUpsPage() {
-  const [followUps, setFollowUps] = useState(mockFollowUps);
-
-  const toggleStatus = (id: number) => {
-    setFollowUps(
-      followUps.map((fu) =>
-        fu.id === id
-          ? {
-              ...fu,
-              status:
-                fu.status === "未開始"
-                  ? "進行中"
-                  : fu.status === "進行中"
-                  ? "已完成"
-                  : "未開始",
-            }
-          : fu
-      )
-    );
+  const toggleTask = (id: number) => {
+    setTasks(tasks.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t)));
   };
 
-  const completedCount = followUps.filter((f) => f.status === "已完成").length;
-  const pendingCount = followUps.filter((f) => f.status === "未開始").length;
+  const completedCount = tasks.filter((t) => t.completed).length;
+  const totalTasks = tasks.length;
+
+  const dateStr = new Date().toLocaleDateString("zh-TW", {
+    month: "2-digit",
+    day: "2-digit",
+  });
 
   return (
-    <div>
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">今日跟進</h1>
-        <p className="text-gray-600 mt-1">
-          {new Date().toLocaleDateString("zh-TW")}
-        </p>
+    <div className="min-h-screen space-y-4 pb-24">
+      {/* Header Greeting */}
+      <div className="card sticky top-0 z-10">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="page-title">
+              {greeting}，Wei
+            </h1>
+            <p className="text-sm text-muted mt-1">
+              {dateStr} • {totalTasks} 項任務・{completedCount} 項完成
+            </p>
+          </div>
+          <div className="text-center">
+            <div className="text-3xl font-medium text-[color:var(--primary)]">
+              {completedCount}/{totalTasks}
+            </div>
+            <p className="text-xs text-muted">完成度</p>
+          </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <Card title="總跟進數">
-          <div className="flex items-center gap-4">
-            <Clock className="w-12 h-12 text-blue-600" />
-            <div>
-              <p className="text-3xl font-bold text-gray-900">
-                {followUps.length}
-              </p>
-              <p className="text-sm text-gray-600">項任務</p>
+      {/* Task Sections */}
+      <div className="space-y-6">
+        {/* Reorder Tasks */}
+        {tasks.filter((t) => t.type === "reorder").length > 0 && (
+          <div>
+            <h2 className="section-title px-4 mb-3 flex items-center gap-2">
+              <span>🎁</span> 回購提醒
+            </h2>
+            <div className="space-y-2">
+              {tasks
+                .filter((t) => t.type === "reorder")
+                .map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    onToggle={() => toggleTask(task.id)}
+                  />
+                ))}
             </div>
           </div>
-        </Card>
+        )}
 
-        <Card title="待進行">
-          <div className="flex items-center gap-4">
-            <Clock className="w-12 h-12 text-yellow-600" />
-            <div>
-              <p className="text-3xl font-bold text-gray-900">
-                {pendingCount}
-              </p>
-              <p className="text-sm text-gray-600">項任務</p>
+        {/* Festival Tasks */}
+        {tasks.filter((t) => t.type === "festival").length > 0 && (
+          <div>
+            <h2 className="section-title px-4 mb-3 flex items-center gap-2">
+              <span>🎉</span> 三節送禮
+            </h2>
+            <div className="space-y-2">
+              {tasks
+                .filter((t) => t.type === "festival")
+                .map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    onToggle={() => toggleTask(task.id)}
+                  />
+                ))}
             </div>
           </div>
-        </Card>
+        )}
 
-        <Card title="已完成">
-          <div className="flex items-center gap-4">
-            <Check className="w-12 h-12 text-green-600" />
-            <div>
-              <p className="text-3xl font-bold text-gray-900">
-                {completedCount}
-              </p>
-              <p className="text-sm text-gray-600">項任務</p>
+        {/* Visit Tasks */}
+        {tasks.filter((t) => t.type === "visit").length > 0 && (
+          <div>
+            <h2 className="section-title px-4 mb-3 flex items-center gap-2">
+              <span>📍</span> 季度拜訪
+            </h2>
+            <div className="space-y-2">
+              {tasks
+                .filter((t) => t.type === "visit")
+                .map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    onToggle={() => toggleTask(task.id)}
+                  />
+                ))}
             </div>
           </div>
-        </Card>
+        )}
+
+        {/* Stopped Tasks */}
+        {tasks.filter((t) => t.type === "stopped").length > 0 && (
+          <div>
+            <h2 className="section-title px-4 mb-3 flex items-center gap-2 text-[color:var(--danger)]">
+              <span>⚠️</span> 停滯商機
+            </h2>
+            <div className="space-y-2">
+              {tasks
+                .filter((t) => t.type === "stopped")
+                .map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    onToggle={() => toggleTask(task.id)}
+                  />
+                ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TaskCard({
+  task,
+  onToggle,
+}: {
+  task: Task;
+  onToggle: () => void;
+}) {
+  return (
+    <div
+      className={`card p-4 flex items-start gap-4 cursor-pointer transition-all ${
+        task.completed ? "opacity-60" : ""
+      } hover:shadow-md active:scale-95`}
+    >
+      <button
+        className="flex-shrink-0 mt-1 w-6 h-6 rounded-full border-2 border-[color:var(--primary)] flex items-center justify-center hover:bg-[color:var(--primary)] transition-all"
+        onClick={() => onToggle()}
+      >
+        {task.completed && (
+          <CheckCircle2 size={20} className="text-[color:var(--primary)]" />
+        )}
+      </button>
+
+      <div className="flex-1 min-w-0">
+        <p className="font-medium text-[color:var(--text)]">{task.brand}</p>
+        <p className="text-sm text-muted mt-1">{task.title}</p>
+        {task.daysLeft !== undefined && task.daysLeft > 0 && (
+          <p className="text-xs text-[color:var(--danger)] mt-2 font-medium">
+            剩 {task.daysLeft} 天
+          </p>
+        )}
       </div>
 
-      <div className="space-y-4">
-        {followUps.map((followUp) => {
-          const MethodIcon = methodIcon[followUp.method];
-
-          return (
-            <Card key={followUp.id} title={followUp.companyName}>
-              <div className="flex gap-6">
-                <div className="flex-1">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                    <div>
-                      <p className="text-sm text-gray-600">聯繫人</p>
-                      <p className="font-medium text-gray-900">
-                        {followUp.contactPerson}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600">聯繫方式</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <MethodIcon size={16} className="text-gray-600" />
-                        <p className="font-medium text-gray-900">
-                          {followUp.method}
-                        </p>
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600">預定時間</p>
-                      <p className="font-medium text-gray-900">
-                        {followUp.dueTime}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600">狀態</p>
-                      <span
-                        className={`inline-block px-3 py-1 rounded-full text-xs font-medium mt-1 ${
-                          statusColor[followUp.status]
-                        }`}
-                      >
-                        {followUp.status}
-                      </span>
-                    </div>
-                  </div>
-
-                  {followUp.notes && (
-                    <div className="mb-4 p-3 bg-gray-50 rounded border border-gray-200">
-                      <p className="text-sm text-gray-600">備註</p>
-                      <p className="text-gray-900 mt-1">{followUp.notes}</p>
-                    </div>
-                  )}
-                </div>
-
-                <button
-                  onClick={() => toggleStatus(followUp.id)}
-                  className={`px-4 py-2 rounded-lg font-medium transition-colors whitespace-nowrap ${
-                    followUp.status === "已完成"
-                      ? "bg-green-100 text-green-700 hover:bg-green-200"
-                      : "bg-blue-100 text-blue-700 hover:bg-blue-200"
-                  }`}
-                >
-                  {followUp.status === "已完成" ? "✓ 已完成" : "標記完成"}
-                </button>
-              </div>
-            </Card>
-          );
-        })}
+      <div className="flex-shrink-0 flex gap-2">
+        <button
+          className="p-2 rounded-[10px] bg-[color:var(--primary-50)] text-[color:var(--primary)] hover:opacity-80 transition-all active:scale-90"
+          onClick={(e) => {
+            e.stopPropagation();
+          }}
+          title="撥號"
+        >
+          <Phone size={18} />
+        </button>
+        <button
+          className="p-2 rounded-[10px] bg-[color:var(--primary-50)] text-[color:var(--primary)] hover:opacity-80 transition-all active:scale-90"
+          onClick={(e) => {
+            e.stopPropagation();
+          }}
+          title="LINE"
+        >
+          <MessageCircle size={18} />
+        </button>
       </div>
     </div>
   );

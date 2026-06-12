@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>商機進度 — HeroHerb 通路開發</title>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet" />
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html,body,#root{height:100%}
+    body{font-family:"Noto Sans TC","PingFang TC",system-ui,sans-serif;background:#FBFAF7;color:#3D4A3E;font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+    button{font-family:inherit}
+    ::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-thumb{background:#B5CAC5;border-radius:4px}
+    @media(max-width:767px){.d-only{display:none!important}}
+    @media(min-width:768px){.m-only{display:none!important}}
+    .nav-a{transition:background 120ms}.nav-a:hover{background:rgba(255,255,255,.12)!important}
+    .pressable{transition:transform 100ms}.pressable:active{transform:scale(.97)}
+    .kcard{transition:box-shadow 180ms}.kcard:hover{box-shadow:0 6px 18px rgba(58,92,87,.10)!important}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState } = React;
+
+const C = { primary:'#8FAAA4', p50:'#EDF3F2', accent:'#D9B68C', accentDk:'#9E7048', danger:'#C98A6B', bg:'#FBFAF7', surface:'#FFFFFF', surf2:'#F4F1EA', text:'#3D4A3E', muted:'#6E7A6D', border:'#ECE8DF', sidebar:'#3A5C57' };
+
+const STAGES = ['new','contacted','sampling','quoting','negotiating','won','lost'];
+const STAGE_CFG = {
+  new:         { label:'新名單',  color:'#8A8678', bg:'#F0EEE8', stale:null  },
+  contacted:   { label:'已聯繫',  color:'#5B7C99', bg:'#E3ECF2', stale:null  },
+  sampling:    { label:'打樣中',  color:'#7B6E99', bg:'#EAE5F0', stale:14    },
+  quoting:     { label:'報價中',  color:'#A6824A', bg:'#F5EDDD', stale:30    },
+  negotiating: { label:'議約中',  color:'#5E7F64', bg:'#E6EFE6', stale:null  },
+  won:         { label:'成交',    color:'#4A6B50', bg:'#DCE9DC', stale:null  },
+  lost:        { label:'流失',    color:'#A66A4F', bg:'#F3E4DC', stale:null  },
+};
+
+const INIT_OPPS = [
+  { id:1, brand:'6星集足體養生會館', product:'足浴包OEM',       stage:'quoting',     est:1800000, prob:60,  days:12 },
+  { id:2, brand:'悅禾莊園SPA',       product:'艾草浴包OEM',     stage:'sampling',    est:2400000, prob:40,  days:18 },
+  { id:3, brand:'小林越式洗髮',       product:'精油足浴包',      stage:'contacted',   est:600000,  prob:20,  days:5  },
+  { id:4, brand:'大甲鎮瀾宮',         product:'禮盒客製',        stage:'new',         est:300000,  prob:15,  days:2  },
+  { id:5, brand:'青松健康(長照)',      product:'足浴包長照版',    stage:'won',         est:960000,  prob:100, days:0  },
+  { id:6, brand:'龍巖人本',           product:'禮儀香氛系列',    stage:'lost',        est:1200000, prob:0,   days:45 },
+  { id:7, brand:'春天養生館',         product:'艾草浴包OEM',     stage:'negotiating', est:720000,  prob:75,  days:8  },
+];
+
+const NAV = [{id:'dashboard',label:'儀表板',sym:'◈',href:'儀表板.html'},{id:'brands',label:'名單總覽',sym:'≡',href:'名單總覽.html'},{id:'pipeline',label:'商機進度',sym:'↗',href:'商機看板.html'},{id:'care',label:'今日跟進',sym:'♡',href:'今日跟進.html'},{id:'match',label:'比對中心',sym:'⟳'},{id:'collect',label:'採集任務',sym:'⚡'}];
+
+const P = { chL:'M15 18l-6-6 6-6', chR:'M9 18l6-6-6-6', warn:'M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01', clock:'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2' };
+const Icon = ({n,size=16,color,style}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color||'currentColor'} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0,display:'block',...style}} dangerouslySetInnerHTML={{__html:P[n]||''}} />;
+
+const Sidebar = () => (
+  <nav style={{width:220,flexShrink:0,height:'100vh',position:'sticky',top:0,background:C.sidebar,display:'flex',flexDirection:'column',zIndex:10}}>
+    <div style={{padding:'22px 18px 16px',borderBottom:'1px solid rgba(255,255,255,.07)'}}>
+      <img src="assets/wesmile-logo-white.png" alt="WeSmile" style={{height:26,opacity:.9,display:'block'}} onError={e=>{e.target.style.display='none';e.target.nextSibling.style.display='block';}} /><span style={{display:'none',fontWeight:800,fontSize:15,color:'white'}}>WeSmile</span>
+      <div style={{marginTop:5,fontSize:10,color:'rgba(255,255,255,.68)',letterSpacing:1.8,textTransform:'uppercase'}}>通路開發系統</div>
+    </div>
+    <div style={{flex:1,padding:'10px 9px',display:'flex',flexDirection:'column',gap:1}}>
+      {NAV.map(item=><a key={item.id} href={item.href||'#'} className="nav-a" style={{display:'flex',alignItems:'center',gap:10,padding:'10px 13px',borderRadius:10,textDecoration:'none',background:item.id==='pipeline'?'rgba(255,255,255,.16)':'transparent',color:item.id==='pipeline'?'white':'rgba(255,255,255,.82)',fontSize:14,fontWeight:item.id==='pipeline'?500:400}}><span style={{fontSize:14,lineHeight:1,width:16,textAlign:'center',flexShrink:0}}>{item.sym}</span>{item.label}</a>)}
+    </div>
+    <div style={{padding:'12px 14px 22px',borderTop:'1px solid rgba(255,255,255,.07)'}}>
+      <div style={{display:'flex',alignItems:'center',gap:10}}>
+        <div style={{width:32,height:32,borderRadius:'50%',background:C.primary,display:'flex',alignItems:'center',justifyContent:'center'}}><span style={{color:'white',fontSize:13,fontWeight:700}}>W</span></div>
+        <div><div style={{color:'rgba(255,255,255,.88)',fontSize:13,fontWeight:500}}>Wei</div><div style={{color:'rgba(255,255,255,.62)',fontSize:11}}>創辦人</div></div>
+      </div>
+    </div>
+  </nav>
+);
+
+// ── Kanban card ───────────────────────────────────────
+const KanbanCard = ({ opp, onMove, stageIdx }) => {
+  const cfg   = STAGE_CFG[opp.stage];
+  const stale = cfg.stale && opp.days > cfg.stale;
+  const canBack = stageIdx > 0 && opp.stage !== 'won' && opp.stage !== 'lost';
+  const canFwd  = stageIdx < STAGES.length - 3; // not won/lost
+
+  return (
+    <div className="kcard" style={{background:C.surface, borderRadius:13, border:`1px solid ${stale?C.danger+'60':C.border}`, marginBottom:9, overflow:'hidden', boxShadow:'0 1px 6px rgba(58,92,87,.05)'}}>
+      {stale && (
+        <div style={{background:`${C.danger}20`, padding:'4px 12px', fontSize:11, color:C.danger, fontWeight:700, display:'flex', alignItems:'center', gap:5}}>
+          <Icon n="warn" size={11} color={C.danger} />停留 {opp.days} 天，建議跟進
+        </div>
+      )}
+      <div style={{padding:'11px 12px'}}>
+        <div style={{fontWeight:600, fontSize:13, color:C.text, marginBottom:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}} title={opp.brand}>{opp.brand}</div>
+        <div style={{fontSize:11, color:C.muted, marginBottom:9}}>{opp.product}</div>
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8}}>
+          <span style={{fontSize:14, fontWeight:700, color:C.text, fontVariantNumeric:'tabular-nums'}}>NT${(opp.est/10000).toFixed(0)}萬</span>
+          {opp.prob > 0 && <span style={{padding:'2px 8px', borderRadius:999, background:C.p50, color:C.primary, fontSize:11, fontWeight:600}}>{opp.prob}%</span>}
+        </div>
+        {opp.days > 0 && (
+          <div style={{fontSize:11, color:stale?C.danger:C.muted, marginBottom:9, display:'flex', alignItems:'center', gap:4}}>
+            <Icon n="clock" size={10} color={stale?C.danger:C.muted} />{opp.days} 天
+          </div>
+        )}
+        {opp.stage !== 'won' && opp.stage !== 'lost' && (
+          <div style={{display:'flex', gap:5}}>
+            {canBack && <button onClick={()=>onMove(opp.id,-1)} className="pressable" style={{flex:1, padding:'5px 0', borderRadius:8, border:`1px solid ${C.border}`, background:'transparent', cursor:'pointer', fontSize:11, color:C.muted, display:'flex', alignItems:'center', justifyContent:'center', gap:3}}>
+              <Icon n="chL" size={11} color={C.muted} />退
+            </button>}
+            {canFwd && <button onClick={()=>onMove(opp.id,1)} className="pressable" style={{flex:2, padding:'5px 0', borderRadius:8, border:'none', background:C.p50, cursor:'pointer', fontSize:11, color:C.primary, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:3}}>
+              推進<Icon n="chR" size={11} color={C.primary} />
+            </button>}
+          </div>
+        )}
+        {opp.stage === 'won'  && <div style={{textAlign:'center', fontSize:12, color:STAGE_CFG.won.color, fontWeight:600}}>🎉 已成交</div>}
+        {opp.stage === 'lost' && <div style={{textAlign:'center', fontSize:12, color:STAGE_CFG.lost.color}}>{opp.lost_reason||'已流失'}</div>}
+      </div>
+    </div>
+  );
+};
+
+// ── Kanban column ─────────────────────────────────────
+const KanbanCol = ({ stageKey, opps, onMove }) => {
+  const cfg      = STAGE_CFG[stageKey];
+  const stageIdx = STAGES.indexOf(stageKey);
+  const total    = opps.reduce((s,o)=>s+(o.prob>0?o.est*o.prob/100:0),0);
+
+  return (
+    <div style={{width:216, flexShrink:0, display:'flex', flexDirection:'column'}}>
+      <div style={{padding:'10px 12px 9px', borderRadius:'12px 12px 0 0', background:cfg.bg, border:`1px solid ${cfg.color}30`, borderBottom:'none', marginBottom:0}}>
+        <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:3}}>
+          <span style={{fontSize:12, fontWeight:700, color:cfg.color}}>{cfg.label}</span>
+          <span style={{width:20, height:20, borderRadius:'50%', background:cfg.color+'25', color:cfg.color, fontSize:11, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center'}}>{opps.length}</span>
+        </div>
+        {total>0 && <div style={{fontSize:11, color:cfg.color, fontVariantNumeric:'tabular-nums', opacity:.8}}>NT${(total/10000).toFixed(0)}萬</div>}
+      </div>
+      <div style={{flex:1, background:C.surf2+'80', border:`1px solid ${cfg.color}20`, borderTop:'none', borderRadius:'0 0 12px 12px', padding:'8px', minHeight:160, overflowY:'auto', maxHeight:'calc(100vh - 220px)'}}>
+        {opps.length===0 ? <div style={{textAlign:'center', padding:'24px 8px', fontSize:12, color:C.muted, opacity:.6}}>暫無</div>
+          : opps.map(o=><KanbanCard key={o.id} opp={o} onMove={onMove} stageIdx={stageIdx} />)}
+      </div>
+    </div>
+  );
+};
+
+// ── Mobile stage list ─────────────────────────────────
+const MobileList = ({ opps, onMove }) => {
+  const [activeStage, setActiveStage] = useState('quoting');
+  const stageOpps = opps.filter(o=>o.stage===activeStage);
+  return (
+    <div>
+      <div style={{overflowX:'auto', display:'flex', gap:6, padding:'12px 16px', borderBottom:`1px solid ${C.border}`, background:C.surface}}>
+        {STAGES.map(s=>{
+          const cfg=STAGE_CFG[s]; const on=s===activeStage;
+          return <button key={s} onClick={()=>setActiveStage(s)} style={{flexShrink:0, padding:'6px 12px', borderRadius:999, border:`1px solid ${on?cfg.color:C.border}`, background:on?cfg.bg:'transparent', color:on?cfg.color:C.muted, fontSize:12, fontWeight:on?700:400, cursor:'pointer', fontFamily:'inherit'}}>{cfg.label} {opps.filter(o=>o.stage===s).length>0&&<span style={{opacity:.7}}>·{opps.filter(o=>o.stage===s).length}</span>}</button>;
+        })}
+      </div>
+      <div style={{padding:'12px 16px', overflowY:'auto', paddingBottom:80}}>
+        {stageOpps.length===0 ? <div style={{textAlign:'center', padding:'40px 20px', color:C.muted, fontSize:14}}>🌿 此階段暫無商機</div>
+          : stageOpps.map(o=>{
+            const si=STAGES.indexOf(o.stage);
+            return <KanbanCard key={o.id} opp={o} onMove={onMove} stageIdx={si} />;
+          })}
+      </div>
+    </div>
+  );
+};
+
+// ── App ───────────────────────────────────────────────
+const App = () => {
+  const [opps, setOpps] = useState(INIT_OPPS);
+
+  const move = (id, dir) => {
+    setOpps(prev=>prev.map(o=>{
+      if(o.id!==id) return o;
+      const idx=STAGES.indexOf(o.stage);
+      const next=STAGES[idx+dir];
+      return next ? {...o, stage:next, days:0} : o;
+    }));
+  };
+
+  const weighted = opps.filter(o=>!['won','lost'].includes(o.stage)).reduce((s,o)=>s+o.est*o.prob/100,0);
+  const wonTotal  = opps.filter(o=>o.stage==='won').reduce((s,o)=>s+o.est,0);
+
+  const exportCSV = () => {
+    const hdrs = ['品牌','產品','階段','預估年營收(NT$)','成交機率(%))','停留天數'];
+    const rows = opps.map(o=>[o.brand,o.product,STAGE_CFG[o.stage]?.label||o.stage,o.est,o.prob,o.days]);
+    const csv=[hdrs,...rows].map(r=>r.map(c=>`"${String(c??'').replace(/"/g,'""')}"`).join(',')).join('\n');
+    const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv);a.download='HeroHerb_商機看板.csv';a.click();
+  };
+
+  return (
+    <div style={{display:'flex', height:'100vh', overflow:'hidden'}}>
+      <div className="d-only" style={{display:'flex'}}><Sidebar /></div>
+      <div style={{flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minWidth:0}}>
+
+        {/* Top bar */}
+        <div style={{background:C.surface, borderBottom:`1px solid ${C.border}`, padding:'11px 20px', display:'flex', alignItems:'center', gap:12, flexShrink:0, flexWrap:'wrap', rowGap:8}}>
+          <h1 style={{fontSize:17, fontWeight:600, color:C.text, margin:0, whiteSpace:'nowrap'}}>商機進度看板</h1>
+          <div style={{display:'flex', gap:8, marginLeft:'auto', flexWrap:'wrap'}}>
+            <div style={{padding:'6px 14px', borderRadius:10, background:`${C.primary}15`}}>
+              <span style={{fontSize:12, color:C.muted}}>開發中加權商機</span>
+              <span style={{fontSize:14, fontWeight:700, color:C.primary, marginLeft:8, fontVariantNumeric:'tabular-nums'}}>NT${(weighted/10000).toFixed(0)}萬</span>
+            </div>
+            <div style={{padding:'6px 14px', borderRadius:10, background:'#DCE9DC'}}>
+              <span style={{fontSize:12, color:'#4A6B50'}}>已成交</span>
+              <span style={{fontSize:14, fontWeight:700, color:'#4A6B50', marginLeft:8, fontVariantNumeric:'tabular-nums'}}>NT${(wonTotal/10000).toFixed(0)}萬</span>
+            </div>
+            <button onClick={exportCSV} className="pressable" style={{padding:'6px 13px',borderRadius:9,border:`1px solid ${C.border}`,background:C.surface,color:C.muted,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit',flexShrink:0}}>&#x2193; CSV</button>
+          </div>
+        </div>
+
+        {/* Desktop kanban */}
+        <div className="d-only" style={{flex:1, overflowX:'auto', overflowY:'hidden', padding:'16px 20px'}}>
+          <div style={{display:'flex', gap:10, height:'100%', alignItems:'flex-start'}}>
+            {STAGES.map(s=><KanbanCol key={s} stageKey={s} opps={opps.filter(o=>o.stage===s)} onMove={move} />)}
+          </div>
+        </div>
+
+        {/* Mobile list */}
+        <div className="m-only" style={{flex:1, overflow:'hidden', display:'flex', flexDirection:'column'}}>
+          <MobileList opps={opps} onMove={move} />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>儀表板 — HeroHerb 通路開發</title>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet" />
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html,body,#root{height:100%}
+    body{font-family:"Noto Sans TC","PingFang TC",system-ui,sans-serif;background:#FBFAF7;color:#3D4A3E;font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+    ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#B5CAC5;border-radius:4px}
+    @media(max-width:767px){.d-only{display:none!important}}
+    @media(min-width:768px){.m-only{display:none!important}}
+    .nav-a{transition:background 120ms}.nav-a:hover{background:rgba(255,255,255,.12)!important}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const C = { primary:'#8FAAA4', p50:'#EDF3F2', accent:'#D9B68C', accentDk:'#9E7048', danger:'#C98A6B', bg:'#FBFAF7', surface:'#FFFFFF', surf2:'#F4F1EA', text:'#3D4A3E', muted:'#546356', border:'#ECE8DF', sidebar:'#3A5C57' };
+
+const NAV = [{id:'dashboard',label:'儀表板',sym:'◈',href:'儀表板.html'},{id:'brands',label:'名單總覽',sym:'≡',href:'名單總覽.html'},{id:'pipeline',label:'商機進度',sym:'↗',href:'商機看板.html'},{id:'care',label:'今日跟進',sym:'♡',href:'今日跟進.html'},{id:'match',label:'比對中心',sym:'⟳'},{id:'collect',label:'採集任務',sym:'⚡'}];
+
+// ── Chart data ────────────────────────────────────────
+const FUNNEL = [
+  { stage:'新名單',  n:6,  color:'#B5CAC5' },
+  { stage:'已聯繫',  n:5,  color:'#9DBDB7' },
+  { stage:'打樣中',  n:3,  color:'#8FAAA4' },
+  { stage:'報價中',  n:2,  color:'#7A9893' },
+  { stage:'議約中',  n:1,  color:'#6A8882' },
+  { stage:'成交',    n:1,  color:'#4A6B50' },
+];
+
+const INDUSTRY_DATA = [
+  { label:'養生館',     n:2 },
+  { label:'禮儀',       n:1 },
+  { label:'長照',       n:1 },
+  { label:'宮廟',       n:1 },
+  { label:'越式洗髮',   n:1 },
+];
+
+const COMPLETENESS = [
+  { label:'統編比對率',   pct:83, color:'#8FAAA4' },
+  { label:'LINE 覆蓋率',  pct:67, color:'#D9B68C' },
+  { label:'Email 覆蓋率', pct:50, color:'#B5CAC5' },
+];
+
+const NEGLECTED = [
+  { brand:'滋和堂中醫養生',    tier:'A', days:91, status:'won' },
+  { brand:'清心SPA連鎖',       tier:'A', days:48, status:'won' },
+  { brand:'青松健康(長照)',     tier:'A', days:6,  status:'won' },
+];
+
+const PIPELINE_STAGES = [
+  { stage:'新名單',  n:4, value:0 },
+  { stage:'已聯繫',  n:3, value:600000 },
+  { stage:'打樣中',  n:2, value:2400000 },
+  { stage:'報價中',  n:2, value:1800000 },
+  { stage:'議約中',  n:1, value:720000 },
+];
+
+const IND_COLOR = {
+  '養生館':  {c:'#8FAAA4',d:'#3A5C57'},
+  '越式洗髮':{c:'#5B7C99',d:'#3A5270'},
+  '宮廟':    {c:'#D9B68C',d:'#9E7048'},
+  '長照':    {c:'#9B8CC4',d:'#6B5C94'},
+  '禮儀':    {c:'#8A8678',d:'#5A5650'},
+};
+
+const PINS = [
+  {brand:'6星集',       industry:'養生館',  city:'台北', x:98,  y:36 },
+  {brand:'6星集',       industry:'養生館',  city:'台中', x:55,  y:116},
+  {brand:'6星集',       industry:'養生館',  city:'高雄', x:60,  y:213},
+  {brand:'悦禾莊園',      industry:'養生館',  city:'台北', x:98,  y:36 },
+  {brand:'小林越式',      industry:'越式洗髮',city:'新北', x:87,  y:50 },
+  {brand:'大甲鎮瀾宮',      industry:'宮廟',    city:'台中', x:55,  y:116},
+  {brand:'青松健康',      industry:'長照',    city:'台中', x:55,  y:116},
+  {brand:'龍岩人本',      industry:'禮儀',    city:'台北', x:98,  y:36 },
+  {brand:'龍岩人本',      industry:'禮儀',    city:'台中', x:55,  y:116},
+  {brand:'龍岩人本',      industry:'禮儀',    city:'高雄', x:60,  y:213},
+  {brand:'春天養生',      industry:'養生館',  city:'高雄', x:60,  y:213},
+];
+
+// group pins by city coord
+const PIN_GROUPS = Object.values(
+  PINS.reduce((acc,p)=>{
+    const k=`${p.x},${p.y}`;
+    if(!acc[k]) acc[k]={x:p.x,y:p.y,city:p.city,pins:[]};
+    acc[k].pins.push(p); return acc;
+  },{})
+);
+
+const TaiwanMap = () => {
+  const [tip,setTip] = React.useState(null);
+  const COUNTIES = [
+    [98,36,'台北'],[87,50,'新北'],[78,62,'桃園'],[68,76,'新竹'],
+    [58,92,'苗栗'],[55,116,'台中'],[46,133,'彰化'],[73,136,'南投'],
+    [42,153,'雲林'],[44,168,'嘉義'],[38,190,'台南'],[60,213,'高雄'],
+    [80,233,'屏東'],[128,56,'宜蘭'],[140,142,'花蓮'],[128,202,'台東'],
+  ];
+  return (
+    <div style={{display:'flex',gap:20,flexWrap:'wrap',alignItems:'flex-start'}}>
+      <svg viewBox="0 0 180 268" style={{width:180,height:268,flexShrink:0}}>
+        <path d="M 90,8 L 118,15 L 140,35 L 150,65 L 148,105 L 142,150 L 130,200 L 112,234 L 90,249 L 68,244 L 48,224 L 32,194 L 22,154 L 18,110 L 22,68 L 35,38 L 55,18 Z"
+          fill="#F4F1EA" stroke="#D5D1C8" strokeWidth="1.5"/>
+        {COUNTIES.map(([x,y,name])=>(
+          <g key={name}>
+            <circle cx={x} cy={y} r={1.8} fill="#C8C5BC" opacity={0.55}/>
+            <text x={x+3.5} y={y+1} fontSize={5.5} fill="#B0ADA5" dominantBaseline="middle" fontFamily="sans-serif">{name}</text>
+          </g>
+        ))}
+        {PIN_GROUPS.map((g,gi)=>(
+          g.pins.map((p,pi)=>{
+            const cfg=IND_COLOR[p.industry]||{c:'#aaa'};
+            const off=g.pins.length>1?(pi-(g.pins.length-1)/2)*8:0;
+            return (
+              <g key={`${gi}-${pi}`} style={{cursor:'pointer'}}
+                onMouseEnter={()=>setTip({x:g.x+off,y:g.y,brand:p.brand,city:g.city,industry:p.industry})}
+                onMouseLeave={()=>setTip(null)}>
+                <circle cx={g.x+off} cy={g.y} r={6} fill={cfg.c} stroke="white" strokeWidth={1.5} opacity={0.92}/>
+                <text x={g.x+off} y={g.y+1} textAnchor="middle" dominantBaseline="middle" fontSize={5} fill="white" fontWeight="700" fontFamily="sans-serif">{p.industry[0]}</text>
+              </g>
+            );
+          })
+        ))}
+        {tip&&(
+          <g>
+            <rect x={Math.min(tip.x+8,90)} y={tip.y-16} width={76} height={26} rx={4} fill="white" stroke="#ECE8DF" strokeWidth={1}/>
+            <text x={Math.min(tip.x+12,94)} y={tip.y-6} fontSize={6.5} fill="#3D4A3E" fontWeight="600" fontFamily="sans-serif">{tip.brand}</text>
+            <text x={Math.min(tip.x+12,94)} y={tip.y+5} fontSize={5.5} fill="#6E7A6D" fontFamily="sans-serif">{tip.city} · {tip.industry}</text>
+          </g>
+        )}
+      </svg>
+      <div style={{flex:1,minWidth:160}}>
+        <div style={{fontSize:12,color:C.muted,fontWeight:600,marginBottom:10}}>產業圖例</div>
+        {Object.entries(IND_COLOR).map(([ind,cfg])=>{
+          const ubs=[...new Set(PINS.filter(p=>p.industry===ind).map(p=>p.brand))].length;
+          if(!ubs) return null;
+          return(
+            <div key={ind} style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+              <div style={{width:12,height:12,borderRadius:'50%',background:cfg.c,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                <span style={{fontSize:7,color:'white',fontWeight:700}}>{ind[0]}</span>
+              </div>
+              <span style={{fontSize:13,color:C.text,flex:1}}>{ind}</span>
+              <span style={{fontSize:12,color:C.muted}}>{ubs} 家</span>
+            </div>
+          );
+        })}
+        <div style={{marginTop:16,padding:'10px 12px',borderRadius:10,background:C.surf2}}>
+          <div style={{fontSize:11,color:C.muted,marginBottom:8}}>插旗縣市</div>
+          {['台北/新北','台中','高雄'].map(city=>{
+            const cnt=PINS.filter(p=>['台北','新北'].includes(p.city)?city==='台北/新北':p.city===city).length;
+            return(
+              <div key={city} style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
+                <span style={{fontSize:13,color:C.text}}>{city}</span>
+                <span style={{fontSize:13,fontWeight:700,color:C.primary}}>{cnt} 個商機</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Sidebar ───────────────────────────────────────────
+const Sidebar = () => (
+  <nav style={{width:220,flexShrink:0,height:'100vh',position:'sticky',top:0,background:C.sidebar,display:'flex',flexDirection:'column',zIndex:10}}>
+    <div style={{padding:'22px 18px 16px',borderBottom:'1px solid rgba(255,255,255,.07)'}}>
+      <img src="assets/wesmile-logo-white.png" alt="WeSmile" style={{height:26,opacity:.9,display:'block'}} onError={e=>{e.target.style.display='none';e.target.nextSibling.style.display='block';}} /><span style={{display:'none',fontWeight:800,fontSize:15,color:'white'}}>WeSmile</span>
+      <div style={{marginTop:5,fontSize:10,color:'rgba(255,255,255,.68)',letterSpacing:1.8,textTransform:'uppercase'}}>通路開發系統</div>
+    </div>
+    <div style={{flex:1,padding:'10px 9px',display:'flex',flexDirection:'column',gap:1}}>
+      {NAV.map(item=><a key={item.id} href={item.href||'#'} className="nav-a" style={{display:'flex',alignItems:'center',gap:10,padding:'10px 13px',borderRadius:10,textDecoration:'none',background:item.id==='dashboard'?'rgba(255,255,255,.16)':'transparent',color:item.id==='dashboard'?'white':'rgba(255,255,255,.82)',fontSize:14,fontWeight:item.id==='dashboard'?500:400}}><span style={{fontSize:14,lineHeight:1,width:16,textAlign:'center',flexShrink:0}}>{item.sym}</span>{item.label}</a>)}
+    </div>
+    <div style={{padding:'12px 14px 22px',borderTop:'1px solid rgba(255,255,255,.07)'}}>
+      <div style={{display:'flex',alignItems:'center',gap:10}}>
+        <div style={{width:32,height:32,borderRadius:'50%',background:C.primary,display:'flex',alignItems:'center',justifyContent:'center'}}><span style={{color:'white',fontSize:13,fontWeight:700}}>W</span></div>
+        <div><div style={{color:'rgba(255,255,255,.88)',fontSize:13,fontWeight:500}}>Wei</div><div style={{color:'rgba(255,255,255,.62)',fontSize:11}}>創辦人</div></div>
+      </div>
+    </div>
+  </nav>
+);
+
+// ── Dash card wrapper ─────────────────────────────────
+const DCard = ({title,subtitle,children,style}) => (
+  <div style={{background:C.surface,borderRadius:16,border:`1px solid ${C.border}`,padding:'20px 22px',boxShadow:'0 2px 10px rgba(58,92,87,.05)',...style}}>
+    <div style={{marginBottom:16}}>
+      <div style={{fontSize:14,fontWeight:700,color:C.text}}>{title}</div>
+      {subtitle&&<div style={{fontSize:12,color:C.muted,marginTop:2}}>{subtitle}</div>}
+    </div>
+    {children}
+  </div>
+);
+
+// ── Funnel chart (SVG) ────────────────────────────────
+const FunnelChart = () => {
+  const W=280, barH=30, gap=6, maxN=FUNNEL[0].n;
+  const totalH = FUNNEL.length*(barH+gap)-gap;
+  return (
+    <div>
+      <svg width="100%" viewBox={`0 0 ${W} ${totalH}`} style={{overflow:'visible'}}>
+        {FUNNEL.map((row,i)=>{
+          const barW = (row.n/maxN)*W;
+          const x    = (W-barW)/2;
+          const y    = i*(barH+gap);
+          return (
+            <g key={i}>
+              <rect x={x} y={y} width={barW} height={barH} rx={6} fill={row.color} opacity={.9} />
+              <text x={x+8} y={y+barH/2+1} dominantBaseline="middle" fontSize={11} fill="white" fontWeight="600" fontFamily="inherit">{row.stage}</text>
+              <text x={W/2} y={y+barH/2+1} dominantBaseline="middle" textAnchor="middle" fontSize={13} fill="white" fontWeight="700" fontFamily="inherit">{row.n}</text>
+            </g>
+          );
+        })}
+      </svg>
+      <div style={{marginTop:12,display:'flex',alignItems:'center',gap:10,padding:'10px 14px',background:C.p50,borderRadius:10}}>
+        <span style={{fontSize:12,color:C.muted}}>名單→成交轉換率</span>
+        <span style={{fontSize:16,fontWeight:700,color:C.primary}}>{Math.round(FUNNEL[FUNNEL.length-1].n/FUNNEL[0].n*100)}%</span>
+      </div>
+    </div>
+  );
+};
+
+// ── Horizontal bar chart ──────────────────────────────
+const BarChart = () => {
+  const max = Math.max(...INDUSTRY_DATA.map(d=>d.n));
+  return (
+    <div style={{display:'flex',flexDirection:'column',gap:12}}>
+      {INDUSTRY_DATA.map((d,i)=>(
+        <div key={i} style={{display:'flex',alignItems:'center',gap:10}}>
+          <div style={{width:68,flexShrink:0,fontSize:13,color:C.text,textAlign:'right'}}>{d.label}</div>
+          <div style={{flex:1,height:26,background:C.surf2,borderRadius:6,overflow:'hidden',position:'relative'}}>
+            <div style={{height:'100%',width:`${d.n/max*100}%`,background:C.primary,borderRadius:6,transition:'width 800ms cubic-bezier(.2,.8,.2,1)',opacity:.85}} />
+          </div>
+          <div style={{width:20,fontSize:13,fontWeight:700,color:C.primary,fontVariantNumeric:'tabular-nums'}}>{d.n}</div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// ── Donut chart ───────────────────────────────────────
+const DonutChart = ({ pct, color, label, size=96 }) => {
+  const r = 36, cx = size/2, cy = size/2;
+  const circ = 2*Math.PI*r;
+  const dash  = pct/100*circ;
+  return (
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6}}>
+      <svg width={size} height={size} style={{transform:'rotate(-90deg)'}}>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={C.surf2} strokeWidth={10} />
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth={10}
+          strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
+          style={{transition:'stroke-dasharray 1000ms cubic-bezier(.2,.8,.2,1)'}} />
+        <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
+          fontSize={15} fontWeight="700" fill={C.text} fontFamily="inherit"
+          style={{transform:'rotate(90deg)',transformOrigin:`${cx}px ${cy}px`}}>
+          {pct}%
+        </text>
+      </svg>
+      <div style={{fontSize:12,color:C.muted,textAlign:'center'}}>{label}</div>
+    </div>
+  );
+};
+
+// ── Neglected clients ─────────────────────────────────
+const NeglectedList = () => (
+  <div style={{display:'flex',flexDirection:'column',gap:10}}>
+    {NEGLECTED.map((n,i)=>{
+      const urgent = n.days>60;
+      const warn   = n.days>30;
+      const color  = urgent ? C.danger : warn ? C.accentDk : C.muted;
+      const bg     = urgent ? `${C.danger}12` : warn ? `${C.accent}20` : C.surf2;
+      return(
+        <div key={i} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'11px 14px',borderRadius:12,background:bg,border:`1px solid ${urgent?C.danger+'30':warn?C.accent+'30':C.border}`}}>
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            <div style={{width:34,height:34,borderRadius:9,background:urgent?`${C.danger}25`:`${C.primary}20`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+              <span style={{fontSize:14,color:urgent?C.danger:C.primary,fontWeight:700}}>{n.brand[0]}</span>
+            </div>
+            <div>
+              <div style={{fontSize:14,fontWeight:500,color:C.text}}>{n.brand}</div>
+              <div style={{display:'flex',gap:6,marginTop:1}}>
+                <span style={{padding:'1px 7px',borderRadius:999,background:'#FFF3CC',color:'#A6824A',fontSize:10,fontWeight:700}}>{n.tier}級</span>
+              </div>
+            </div>
+          </div>
+          <div style={{textAlign:'right'}}>
+            <div style={{fontSize:15,fontWeight:700,color,fontVariantNumeric:'tabular-nums'}}>{n.days}天</div>
+            <div style={{fontSize:11,color:C.muted}}>無互動</div>
+          </div>
+        </div>
+      );
+    })}
+    <a href="今日跟進.html" style={{textAlign:'center',padding:'10px',borderRadius:12,border:`1px dashed ${C.border}`,display:'block',fontSize:13,color:C.primary,fontWeight:600,textDecoration:'none',marginTop:2}}>
+      開始跟進 →
+    </a>
+  </div>
+);
+
+// ── Pipeline bar (weighted) ───────────────────────────
+const PipelineBar = () => {
+  const total = PIPELINE_STAGES.reduce((s,d)=>s+d.value,0)||1;
+  const colors = ['#B5CAC5','#9DBDB7','#8FAAA4','#7A9893','#6A8882'];
+  return (
+    <div>
+      <div style={{display:'flex',height:36,borderRadius:10,overflow:'hidden',marginBottom:14}}>
+        {PIPELINE_STAGES.filter(d=>d.value>0).map((d,i)=>(
+          <div key={i} title={`${d.stage}: NT$${(d.value/10000).toFixed(0)}萬`}
+            style={{flex:d.value/total,background:colors[i],minWidth:4,transition:'flex 800ms'}} />
+        ))}
+      </div>
+      <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+        {PIPELINE_STAGES.filter(d=>d.value>0).map((d,i)=>(
+          <div key={i} style={{display:'flex',alignItems:'center',gap:5}}>
+            <div style={{width:8,height:8,borderRadius:2,background:colors[i],flexShrink:0}} />
+            <span style={{fontSize:11,color:C.muted}}>{d.stage}</span>
+            <span style={{fontSize:11,fontWeight:600,color:C.text,fontVariantNumeric:'tabular-nums'}}>NT${(d.value/10000).toFixed(0)}萬</span>
+          </div>
+        ))}
+      </div>
+      <div style={{marginTop:14,padding:'10px 14px',background:C.p50,borderRadius:10,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <span style={{fontSize:12,color:C.muted}}>加權商機合計</span>
+        <span style={{fontSize:18,fontWeight:700,color:C.primary,fontVariantNumeric:'tabular-nums'}}>
+          NT${(PIPELINE_STAGES.reduce((s,d)=>s+d.value*0.4,0)/10000).toFixed(0)}萬
+        </span>
+      </div>
+    </div>
+  );
+};
+
+// ── Top stat strip ────────────────────────────────────
+const StatStrip = () => {
+  const stats = [
+    { label:'名單總數', value:'6', sub:'已覆蓋產業 5 類' },
+    { label:'開發中',   value:'5', sub:'本月新增 2' },
+    { label:'已成交',   value:'1', sub:'NT$96萬/年' },
+    { label:'今日待辦', value:'4', sub:'含 1 補貨提醒' },
+  ];
+  return (
+    <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
+      {stats.map((s,i)=>(
+        <div key={i} style={{background:C.surface,borderRadius:13,border:`1px solid ${C.border}`,padding:'14px 16px',boxShadow:'0 1px 4px rgba(58,92,87,.04)'}}>
+          <div style={{fontSize:11,color:C.muted,marginBottom:4}}>{s.label}</div>
+          <div style={{fontSize:26,fontWeight:800,color:C.text,lineHeight:1,fontVariantNumeric:'tabular-nums'}}>{s.value}</div>
+          <div style={{fontSize:11,color:C.muted,marginTop:4}}>{s.sub}</div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const MobileStatStrip = () => {
+  const stats = [{label:'名單',v:'6'},{label:'開發中',v:'5'},{label:'成交',v:'1'},{label:'待辦',v:'4'}];
+  return(
+    <div style={{display:'flex',gap:8,padding:'12px 16px',background:C.surface,borderBottom:`1px solid ${C.border}`}}>
+      {stats.map((s,i)=>(
+        <div key={i} style={{flex:1,textAlign:'center',padding:'8px 0',borderRadius:10,background:C.surf2}}>
+          <div style={{fontSize:20,fontWeight:800,color:C.text,lineHeight:1}}>{s.v}</div>
+          <div style={{fontSize:10,color:C.muted,marginTop:2}}>{s.label}</div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// ── App ───────────────────────────────────────────────
+const App = () => {
+  const exportCSV = () => {
+    const rows = [
+      ...FUNNEL.map(f=>['漏斗_'+f.stage, f.n]),
+      ...PIPELINE_STAGES.map(p=>['管線_'+p.stage+'(NT$)', p.value]),
+      ...INDUSTRY_DATA.map(d=>['產業_'+d.label, d.n]),
+    ];
+    const csv=[['\u6307\u6a19','\u6578\u5024'],...rows].map(r=>r.map(c=>`"${String(c??'').replace(/"/g,'""')}"`).join(',')).join('\n');
+    const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv);a.download='HeroHerb_\u5100\u8868\u677F.csv';a.click();
+  };
+  return (
+  <div style={{display:'flex',height:'100vh',overflow:'hidden'}}>
+    <div className="d-only" style={{display:'flex'}}><Sidebar /></div>
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',minWidth:0}}>
+
+      {/* Top bar */}
+      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'11px 20px',display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
+        <div className="m-only" style={{display:'flex',alignItems:'center',gap:8}}>
+          <div style={{width:28,height:28,borderRadius:8,background:C.sidebar,display:'flex',alignItems:'center',justifyContent:'center'}}><span style={{color:'white',fontSize:11,fontWeight:800}}>W</span></div>
+          <span style={{fontSize:15,fontWeight:700,color:C.text}}>通路開發</span>
+        </div>
+        <h1 style={{fontSize:17,fontWeight:600,color:C.text,margin:0}} className="d-only">儀表板</h1>
+        <span style={{fontSize:13,color:C.muted,marginLeft:4}} className="d-only">截至 2026年6月11日</span>
+        <button onClick={exportCSV} className="d-only pressable" style={{marginLeft:'auto',padding:'7px 13px',borderRadius:9,border:`1px solid ${C.border}`,background:C.surface,color:C.muted,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit'}}>&#x2193; CSV</button>
+      </div>
+
+      <div className="m-only"><MobileStatStrip /></div>
+
+      {/* Content */}
+      <div style={{flex:1,overflowY:'auto',padding:'20px',paddingBottom:40}}>
+
+        {/* Desktop stat strip */}
+        <div className="d-only"><StatStrip /></div>
+
+        {/* 2×2 chart grid */}
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:16}}>
+          <DCard title="開發漏斗" subtitle="各階段名單數量">
+            <FunnelChart />
+          </DCard>
+
+          <DCard title="各產業名單分佈" subtitle="共 6 筆品牌">
+            <BarChart />
+          </DCard>
+
+          <DCard title="資料完整度" subtitle="自動採集覆蓋率">
+            <div style={{display:'flex',justifyContent:'space-around',marginBottom:16}}>
+              {COMPLETENESS.map((d,i)=><DonutChart key={i} pct={d.pct} color={d.color} label={d.label} />)}
+            </div>
+            <div style={{padding:'10px 14px',background:C.surf2,borderRadius:10}}>
+              <div style={{fontSize:12,color:C.muted,marginBottom:4}}>提升建議</div>
+              <div style={{fontSize:13,color:C.text,lineHeight:1.55}}>2 筆品牌缺少 LINE 帳號，可透過採集任務補齊</div>
+            </div>
+          </DCard>
+
+          <DCard title="最近被冷落的 A 級客戶" subtitle="按最後互動天數排序">
+            <NeglectedList />
+          </DCard>
+        </div>
+
+        {/* Pipeline distribution (full width) */}
+        <div style={{marginTop:16}}>
+          <DCard title="商機管線分佈" subtitle="各開發階段預估金額">
+            <PipelineBar />
+          </DCard>
+        </div>
+
+        {/* Taiwan map */}
+        <div style={{marginTop:16}}>
+          <DCard title="地區插旗地圖" subtitle="目前代工服務覆蓋縣市 × 名单類型">
+            <TaiwanMap />
+          </DCard>
+        </div>
+
+      </div>
+    </div>
+  </div>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

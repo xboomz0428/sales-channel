@@ -1,26 +1,128 @@
-@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─────────────────────────────────────────────────────────────
+   🌿 HeroHerb 疗愈系统设计 Tokens
+   ───────────────────────────────────────────────────────────── */
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* 色彩 — 低飽和、霧面、草本 */
+  --primary: #6B8F71;        /* 霧松綠 */
+  --primary-50: #EEF3EE;     /* 淡草綠 */
+  --sage: #A8BCA1;           /* 鼠尾草綠 */
+  --accent: #D9B68C;         /* 燕麥金 */
+  --danger: #C98A6B;         /* 陶土色 */
+  --bg: #FBFAF7;             /* 奶油白 */
+  --surface: #FFFFFF;        /* 卡片 */
+  --surface-2: #F4F1EA;      /* 區塊底 */
+  --text: #3D4A3E;           /* 墨綠灰 */
+  --text-muted: #6E7A6D;     /* 霧綠灰 */
+  --border: #ECE8DF;         /* 極淡邊線 */
+
+  /* 狀態色（淡底+深字軟色 Badge） */
+  --status-new-bg: #F0EEE8;
+  --status-new-text: #8A8678;
+  --status-contacted-bg: #E3ECF2;
+  --status-contacted-text: #5B7C99;
+  --status-sampling-bg: #EAE5F0;
+  --status-sampling-text: #7B6E99;
+  --status-quoting-bg: #F5EDDD;
+  --status-quoting-text: #A6824A;
+  --status-negotiating-bg: #E6EFE6;
+  --status-negotiating-text: #5E7F64;
+  --status-won-bg: #DCE9DC;
+  --status-won-text: #4A6B50;
+  --status-lost-bg: #F3E4DC;
+  --status-lost-text: #A66A4F;
+
+  /* 字級 */
+  --font-base: 16px;
+  --font-table: 15px;
+  --font-badge: 13px;
+  --font-h2: 20px;
+  --font-h1: 24px;
+
+  /* 形狀 */
+  --radius: 16px;
+  --radius-sm: 10px;
+  --shadow: 0 2px 12px rgba(61, 74, 62, 0.06);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: 'Noto Sans TC', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-base);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+* {
+  box-sizing: border-box;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   通用元件
+   ───────────────────────────────────────────────────────────── */
+
+@layer components {
+  .card {
+    @apply bg-white rounded-[16px] shadow-sm p-6 border border-[color:var(--border)];
+    box-shadow: var(--shadow);
+  }
+
+  .btn-primary {
+    @apply bg-[color:var(--primary)] text-white px-4 py-2 rounded-[10px] font-medium text-[color:var(--font-base)] transition-all hover:opacity-90 active:scale-95;
+  }
+
+  .btn-secondary {
+    @apply bg-[color:var(--primary-50)] text-[color:var(--primary)] px-4 py-2 rounded-[10px] font-medium transition-all hover:opacity-80;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-3 py-1 rounded-[8px] text-[13px] font-medium;
+  }
+
+  .input {
+    @apply w-full px-4 py-2 border border-[color:var(--border)] rounded-[10px] focus:outline-none focus:ring-2 focus:ring-[color:var(--primary)];
+  }
+
+  .section-title {
+    @apply text-[20px] font-medium text-[color:var(--text)];
+  }
+
+  .page-title {
+    @apply text-[24px] font-medium text-[color:var(--text)];
+  }
+
+  .text-muted {
+    @apply text-[color:var(--text-muted)];
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* 狀態色樣式 */
+.status-badge {
+  @apply badge;
+}
+
+.status-new { background: var(--status-new-bg); color: var(--status-new-text); }
+.status-contacted { background: var(--status-contacted-bg); color: var(--status-contacted-text); }
+.status-sampling { background: var(--status-sampling-bg); color: var(--status-sampling-text); }
+.status-quoting { background: var(--status-quoting-bg); color: var(--status-quoting-text); }
+.status-negotiating { background: var(--status-negotiating-bg); color: var(--status-negotiating-text); }
+.status-won { background: var(--status-won-bg); color: var(--status-won-text); }
+.status-lost { background: var(--status-lost-bg); color: var(--status-lost-text); }
+
+/* 響應式 */
+@media (max-width: 767px) {
+  .d-only { display: none !important; }
+}
+
+@media (min-width: 768px) {
+  .m-only { display: none !important; }
 }
