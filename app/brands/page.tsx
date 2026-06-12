@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Phone, MessageCircle, Mail, Globe, Facebook } from "lucide-react";
+import { Phone, MessageCircle, Mail, Globe, Share2 } from "lucide-react";
 
 interface Brand {
   id: number;
@@ -87,7 +87,7 @@ export default function BrandsPage() {
           <div className="space-y-2">
             {[
               { icon: Globe, name: "官網", value: "www.example.com" },
-              { icon: Facebook, name: "粉專", value: "@example" },
+              { icon: Share2, name: "粉專", value: "@example" },
               { icon: Mail, name: "Email", value: "contact@example.com" },
             ].map((method, i) => (
               <div key={i} className="flex items-center gap-3 p-2 rounded-[8px] bg-[color:var(--surface-2)]">
@@ -186,58 +186,6 @@ export default function BrandsPage() {
             className="input text-sm"
           />
         </div>
-      </div>
-    </div>
-  );
-}
-        {mockBrands.map((brand) => (
-          <Card key={brand.id} title={brand.name}>
-            <div className="space-y-4">
-              <div>
-                <p className="text-sm text-gray-600">產業</p>
-                <p className="font-medium text-gray-900">{brand.industry}</p>
-              </div>
-
-              <div className="flex items-start gap-2">
-                <Users className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm text-gray-600">分店數</p>
-                  <p className="font-medium text-gray-900">{brand.storeCount} 家</p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-2">
-                <MapPin className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm text-gray-600">營運位置</p>
-                  <p className="text-sm text-gray-900">
-                    {brand.locations.join(", ")}
-                  </p>
-                </div>
-              </div>
-
-              <div className="pt-4 border-t border-gray-200">
-                <span
-                  className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
-                    brand.status === "已合作"
-                      ? "bg-green-100 text-green-800"
-                      : brand.status === "開發中"
-                      ? "bg-blue-100 text-blue-800"
-                      : "bg-gray-100 text-gray-800"
-                  }`}
-                >
-                  {brand.status}
-                </span>
-              </div>
-
-              <div className="pt-2">
-                <a href="#" className="text-blue-600 text-sm hover:underline">
-                  查看所有分店 →
-                </a>
-              </div>
-            </div>
-          </Card>
-        ))}
       </div>
     </div>
   );

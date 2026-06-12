@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Users, TrendingUp, Zap, MapPin } from "lucide-react";
 
 // 台灣地圖數據
-const COUNTIES = [
+const COUNTIES: [number, number, string][] = [
   [98, 36, "台北"],
   [87, 50, "新北"],
   [78, 62, "桃園"],
