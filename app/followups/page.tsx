@@ -1,50 +1,16 @@
 "use client";
 
-import { useState } from "react";
-import { CheckCircle2, AlertCircle, Phone, MessageCircle } from "lucide-react";
+import { useState, useEffect } from "react";
+import { CheckCircle2, Phone, MessageCircle } from "lucide-react";
 
 interface Task {
-  id: number;
+  id: string;
   brand: string;
   type: "reorder" | "stalled" | "festival" | "visit";
   title: string;
   daysLeft?: number;
   done: boolean;
 }
-
-const mockTasks: Task[] = [
-  {
-    id: 1,
-    brand: "青松健康",
-    type: "reorder",
-    title: "預估補貨日剩 6 天",
-    daysLeft: 6,
-    done: false,
-  },
-  {
-    id: 2,
-    brand: "6星集",
-    type: "festival",
-    title: "端午送禮(去年:足浴禮盒×3)",
-    done: false,
-  },
-  {
-    id: 3,
-    brand: "滋和堂",
-    type: "visit",
-    title: "A級季拜訪到期",
-    daysLeft: 12,
-    done: false,
-  },
-  {
-    id: 4,
-    brand: "悅禾莊園",
-    type: "stalled",
-    title: "樣品寄出已 18 天，待追蹤",
-    daysLeft: 18,
-    done: false,
-  },
-];
 
 const typeConfig = {
   reorder: { icon: "📦", label: "回購提醒", color: "bg-primary" },
@@ -54,11 +20,49 @@ const typeConfig = {
 };
 
 export default function FollowupsPage() {
-  const [tasks, setTasks] = useState(mockTasks);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // 載入資料
+  useEffect(() => {
+    const fetchTasks = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch("/api/followups");
+        const result = await response.json();
+
+        if (result.success) {
+          setTasks(result.data);
+        }
+      } catch (error) {
+        console.error("載入任務失敗:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTasks();
+  }, []);
+
   const completedCount = tasks.filter((t) => t.done).length;
 
-  const toggleTask = (id: number) => {
-    setTasks(tasks.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
+  const toggleTask = async (id: string) => {
+    const task = tasks.find((t) => t.id === id);
+    if (!task) return;
+
+    try {
+      const response = await fetch(`/api/followups`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, done: !task.done }),
+      });
+
+      if (response.ok) {
+        setTasks(tasks.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
+      }
+    } catch (error) {
+      console.error("更新任務失敗:", error);
+    }
   };
 
   const groupedTasks = {
@@ -68,13 +72,22 @@ export default function FollowupsPage() {
     visit: tasks.filter((t) => t.type === "visit"),
   };
 
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <h1 className="page-title">今日待跟進</h1>
+        <p className="text-muted">載入中...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* 頂部問候 */}
       <div className="card bg-gradient-to-r from-primary/10 to-accent/10">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm text-muted">2026年6月12日</p>
+            <p className="text-sm text-muted">{new Date().toLocaleDateString("zh-TW")}</p>
             <h1 className="page-title mt-1">今日待跟進</h1>
             <p className="text-sm text-muted mt-1">
               {completedCount}/{tasks.length} 完成
@@ -171,11 +184,17 @@ export default function FollowupsPage() {
       })}
 
       {/* 空狀態 */}
-      {tasks.length === completedCount && (
+      {tasks.length === completedCount && tasks.length > 0 && (
         <div className="card text-center py-12">
           <div className="text-4xl mb-2">✨</div>
           <p className="font-medium text-text">今日所有任務已完成！</p>
           <p className="text-sm text-muted mt-1">休息一下，明天繼續努力</p>
+        </div>
+      )}
+
+      {tasks.length === 0 && (
+        <div className="card text-center py-12">
+          <p className="text-muted">今日無待跟進任務</p>
         </div>
       )}
     </div>

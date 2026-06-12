@@ -1,43 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Heart } from "lucide-react";
 
 interface CareCustomer {
-  id: number;
-  brand: string;
+  id: string;
+  brand_id: string;
+  brands: { name: string };
   tier: "A" | "B" | "C";
-  lastContactDays: number;
-  reorderInDays?: number;
+  last_contact_days: number;
+  reorder_cycle_days?: number;
   health: "green" | "yellow" | "red";
 }
-
-const mockCustomers: CareCustomer[] = [
-  {
-    id: 1,
-    brand: "青松健康",
-    tier: "A",
-    lastContactDays: 3,
-    reorderInDays: 6,
-    health: "green",
-  },
-  {
-    id: 2,
-    brand: "6星集",
-    tier: "A",
-    lastContactDays: 41,
-    reorderInDays: undefined,
-    health: "red",
-  },
-  {
-    id: 3,
-    brand: "滋和堂",
-    tier: "B",
-    lastContactDays: 18,
-    reorderInDays: 22,
-    health: "yellow",
-  },
-];
 
 const tierConfig = {
   A: { color: "bg-accent", text: "text-accent", label: "A級", desc: "月訂/連鎖總部" },
@@ -52,13 +26,30 @@ const healthColors = {
 };
 
 export default function CarePage() {
-  const [customers] = useState(mockCustomers);
+  const [customers, setCustomers] = useState<CareCustomer[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"all" | "neglected">("all");
 
-  const filtered = customers.filter((c) => {
-    if (activeTab === "neglected") return c.health === "red" || c.health === "yellow";
-    return true;
-  });
+  // 載入資料
+  useEffect(() => {
+    const fetchCustomers = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch(`/api/care?tab=${activeTab}`);
+        const result = await response.json();
+
+        if (result.success) {
+          setCustomers(result.data);
+        }
+      } catch (error) {
+        console.error("載入客情資料失敗:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCustomers();
+  }, [activeTab]);
 
   return (
     <div className="space-y-6">
@@ -102,73 +93,68 @@ export default function CarePage() {
         ))}
       </div>
 
-      {/* 桌機版：表格 */}
-      <div className="d-only card overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border">
-              <th className="text-left py-4 px-4 font-medium text-muted">品牌</th>
-              <th className="text-center py-4 px-4 font-medium text-muted">分級</th>
-              <th className="text-center py-4 px-4 font-medium text-muted">最後聯繫</th>
-              <th className="text-center py-4 px-4 font-medium text-muted">回購倒數</th>
-              <th className="text-center py-4 px-4 font-medium text-muted">健康度</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((c) => (
-              <tr key={c.id} className="border-b border-border hover:bg-primary-50">
-                <td className="py-4 px-4 font-medium">{c.brand}</td>
-                <td className="py-4 px-4 text-center">
+      {loading ? (
+        <div className="card text-center py-12">
+          <p className="text-muted">載入中...</p>
+        </div>
+      ) : (
+        <>
+          {/* 桌機版：表格 */}
+          <div className="d-only card overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left py-4 px-4 font-medium text-muted">品牌</th>
+                  <th className="text-center py-4 px-4 font-medium text-muted">分級</th>
+                  <th className="text-center py-4 px-4 font-medium text-muted">最後聯繫</th>
+                  <th className="text-center py-4 px-4 font-medium text-muted">健康度</th>
+                </tr>
+              </thead>
+              <tbody>
+                {customers.map((c) => (
+                  <tr key={c.id} className="border-b border-border hover:bg-primary-50">
+                    <td className="py-4 px-4 font-medium">{c.brands?.name}</td>
+                    <td className="py-4 px-4 text-center">
+                      <span className={`badge ${tierConfig[c.tier].color} text-white`}>
+                        {tierConfig[c.tier].label}
+                      </span>
+                    </td>
+                    <td className="py-4 px-4 text-center text-muted">{c.last_contact_days} 天前</td>
+                    <td className="py-4 px-4 text-center">
+                      <Heart size={18} className={`mx-auto ${healthColors[c.health]}`} fill="currentColor" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* 手機版：卡片 */}
+          <div className="m-only space-y-3">
+            {customers.map((c) => (
+              <div key={c.id} className="card p-4">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <p className="font-medium text-text">{c.brands?.name}</p>
+                    <p className="text-xs text-muted mt-1">最後聯繫: {c.last_contact_days} 天前</p>
+                  </div>
+                  <Heart size={20} className={`${healthColors[c.health]}`} fill="currentColor" />
+                </div>
+
+                <div className="flex gap-2 flex-wrap">
                   <span className={`badge ${tierConfig[c.tier].color} text-white`}>
                     {tierConfig[c.tier].label}
                   </span>
-                </td>
-                <td className="py-4 px-4 text-center text-muted">{c.lastContactDays} 天前</td>
-                <td className="py-4 px-4 text-center">
-                  {c.reorderInDays ? (
-                    <span className="text-primary font-medium">{c.reorderInDays} 天</span>
-                  ) : (
-                    <span className="text-muted">—</span>
-                  )}
-                </td>
-                <td className="py-4 px-4 text-center">
-                  <Heart size={18} className={`mx-auto ${healthColors[c.health]}`} fill="currentColor" />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                </div>
 
-      {/* 手機版：卡片 */}
-      <div className="m-only space-y-3">
-        {filtered.map((c) => (
-          <div key={c.id} className="card p-4">
-            <div className="flex items-start justify-between mb-3">
-              <div>
-                <p className="font-medium text-text">{c.brand}</p>
-                <p className="text-xs text-muted mt-1">最後聯繫: {c.lastContactDays} 天前</p>
+                <button className="w-full py-2 mt-3 rounded-lg bg-primary text-white text-sm font-medium hover:opacity-90">
+                  編輯客戶資料
+                </button>
               </div>
-              <Heart size={20} className={`${healthColors[c.health]}`} fill="currentColor" />
-            </div>
-
-            <div className="flex gap-2 flex-wrap">
-              <span className={`badge ${tierConfig[c.tier].color} text-white`}>
-                {tierConfig[c.tier].label}
-              </span>
-              {c.reorderInDays && (
-                <span className="badge badge-quoting">
-                  {c.reorderInDays} 天回購
-                </span>
-              )}
-            </div>
-
-            <button className="w-full py-2 mt-3 rounded-lg bg-primary text-white text-sm font-medium hover:opacity-90">
-              編輯客戶資料
-            </button>
+            ))}
           </div>
-        ))}
-      </div>
+        </>
+      )}
     </div>
   );
 }
