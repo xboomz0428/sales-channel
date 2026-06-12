@@ -493,18 +493,230 @@ function SummaryBar({ brands }: { brands: ScrapeBrand[] }) {
   );
 }
 
+// ── 採集任務（Google Places 真實串接）─────────────────
+interface ScrapeJob {
+  id: string;
+  keywords: string[];
+  cities: string[];
+  status: string;
+  result_count: number | null;
+  error: string | null;
+  created_at: string;
+}
+
+const JOB_STATUS: Record<string, { label: string; color: string; bg: string }> = {
+  done: { label: "完成", color: C.success, bg: C.successBg },
+  running: { label: "採集中", color: C.primary, bg: C.p50 },
+  pending: { label: "待執行", color: C.muted, bg: C.surf2 },
+  error: { label: "失敗", color: C.danger, bg: C.dangerBg },
+};
+
+const CITY_OPTIONS = ["台北市", "新北市", "桃園市", "台中市", "台南市", "高雄市"];
+const KEYWORD_SUGGEST = ["養生館", "越式洗髮", "宮廟", "長照中心", "禮儀公司", "SPA"];
+
+function PlacesJobPanel({ onClose }: { onClose: () => void }) {
+  const [keyword, setKeyword] = useState("");
+  const [city, setCity] = useState("台中市");
+  const [maxPages, setMaxPages] = useState(1);
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const [resultOk, setResultOk] = useState(false);
+  const [jobs, setJobs] = useState<ScrapeJob[]>([]);
+
+  const loadJobs = () => {
+    fetch("/api/scrape/places")
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success) setJobs(res.data);
+      })
+      .catch(() => {});
+  };
+  useEffect(loadJobs, []);
+
+  const run = async () => {
+    if (!keyword.trim() || running) return;
+    setRunning(true);
+    setResult(null);
+    try {
+      const res = await fetch("/api/scrape/places", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keyword: keyword.trim(), city, maxPages }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        const d = json.data;
+        setResultOk(true);
+        setResult(
+          `找到 ${d.found} 間店家 → 新增 ${d.new_brands} 個品牌、${d.new_stores} 間門市` +
+            (d.linked_existing > 0 ? `、歸戶 ${d.linked_existing} 間到既有品牌` : "") +
+            ` · 費用約 $${d.est_cost_usd} USD`
+        );
+      } else {
+        setResultOk(false);
+        setResult(`採集失敗：${json.error}`);
+      }
+    } catch {
+      setResultOk(false);
+      setResult("採集失敗：網路錯誤");
+    }
+    setRunning(false);
+    loadJobs();
+  };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(46,69,53,.4)", backdropFilter: "blur(2px)", animation: "fadeIn 180ms" }} />
+      <div
+        style={{
+          position: "fixed",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%,-50%)",
+          zIndex: 510,
+          width: "94vw",
+          maxWidth: 540,
+          maxHeight: "86vh",
+          background: C.surface,
+          borderRadius: 20,
+          boxShadow: "0 24px 64px rgba(21,20,26,.22)",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        }}
+      >
+        <div style={{ padding: "18px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>⚡ 新增採集任務</div>
+            <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>Google Places 關鍵字 × 城市，自動寫入名單</div>
+          </div>
+          <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: C.muted, fontSize: 24, lineHeight: 1 }}>×</button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px" }}>
+          {/* 關鍵字 */}
+          <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>產業關鍵字</div>
+          <input
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder="例：養生館、宮廟、長照中心…"
+            style={{ width: "100%", padding: "11px 14px", borderRadius: 11, border: `1px solid ${C.border}`, background: C.surf2, fontSize: 15, color: C.text, outline: "none", marginBottom: 8 }}
+          />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+            {KEYWORD_SUGGEST.map((k) => (
+              <button
+                key={k}
+                onClick={() => setKeyword(k)}
+                style={{ padding: "4px 12px", borderRadius: 999, fontSize: 12, border: `1px solid ${keyword === k ? C.primary : C.border}`, background: keyword === k ? C.p50 : "transparent", color: keyword === k ? C.primary : C.muted, cursor: "pointer" }}
+              >
+                {k}
+              </button>
+            ))}
+          </div>
+
+          {/* 城市 */}
+          <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>城市</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+            {CITY_OPTIONS.map((c) => (
+              <button
+                key={c}
+                onClick={() => setCity(c)}
+                style={{ padding: "6px 14px", borderRadius: 999, fontSize: 13, fontWeight: city === c ? 700 : 400, border: `1px solid ${city === c ? C.primary : C.border}`, background: city === c ? C.p50 : "transparent", color: city === c ? C.primary : C.text, cursor: "pointer" }}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+
+          {/* 頁數 / 費用預估 */}
+          <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>採集量（每頁 20 筆，Text Search 約 $0.032/次）</div>
+          <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+            {[1, 2, 3].map((n) => (
+              <button
+                key={n}
+                onClick={() => setMaxPages(n)}
+                style={{ flex: 1, padding: "8px 0", borderRadius: 10, fontSize: 13, fontWeight: maxPages === n ? 700 : 400, border: `1px solid ${maxPages === n ? C.primary : C.border}`, background: maxPages === n ? C.p50 : "transparent", color: maxPages === n ? C.primary : C.muted, cursor: "pointer" }}
+              >
+                {n * 20} 筆<span style={{ fontSize: 11, opacity: 0.7 }}>（${(n * 0.032).toFixed(3)}）</span>
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={run}
+            disabled={running || !keyword.trim()}
+            className="pressable"
+            style={{
+              width: "100%",
+              padding: 13,
+              borderRadius: 12,
+              border: "none",
+              background: running || !keyword.trim() ? C.surf2 : C.primary,
+              color: running || !keyword.trim() ? C.muted : "white",
+              fontWeight: 700,
+              fontSize: 15,
+              cursor: running || !keyword.trim() ? "default" : "pointer",
+            }}
+          >
+            {running ? (
+              <span>
+                <span className="spin" style={{ marginRight: 6 }}>↻</span>採集中，約需 5~15 秒…
+              </span>
+            ) : (
+              `⚡ 開始採集「${keyword || "…"} × ${city}」`
+            )}
+          </button>
+
+          {result && (
+            <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 10, background: resultOk ? C.successBg : C.dangerBg, fontSize: 13, color: resultOk ? C.success : C.danger, lineHeight: 1.6 }}>
+              {resultOk ? "✓ " : "✕ "}
+              {result}
+              {resultOk && (
+                <div style={{ marginTop: 4 }}>
+                  <Link href="/leads" style={{ color: C.success, fontWeight: 700 }}>到名單總覽查看 →</Link>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 歷史任務 */}
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.2, color: C.muted, margin: "20px 0 10px" }}>最近採集任務</div>
+          {jobs.length === 0 && <div style={{ fontSize: 13, color: C.muted, textAlign: "center", padding: "14px 0" }}>尚無任務紀錄</div>}
+          {jobs.map((j) => {
+            const st = JOB_STATUS[j.status] || JOB_STATUS.pending;
+            const d = new Date(j.created_at);
+            return (
+              <div key={j.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 10, border: `1px solid ${C.border}`, marginBottom: 7 }}>
+                <span style={{ padding: "2px 9px", borderRadius: 999, background: st.bg, color: st.color, fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{st.label}</span>
+                <span style={{ fontSize: 13, color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {(j.keywords || []).join("、")} × {(j.cities || []).join("、")}
+                </span>
+                {j.result_count != null && <span style={{ fontSize: 12, color: C.muted, flexShrink: 0 }}>{j.result_count} 筆</span>}
+                <span style={{ fontSize: 11, color: C.muted, flexShrink: 0 }}>{d.getMonth() + 1}/{d.getDate()}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── 主頁面 ───────────────────────────────────────────
 export default function MatchingPage() {
   const [brands, setBrands] = useState<ScrapeBrand[]>(INIT_BRANDS);
   const [selectedId, setSelectedId] = useState(1);
   const [tab, setTab] = useState("tasks");
   const [isMobile, setIsMobile] = useState(false);
+  const [jobPanelOpen, setJobPanelOpen] = useState(false);
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   useEffect(() => {
     const fn = () => setIsMobile(window.innerWidth < 900);
     fn();
     window.addEventListener("resize", fn);
+    // 側欄「採集任務」(?tab=collect) 直接打開任務面板
+    if (window.location.search.includes("tab=collect")) setJobPanelOpen(true);
     return () => window.removeEventListener("resize", fn);
   }, []);
 
@@ -569,9 +781,16 @@ export default function MatchingPage() {
         <h1 style={{ fontSize: 17, fontWeight: 600, color: C.text, margin: 0 }}>採集 & 比對中心</h1>
         <span style={{ fontSize: 13, color: C.muted }}>— 自動抓取各管道公開資料，與現有名單核對差異</span>
         <button
+          onClick={() => setJobPanelOpen(true)}
+          className="pressable"
+          style={{ marginLeft: "auto", padding: "7px 14px", borderRadius: 9, border: "none", background: C.primary, color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", gap: 5 }}
+        >
+          ⚡ 新增採集任務
+        </button>
+        <button
           onClick={exportCSV}
           className="pressable"
-          style={{ marginLeft: "auto", padding: "7px 13px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
+          style={{ padding: "7px 13px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
         >
           ↓ CSV
         </button>
@@ -589,6 +808,8 @@ export default function MatchingPage() {
         />
         {selected && <DetailPanel brand={selected} tab={tab} onTabChange={setTab} onRunTask={runTask} onAcceptConflict={resolveConflict} />}
       </div>
+
+      {jobPanelOpen && <PlacesJobPanel onClose={() => setJobPanelOpen(false)} />}
     </>
   );
 }
