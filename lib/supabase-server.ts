@@ -1,13 +1,14 @@
 import { createClient } from "@supabase/supabase-js";
+import { cleanEnv } from "@/lib/env";
 
 // 伺服器端客戶端（用於 API Routes）
 // 優先用 Service Role Key（繞過 RLS）；未設定時退回 anon key
 // （開發期 RLS 政策允許 anon 讀寫，導入 Auth 後務必補上 Service Role Key）
 export function getSupabaseServerClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseUrl = cleanEnv("NEXT_PUBLIC_SUPABASE_URL");
   const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    cleanEnv("SUPABASE_SERVICE_ROLE_KEY") ||
+    cleanEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
   if (!supabaseUrl || !key) {
     throw new Error("Supabase 環境變數未設定");
