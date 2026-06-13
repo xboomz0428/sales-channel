@@ -154,6 +154,17 @@ export async function POST(request: NextRequest) {
         text: `共 ${uniquePlaces.length} 間獨立店家${skippedDupGoogle > 0 ? `（Google 重複 ${skippedDupGoogle} 筆已去除）` : ""}，開始寫入資料庫…`,
       });
 
+      // 批次預撈已存在的 place_id 與 (name+address_key)，避免迴圈內每次打 DB
+      const placeIds = uniquePlaces.map((p) => p.id).filter(Boolean);
+      const { data: existingByPlaceId } = await supabase
+        .from("stores").select("place_id").in("place_id", placeIds);
+      const existingPlaceIdSet = new Set((existingByPlaceId ?? []).map((r) => r.place_id));
+
+      const addressKeys = uniquePlaces.map((p) => (p.formattedAddress || "").replace(/\s+/g, "")).filter(Boolean);
+      const { data: existingByAddr } = await supabase
+        .from("stores").select("address_key,name").in("address_key", addressKeys);
+      const existingAddrSet = new Set((existingByAddr ?? []).map((r) => `${r.address_key}|${r.name}`));
+
       let newStores = 0;
       let newBrands = 0;
       let linkedExisting = 0;
@@ -176,17 +187,13 @@ export async function POST(request: NextRequest) {
         if (!key) continue;
         const addressKey = address.replace(/\s+/g, "");
 
-        const { data: existStore } = await supabase
-          .from("stores").select("id").eq("place_id", p.id).maybeSingle();
-        if (existStore) {
+        if (existingPlaceIdSet.has(p.id)) {
           skippedExists++;
           await emit({ type: "store", ok: false, text: `${prefix} — 跳過「${name}」（place_id 已存在）` });
           continue;
         }
 
-        const { data: fpStore } = await supabase
-          .from("stores").select("id").eq("address_key", addressKey).eq("name", name).maybeSingle();
-        if (fpStore) {
+        if (existingAddrSet.has(`${addressKey}|${name}`)) {
           skippedExists++;
           await emit({ type: "store", ok: false, text: `${prefix} — 跳過「${name}」（地址重複）` });
           continue;

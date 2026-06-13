@@ -229,16 +229,34 @@ export async function POST(request: NextRequest) {
         if (data) brands = [data];
       } else if (body.all) {
         const limit = Math.min(Number(body.limit) || 30, 50);
+
         // 找有官網的品牌
         const { data: rows } = await sb
           .from("stores")
           .select("brand_id")
           .not("website", "is", null)
           .neq("website", "")
-          .limit(limit * 3);
-        const ids = [...new Set((rows ?? []).map((r) => r.brand_id).filter(Boolean))].slice(0, limit);
-        if (ids.length) {
-          const { data } = await sb.from("brands").select("id,name").in("id", ids);
+          .limit(limit * 5);
+        const candidateIds = [...new Set((rows ?? []).map((r) => r.brand_id).filter(Boolean))];
+
+        // 撈已有管道資料的品牌 id（≥ 2 筆 channel 視為已完成）
+        const { data: enrichedRows } = await sb
+          .from("brand_channels")
+          .select("brand_id")
+          .in("brand_id", candidateIds);
+        const enrichedCounts: Record<string, number> = {};
+        for (const r of enrichedRows ?? []) {
+          enrichedCounts[r.brand_id] = (enrichedCounts[r.brand_id] ?? 0) + 1;
+        }
+        const unenrichedIds = candidateIds.filter((id) => (enrichedCounts[id] ?? 0) < 2).slice(0, limit);
+
+        const skippedAlready = candidateIds.length - unenrichedIds.length;
+        if (skippedAlready > 0) {
+          await emit({ type: "step", text: `略過 ${skippedAlready} 個品牌（已有管道資料），剩餘 ${unenrichedIds.length} 個待爬取` });
+        }
+
+        if (unenrichedIds.length) {
+          const { data } = await sb.from("brands").select("id,name").in("id", unenrichedIds);
           brands = data ?? [];
         }
       }
