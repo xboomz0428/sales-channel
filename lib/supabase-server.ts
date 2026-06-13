@@ -6,18 +6,17 @@ import { cleanEnv } from "@/lib/env";
 // （開發期 RLS 政策允許 anon 讀寫，導入 Auth 後務必補上 Service Role Key）
 export function getSupabaseServerClient() {
   const supabaseUrl =
-    cleanEnv("SUPABASE_URL") ||
-    cleanEnv("NEXT_PUBLIC_SUPABASE_URL");
+    cleanEnv("NEXT_PUBLIC_SUPABASE_URL") ||
+    cleanEnv("SUPABASE_URL");
   const key =
-    cleanEnv("SUPABASE_SERVICE_ROLE_KEY") ||
+    cleanEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY") ||
     cleanEnv("SUPABASE_ANON_KEY") ||
-    cleanEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+    cleanEnv("SUPABASE_SERVICE_ROLE_KEY");
 
   if (!supabaseUrl || !key) {
     throw new Error("Supabase 環境變數未設定");
   }
 
-  console.log("[supabase] url_host=", new URL(supabaseUrl).host);
   return createClient(supabaseUrl, key);
 }
 
