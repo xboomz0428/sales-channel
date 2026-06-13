@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Fragment, ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { C, STATUS, STAGE_ORDER, CHANNELS, CHANNEL_ORDER, INDUSTRIES, downloadCSV, channelHref, StatusKey } from "@/lib/design";
+import { C, STATUS, STAGE_ORDER, CHANNELS, CHANNEL_ORDER, INDUSTRIES, channelHref, StatusKey } from "@/lib/design";
 import Icon from "@/components/Icon";
 import MobileTabBar from "@/components/MobileTabBar";
 
@@ -1037,6 +1037,103 @@ function analyzeBrands(brands: BrandVM[]): string {
   return lines.join("\n");
 }
 
+// ── 批次匯入 Modal ────────────────────────────────────
+function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; text: string; details?: string[] } | null>(null);
+
+  const upload = async () => {
+    if (!file || loading) return;
+    setLoading(true);
+    setResult(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/brands/import", { method: "POST", body: fd });
+      const json = await res.json();
+      if (json.success) {
+        const d = json.data;
+        setResult({
+          ok: true,
+          text: `匯入完成：新增 ${d.imported} 筆，略過 ${d.skipped} 筆（已存在或空白），${d.errors > 0 ? `失敗 ${d.errors} 筆` : "無失敗"}`,
+          details: d.errorDetails,
+        });
+        onDone();
+      } else {
+        setResult({ ok: false, text: json.error || "匯入失敗" });
+      }
+    } catch {
+      setResult({ ok: false, text: "網路錯誤" });
+    }
+    setLoading(false);
+  };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 600, background: "rgba(0,0,0,.35)" }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 610, width: "92vw", maxWidth: 460, background: C.surface, borderRadius: 18, boxShadow: "0 20px 60px rgba(0,0,0,.2)", padding: "22px 22px 18px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>批次匯入品牌</div>
+          <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: C.muted, fontSize: 22, lineHeight: 1 }}>×</button>
+        </div>
+
+        {/* 下載樣板 */}
+        <a
+          href="/api/brands/template"
+          download
+          style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 10, border: `1px dashed ${C.primary}80`, background: C.p50, color: C.primary, textDecoration: "none", fontSize: 13, fontWeight: 600, marginBottom: 16 }}
+        >
+          ↓ 下載匯入樣板 (.xlsx)
+          <span style={{ marginLeft: "auto", fontSize: 11, color: C.muted, fontWeight: 400 }}>含欄位說明工作表</span>
+        </a>
+
+        {/* 上傳區 */}
+        <div
+          onClick={() => document.getElementById("import-file-input")?.click()}
+          style={{ padding: "24px 16px", borderRadius: 12, border: `2px dashed ${file ? C.primary : C.border}`, background: file ? C.p50 : C.surf2, textAlign: "center", cursor: "pointer", marginBottom: 14, transition: "all 150ms" }}
+        >
+          <div style={{ fontSize: 28, marginBottom: 6 }}>{file ? "📄" : "📁"}</div>
+          <div style={{ fontSize: 13, color: file ? C.primary : C.muted, fontWeight: file ? 600 : 400 }}>
+            {file ? file.name : "點擊選擇 .xlsx / .xls 檔案"}
+          </div>
+          {file && <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>{(file.size / 1024).toFixed(1)} KB</div>}
+        </div>
+        <input
+          id="import-file-input"
+          type="file"
+          accept=".xlsx,.xls"
+          style={{ display: "none" }}
+          onChange={(e) => { setFile(e.target.files?.[0] ?? null); setResult(null); }}
+        />
+
+        {result && (
+          <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 9, background: result.ok ? C.successBg : C.dangerBg, color: result.ok ? C.success : C.danger, fontSize: 13, lineHeight: 1.6 }}>
+            {result.ok ? "✓ " : "✕ "}{result.text}
+            {result.details && result.details.length > 0 && (
+              <ul style={{ margin: "6px 0 0 16px", padding: 0, fontSize: 11 }}>
+                {result.details.map((d, i) => <li key={i}>{d}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={upload}
+            disabled={!file || loading}
+            className="pressable"
+            style={{ flex: 1, padding: 11, borderRadius: 10, border: "none", background: !file || loading ? C.surf2 : C.primary, color: !file || loading ? C.muted : "white", fontSize: 14, fontWeight: 700, cursor: !file || loading ? "default" : "pointer" }}
+          >
+            {loading ? "匯入中…" : "開始匯入"}
+          </button>
+          <button onClick={onClose} style={{ padding: "11px 16px", borderRadius: 10, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontSize: 14, cursor: "pointer" }}>關閉</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── 主頁面 ───────────────────────────────────────────
 export default function LeadsPage() {
   const router = useRouter();
@@ -1050,6 +1147,7 @@ export default function LeadsPage() {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiText, setAiText] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   useEffect(() => {
     fetch("/api/brands")
@@ -1087,21 +1185,8 @@ export default function LeadsPage() {
       .catch(() => {});
   }, []);
 
-  const exportCSV = () => {
-    const hdrs = ["品牌名稱", "產業", "分店數", "城市", "評分", "狀態", "負責人", "統編", "年預估(NT$)", "成交機率(%)"];
-    const rows = brands.map((b) => [
-      b.name,
-      b.industry,
-      b.stores,
-      b.cities,
-      b.score,
-      STATUS[b.status as StatusKey]?.label || b.status,
-      b.owner || "",
-      b.tax_id || "",
-      b.est_annual || "",
-      b.probability || "",
-    ]);
-    downloadCSV("HeroHerb_名單總覽.csv", hdrs, rows);
+  const exportXLS = () => {
+    window.location.href = "/api/brands/export";
   };
 
   const runAI = () => {
@@ -1217,12 +1302,26 @@ export default function LeadsPage() {
 
         <div className="d-only" style={{ display: "flex", gap: 7, marginLeft: 8 }}>
           <button
-            onClick={exportCSV}
+            onClick={() => setImportOpen(true)}
             className="pressable"
             style={{ display: "flex", alignItems: "center", gap: 5, padding: "9px 13px", border: `1px solid ${C.border}`, borderRadius: 10, background: C.surface, color: C.muted, cursor: "pointer", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}
           >
-            ↓ CSV
+            ↑ 匯入
           </button>
+          <button
+            onClick={exportXLS}
+            className="pressable"
+            style={{ display: "flex", alignItems: "center", gap: 5, padding: "9px 13px", border: `1px solid ${C.border}`, borderRadius: 10, background: C.surface, color: C.muted, cursor: "pointer", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}
+          >
+            ↓ XLS
+          </button>
+          <a
+            href="/api/brands/template"
+            download
+            style={{ display: "flex", alignItems: "center", gap: 5, padding: "9px 13px", border: `1px solid ${C.border}`, borderRadius: 10, background: C.surface, color: C.muted, textDecoration: "none", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}
+          >
+            ↓ 樣板
+          </a>
           <button
             onClick={runAI}
             className="pressable"
@@ -1333,6 +1432,46 @@ export default function LeadsPage() {
       {recorder && <QuickRecord brand={recorder} onClose={() => setRecorder(null)} />}
 
       {filterOpen && <FilterDrawer filters={filters} onApply={(f) => setFilters(f)} onClose={() => setFilterOpen(false)} />}
+
+      {importOpen && (
+        <ImportModal
+          onClose={() => setImportOpen(false)}
+          onDone={() => {
+            setImportOpen(false);
+            fetch("/api/brands")
+              .then((r) => r.json())
+              .then((result) => {
+                if (result.success && Array.isArray(result.data) && result.data.length > 0) {
+                  setBrands(
+                    result.data.map((b: Record<string, unknown>) => {
+                      const chRows = (Array.isArray(b.brand_channels) ? b.brand_channels : []) as { channel: string; value: string }[];
+                      const channelLinks: Record<string, string> = {};
+                      for (const c of chRows) if (c.channel && c.value) channelLinks[c.channel] = c.value;
+                      const channels = CHANNEL_ORDER.filter((ch) => channelLinks[ch]);
+                      const storeRows = (Array.isArray(b.stores) ? b.stores : []) as { city: string | null }[];
+                      const cities = [...new Set(storeRows.map((s) => (s.city || "").replace(/[市縣]$/, "")).filter(Boolean))];
+                      return {
+                        id: b.id as string,
+                        name: (b.name as string) || "未命名",
+                        industry: (b.industry as string) || "其他",
+                        stores: (b.store_count as number) || 1,
+                        cities: cities.length ? cities.slice(0, 3).join("/") : "—",
+                        channels,
+                        channelLinks,
+                        score: (b.priority_score as number) ?? 50,
+                        status: (b.status as string) || "new",
+                        owner: b.owner_name as string | undefined,
+                        tax_id: b.tax_id as string | undefined,
+                      };
+                    })
+                  );
+                  setUsingApi(true);
+                }
+              })
+              .catch(() => {});
+          }}
+        />
+      )}
     </>
   );
 }
