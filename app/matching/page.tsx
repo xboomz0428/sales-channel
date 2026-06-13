@@ -876,6 +876,123 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
   );
 }
 
+// ── 官網爬蟲面板 ─────────────────────────────────────
+function WebsiteScraperPanel({ onClose, onDone }: { onClose: () => void; onDone?: () => void }) {
+  const [limit, setLimit] = useState(20);
+  const [running, setRunning] = useState(false);
+  const [steps, setSteps] = useState<{ type: string; text: string; ok?: boolean }[]>([]);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const logRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [steps]);
+
+  const run = async () => {
+    if (running) return;
+    setRunning(true);
+    setResult(null);
+    setSteps([]);
+    try {
+      const res = await fetch("/api/scrape/website", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ all: true, limit }),
+      });
+      if (!res.ok || !res.body) {
+        setResult({ ok: false, text: "爬取失敗" });
+        setRunning(false);
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          const t = line.trim();
+          if (!t) continue;
+          try {
+            const evt = JSON.parse(t);
+            if (evt.type === "done") {
+              const d = evt.data;
+              setResult({ ok: true, text: `完成：${d.enriched} 個品牌找到資料（共 ${d.total_channels} 個管道），${d.skipped} 個略過` });
+              onDone?.();
+            } else if (evt.type === "error") {
+              setResult({ ok: false, text: evt.text });
+            } else {
+              setSteps((prev) => [...prev, { type: evt.type, text: evt.text, ok: evt.ok }]);
+            }
+          } catch {}
+        }
+      }
+    } catch {
+      setResult({ ok: false, text: "網路錯誤" });
+    }
+    setRunning(false);
+  };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(46,69,53,.4)", backdropFilter: "blur(2px)" }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 510, width: "94vw", maxWidth: 520, maxHeight: "82vh", background: C.surface, borderRadius: 20, boxShadow: "0 24px 64px rgba(21,20,26,.22)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ padding: "18px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>🌐 官網爬蟲</div>
+            <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>爬取品牌官網，擷取 LINE / FB / IG / 電話 / Email</div>
+          </div>
+          <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: C.muted, fontSize: 24, lineHeight: 1 }}>×</button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px" }}>
+          <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>一次爬取筆數</div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+            {[10, 20, 30].map((n) => (
+              <button
+                key={n}
+                onClick={() => setLimit(n)}
+                style={{ flex: 1, padding: "9px 0", borderRadius: 10, fontSize: 13, fontWeight: limit === n ? 700 : 400, border: `1px solid ${limit === n ? C.primary : C.border}`, background: limit === n ? C.p50 : "transparent", color: limit === n ? C.primary : C.muted, cursor: "pointer" }}
+              >
+                {n} 個品牌
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={run}
+            disabled={running}
+            className="pressable"
+            style={{ width: "100%", padding: 13, borderRadius: 12, border: "none", background: running ? C.surf2 : C.primary, color: running ? C.muted : "white", fontWeight: 700, fontSize: 15, cursor: running ? "default" : "pointer" }}
+          >
+            {running ? <span><span className="spin" style={{ marginRight: 6 }}>↻</span>爬取中…</span> : `🌐 開始爬取（${limit} 個品牌）`}
+          </button>
+
+          {steps.length > 0 && (
+            <div ref={logRef} style={{ marginTop: 12, maxHeight: 240, overflowY: "auto", background: "#0e1a11", borderRadius: 10, padding: "10px 14px", fontFamily: "monospace", fontSize: 12, lineHeight: 1.75 }}>
+              {steps.map((s, i) => (
+                <div key={i} style={{ color: s.type === "store" ? (s.ok ? "#5be585" : "#666") : "#9dbeaa" }}>
+                  {s.text}
+                </div>
+              ))}
+              {running && <div style={{ color: "#5be585", opacity: 0.7 }}>▌</div>}
+            </div>
+          )}
+
+          {result && (
+            <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 10, background: result.ok ? C.successBg : C.dangerBg, fontSize: 13, color: result.ok ? C.success : C.danger, lineHeight: 1.6 }}>
+              {result.ok ? "✓ " : "✕ "}{result.text}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── 主頁面 ───────────────────────────────────────────
 export default function MatchingPage() {
   const [brands, setBrands] = useState<ScrapeBrand[]>(INIT_BRANDS);
@@ -900,6 +1017,7 @@ export default function MatchingPage() {
   const [tab, setTab] = useState("tasks");
   const [isMobile, setIsMobile] = useState(false);
   const [jobPanelOpen, setJobPanelOpen] = useState(false);
+  const [websitePanelOpen, setWebsitePanelOpen] = useState(false);
   const [bulkRunning, setBulkRunning] = useState<string | null>(null);
   const [bulkMsg, setBulkMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [lastRunAll, setLastRunAll] = useState<string | null>(null);
@@ -1071,6 +1189,13 @@ export default function MatchingPage() {
           {bulkRunning === "channels" ? <span className="spin">↻</span> : "🔗"} 管道補齊
         </button>
         <button
+          onClick={() => setWebsitePanelOpen(true)}
+          className="pressable"
+          style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid #2D7D4660`, background: "#E3F5EB", color: "#2D7D46", fontSize: 13, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}
+        >
+          🌐 官網爬蟲
+        </button>
+        <button
           onClick={exportCSV}
           className="pressable"
           style={{ padding: "7px 13px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
@@ -1109,6 +1234,7 @@ export default function MatchingPage() {
       </div>
 
       {jobPanelOpen && <PlacesJobPanel onClose={() => setJobPanelOpen(false)} onDone={loadBrands} />}
+      {websitePanelOpen && <WebsiteScraperPanel onClose={() => setWebsitePanelOpen(false)} onDone={loadBrands} />}
     </>
   );
 }
