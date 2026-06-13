@@ -14,7 +14,11 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get("status");
     const search = searchParams.get("search");
 
-    let query = supabase.from("brands").select("*, brand_channels(channel, value), stores(city)");
+    // gov_records 只帶待人工確認的低信心比對（採集中心「比對結果」分頁用）
+    let query = supabase
+      .from("brands")
+      .select("*, brand_channels(channel, value), stores(city), gov_records(id, tax_id, name, owner_name, address, match_confidence)")
+      .eq("gov_records.match_confidence", "low");
 
     // 篩選條件
     if (industry) {

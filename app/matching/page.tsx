@@ -36,6 +36,7 @@ interface Conflict {
   collected: string;
   source: string;
   accepted: boolean | null;
+  recordId?: string; // 真實模式：gov_records.id，確認時回寫 DB
 }
 
 interface ScrapeBrand {
@@ -53,6 +54,27 @@ function dbBrandToScrapeBrand(b: Record<string, unknown>): ScrapeBrand {
   const links: Record<string, string> = {};
   for (const c of chRows) if (c.channel && c.value) links[c.channel] = c.value;
   const storeCount = (b.store_count as number) || 0;
+
+  // 低信心工商登記比對 → 待人工確認差異
+  const govRecs = (Array.isArray(b.gov_records) ? b.gov_records : []) as {
+    id: string;
+    tax_id: string | null;
+    name: string;
+    owner_name: string | null;
+    match_confidence: string;
+  }[];
+  const conflicts: Conflict[] = govRecs
+    .filter((r) => r.match_confidence === "low")
+    .map((r) => ({
+      field: "工商登記歸屬",
+      current: b.tax_id
+        ? `${(b.registered_name as string) || (b.name as string)}・統編 ${b.tax_id}`
+        : `${b.name as string}（尚無統編資料）`,
+      collected: `${r.name}・統編 ${r.tax_id || "—"}${r.owner_name ? `・負責人 ${r.owner_name}` : ""}`,
+      source: "gov",
+      accepted: null,
+      recordId: r.id,
+    }));
 
   const tasks: Record<string, ScrapeTask> = {
     gov: b.tax_id
@@ -72,7 +94,7 @@ function dbBrandToScrapeBrand(b: Record<string, unknown>): ScrapeBrand {
     score: (b.priority_score as number) ?? 50,
     stage: (b.status as string) || "new",
     tasks,
-    conflicts: [],
+    conflicts,
   };
 }
 
@@ -873,9 +895,24 @@ export default function MatchingPage() {
   };
 
   const resolveConflict = (brandId: number | string, idx: number, accepted: boolean) => {
+    const conflict = brands.find((b) => b.id === brandId)?.conflicts[idx];
+    // 先更新畫面，真實模式再回寫 DB
     setBrands((prev) =>
       prev.map((b) => (b.id !== brandId ? b : { ...b, conflicts: b.conflicts.map((c, i) => (i === idx ? { ...c, accepted } : c)) }))
     );
+    if (conflict?.recordId) {
+      fetch("/api/gov/conflicts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ record_id: conflict.recordId, accept: accepted }),
+      })
+        .then((r) => r.json())
+        .then((json) => {
+          if (!json.success) setBulkMsg({ ok: false, text: json.error || "差異確認失敗" });
+          loadBrands();
+        })
+        .catch(() => setBulkMsg({ ok: false, text: "網路錯誤，差異確認未儲存" }));
+    }
   };
 
   const selected = brands.find((b) => b.id === selectedId) || brands[0];

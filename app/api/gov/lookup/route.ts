@@ -13,7 +13,8 @@ import { getSupabaseServerClient } from "@/lib/supabase-server";
  *  - 公司登記基本資料（依統編）  5F64D864-61CB-4D0D-8AD9-492047CC1EA6
  *  - 公司登記基本資料（依名稱）  6BBA2268-1367-4B42-9CCA-BC17499EBE8C
  * 註：獨資/合夥商號屬商業登記，GCIS 無穩定免費名稱查詢端點，
- *     需財政部稅籍資料集（整批 CSV 匯入，見 /api/gov/registry 規劃）。
+ *     GCIS 查不到時自動 fallback 到本地 gov_registry 表
+ *     （財政部稅籍資料，由 /api/gov/registry 匯入）。
  */
 
 const GCIS = "https://data.gcis.nat.gov.tw/od/data/api";
@@ -69,12 +70,35 @@ function confidence(brandName: string, companyName: string): "high" | "low" {
 
 type SupabaseServerClient = ReturnType<typeof getSupabaseServerClient>;
 
+// GCIS 查不到時改查本地稅籍鏡像表（獨資/合夥商號）
+async function searchRegistry(supabase: SupabaseServerClient, name: string): Promise<GcisCompany[]> {
+  const { data } = await supabase
+    .from("gov_registry")
+    .select("tax_id, name, address, capital, setup_date, organization_type")
+    .ilike("name", `%${name}%`)
+    .limit(5);
+  return (data || []).map((r) => ({
+    Business_Accounting_NO: r.tax_id,
+    Company_Name: r.name,
+    Company_Location: r.address || undefined,
+    Capital_Stock_Amount: r.capital || undefined,
+    Company_Setup_Date: r.setup_date || undefined,
+    Register_Organization_Desc: r.organization_type || undefined,
+  }));
+}
+
 async function matchBrand(
   supabase: SupabaseServerClient,
   brand: { id: string; name: string; brand_key?: string | null; tax_id?: string | null }
 ) {
   const queryName = (brand.brand_key || brand.name).slice(0, 12);
-  const candidates = brand.tax_id ? await searchByTaxId(brand.tax_id) : await searchByName(queryName);
+  let source = "gcis_company";
+  let candidates = brand.tax_id ? await searchByTaxId(brand.tax_id) : await searchByName(queryName);
+
+  if (candidates.length === 0 && !brand.tax_id) {
+    candidates = await searchRegistry(supabase, queryName);
+    source = "fia_registry";
+  }
 
   if (candidates.length === 0) {
     return { brand: brand.name, matched: false, candidates: 0 };
@@ -83,17 +107,26 @@ async function matchBrand(
   const best = candidates[0];
   const conf = brand.tax_id ? "high" : confidence(brand.name, best.Company_Name);
 
-  // 寫入政府名冊原始資料（保留來源紀錄）
-  await supabase.from("gov_records").insert({
-    source: "gcis_company",
-    tax_id: best.Business_Accounting_NO,
-    name: best.Company_Name,
-    address: best.Company_Location || null,
-    owner_name: best.Responsible_Name || null,
-    extra: best,
-    matched_brand_id: brand.id,
-    match_confidence: conf,
-  });
+  // 寫入政府名冊原始資料（保留來源紀錄）；同品牌+統編已有紀錄則不重複建立，
+  // 避免重跑採集時產生重複的待確認差異
+  const { data: existRec } = await supabase
+    .from("gov_records")
+    .select("id")
+    .eq("matched_brand_id", brand.id)
+    .eq("tax_id", best.Business_Accounting_NO)
+    .maybeSingle();
+  if (!existRec) {
+    await supabase.from("gov_records").insert({
+      source,
+      tax_id: best.Business_Accounting_NO,
+      name: best.Company_Name,
+      address: best.Company_Location || null,
+      owner_name: best.Responsible_Name || null,
+      extra: best,
+      matched_brand_id: brand.id,
+      match_confidence: conf,
+    });
+  }
 
   // 高信心 → 回寫品牌（只補空欄位，不覆蓋人工資料）
   if (conf === "high") {
@@ -129,9 +162,12 @@ export async function POST(request: NextRequest) {
   try {
     // 純查詢模式（不寫入）
     if (body.name || body.tax_id) {
-      const candidates = body.tax_id
+      let candidates = body.tax_id
         ? await searchByTaxId(String(body.tax_id))
         : await searchByName(String(body.name).slice(0, 12));
+      if (candidates.length === 0 && body.name) {
+        candidates = await searchRegistry(supabase, String(body.name).slice(0, 12));
+      }
       return NextResponse.json({ success: true, data: { candidates } });
     }
 
