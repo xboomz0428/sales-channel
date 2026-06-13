@@ -17,6 +17,7 @@ export function getSupabaseServerClient() {
     throw new Error("Supabase 環境變數未設定");
   }
 
+  console.log("[supabase] url_host=", new URL(supabaseUrl).host);
   return createClient(supabaseUrl, key);
 }
 
