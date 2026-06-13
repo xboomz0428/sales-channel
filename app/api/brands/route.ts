@@ -15,9 +15,10 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get("search");
 
     // gov_records 只帶待人工確認的低信心比對（採集中心「比對結果」分頁用）
+    // store_reviews 只帶最新 5 筆（在 JS 層截取，Supabase JS 不支援 nested limit）
     let query = supabase
       .from("brands")
-      .select("*, brand_channels(channel, value), stores(city), gov_records(id, tax_id, name, owner_name, address, match_confidence)")
+      .select("*, brand_channels(channel, value), stores(city, gmaps_url, store_reviews(rating, text, author_name, relative_time)), gov_records(id, tax_id, name, owner_name, address, match_confidence)")
       .eq("gov_records.match_confidence", "low");
 
     // 篩選條件

@@ -23,11 +23,19 @@ const TASK_STATUS: Record<TaskStatusKey, { label: string; color: string; bg: str
   stale: { label: "已過期", color: C.warning, bg: C.warningBg },
 };
 
+interface ReviewEntry {
+  author: string;
+  rating: number;
+  text: string;
+  time: string;
+}
+
 interface ScrapeTask {
   status: TaskStatusKey;
   last: string | null;
   result: Record<string, string | number> | null;
   error?: string;
+  extra?: { reviews?: ReviewEntry[] };
 }
 
 interface Conflict {
@@ -54,6 +62,21 @@ function dbBrandToScrapeBrand(b: Record<string, unknown>): ScrapeBrand {
   const links: Record<string, string> = {};
   for (const c of chRows) if (c.channel && c.value) links[c.channel] = c.value;
   const storeCount = (b.store_count as number) || 0;
+
+  // 從 stores 取 gmaps_url（brand_channels 補齊前先有此路徑）
+  type StoreRow = { city: string; gmaps_url: string | null; store_reviews?: { rating: number | null; text: string | null; author_name: string | null; relative_time: string | null }[] };
+  const storeRows = (Array.isArray(b.stores) ? b.stores : []) as StoreRow[];
+  const gmapsUrl = links.map || storeRows.find((s) => s.gmaps_url)?.gmaps_url || null;
+
+  // 最新 5 筆評論（跨所有門市合併）
+  const reviews: ReviewEntry[] = storeRows
+    .flatMap((s) => (s.store_reviews || []).map((r) => ({
+      author: r.author_name || "匿名",
+      rating: r.rating || 0,
+      text: r.text || "",
+      time: r.relative_time || "",
+    })))
+    .slice(0, 5);
 
   // 低信心工商登記比對 → 待人工確認差異
   const govRecs = (Array.isArray(b.gov_records) ? b.gov_records : []) as {
@@ -84,7 +107,7 @@ function dbBrandToScrapeBrand(b: Record<string, unknown>): ScrapeBrand {
     fb: links.fb ? { status: "done", last: "已取得", result: { 連結: links.fb } } : { status: "queued", last: null, result: null },
     ig: links.ig ? { status: "done", last: "已取得", result: { 連結: links.ig } } : { status: "queued", last: null, result: null },
     map: storeCount > 0
-      ? { status: "done", last: "Places", result: { 門市數: storeCount, ...(links.map ? { 地圖: "已連結" } : {}) } }
+      ? { status: "done", last: "Places", result: { 門市數: storeCount, ...(gmapsUrl ? { 地圖: gmapsUrl } : {}) }, extra: reviews.length ? { reviews } : undefined }
       : { status: "queued", last: null, result: null },
   };
 
@@ -264,6 +287,20 @@ function BrandList({
   );
 }
 
+// 連結值自動轉 <a>，其餘值照常顯示
+function ResultValue({ v }: { v: string | number }) {
+  if (typeof v === "number") return <span>{v.toLocaleString()}</span>;
+  if (/^https?:\/\//.test(v)) {
+    const display = v.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "");
+    return (
+      <a href={v} target="_blank" rel="noopener noreferrer" style={{ color: "#5B7C99", fontWeight: 600, textDecoration: "none", wordBreak: "break-all" }}>
+        ↗ {display.length > 36 ? display.slice(0, 36) + "…" : display}
+      </a>
+    );
+  }
+  return <span>{v}</span>;
+}
+
 // ── 採集來源列 ───────────────────────────────────────
 function TaskRow({ srcKey, task, onRun }: { srcKey: string; task: ScrapeTask; onRun: (src: string) => void }) {
   const src = SOURCES[srcKey];
@@ -307,12 +344,29 @@ function TaskRow({ srcKey, task, onRun }: { srcKey: string; task: ScrapeTask; on
             <div key={k} style={{ display: "flex", gap: 6, alignItems: "baseline" }}>
               <span style={{ fontSize: 11, color: C.muted }}>{k}</span>
               <span style={{ fontSize: 13, fontWeight: 600, color: C.text, fontVariantNumeric: "tabular-nums" }}>
-                {typeof v === "number" ? v.toLocaleString() : v}
+                <ResultValue v={v} />
               </span>
             </div>
           ))}
         </div>
       )}
+
+      {/* 評論列表（地圖來源才有）*/}
+      {task.extra?.reviews?.length ? (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.8 }}>最新評論</div>
+          {task.extra.reviews.map((r, i) => (
+            <div key={i} style={{ padding: "8px 10px", borderRadius: 8, background: C.surf2, marginBottom: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{r.author}</span>
+                <span style={{ fontSize: 11, color: "#D9A44A" }}>{"★".repeat(Math.max(0, Math.min(r.rating, 5)))}</span>
+                <span style={{ fontSize: 10, color: C.muted, marginLeft: "auto" }}>{r.time}</span>
+              </div>
+              {r.text && <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>{r.text.length > 100 ? r.text.slice(0, 100) + "…" : r.text}</div>}
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

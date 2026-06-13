@@ -35,6 +35,13 @@ function brandKey(name: string): string {
   return n;
 }
 
+interface PlaceReview {
+  rating?: number;
+  text?: { text: string; languageCode: string };
+  authorAttribution?: { displayName: string; uri?: string };
+  relativePublishTimeDescription?: string;
+}
+
 interface PlaceResult {
   id: string;
   displayName?: { text: string };
@@ -45,6 +52,7 @@ interface PlaceResult {
   nationalPhoneNumber?: string;
   businessStatus?: string;
   googleMapsUri?: string;
+  reviews?: PlaceReview[];
 }
 
 export async function POST(request: NextRequest) {
@@ -93,7 +101,7 @@ export async function POST(request: NextRequest) {
           "Content-Type": "application/json",
           "X-Goog-Api-Key": apiKey,
           "X-Goog-FieldMask":
-            "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.websiteUri,places.nationalPhoneNumber,places.businessStatus,places.googleMapsUri,nextPageToken",
+            "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.websiteUri,places.nationalPhoneNumber,places.businessStatus,places.googleMapsUri,places.reviews,nextPageToken",
         },
         body: JSON.stringify({
           textQuery: `${keyword} ${city}`,
@@ -116,11 +124,17 @@ export async function POST(request: NextRequest) {
     }
 
     // ── 2. 去重 + 寫入 ──
+    // Google 跨頁有時重複回傳相同 place_id，先在 JS 層去重
+    const uniquePlaces = [...new Map(places.map((p) => [p.id, p])).values()];
+    const skippedDupGoogle = places.length - uniquePlaces.length;
+
     let newStores = 0;
     let newBrands = 0;
     let linkedExisting = 0;
+    let skippedExists = 0;
+    let brandErrors = 0;
 
-    for (const p of places) {
+    for (const p of uniquePlaces) {
       const name = p.displayName?.text || "";
       if (!name) continue;
       if (p.businessStatus === "CLOSED_PERMANENTLY") continue;
@@ -137,7 +151,7 @@ export async function POST(request: NextRequest) {
         .select("id, brand_id")
         .eq("place_id", p.id)
         .maybeSingle();
-      if (existStore) continue;
+      if (existStore) { skippedExists++; continue; }
 
       // 店名+地址指紋（去重第二層，place_id 變動時防重複）
       const { data: fpStore } = await supabase
@@ -146,7 +160,7 @@ export async function POST(request: NextRequest) {
         .eq("address_key", addressKey)
         .eq("name", name)
         .maybeSingle();
-      if (fpStore) continue;
+      if (fpStore) { skippedExists++; continue; }
 
       // 連鎖歸戶：找同 brand_key 的品牌
       let brandId: string;
@@ -177,12 +191,12 @@ export async function POST(request: NextRequest) {
           })
           .select()
           .single();
-        if (nbErr || !nb) continue;
+        if (nbErr || !nb) { brandErrors++; continue; }
         brandId = nb.id;
         newBrands++;
       }
 
-      const { error: storeErr } = await supabase.from("stores").insert({
+      const { data: newStore, error: storeErr } = await supabase.from("stores").insert({
         brand_id: brandId,
         place_id: p.id,
         name,
@@ -195,8 +209,22 @@ export async function POST(request: NextRequest) {
         review_count: p.userRatingCount ?? null,
         gmaps_url: p.googleMapsUri || null,
         raw: p,
-      });
-      if (!storeErr) newStores++;
+      }).select("id").single();
+
+      if (!storeErr && newStore) {
+        newStores++;
+        // 寫入最新評論（最多 5 筆）
+        if (p.reviews?.length) {
+          const reviewRows = p.reviews.slice(0, 5).map((r) => ({
+            store_id: newStore.id,
+            rating: r.rating ?? null,
+            text: r.text?.text || null,
+            author_name: r.authorAttribution?.displayName || null,
+            relative_time: r.relativePublishTimeDescription || null,
+          }));
+          await supabase.from("store_reviews").insert(reviewRows);
+        }
+      }
     }
 
     // ── 3. 任務完成 ──
@@ -213,10 +241,13 @@ export async function POST(request: NextRequest) {
       data: {
         keyword,
         city,
-        found: places.length,
+        found: uniquePlaces.length,
         new_brands: newBrands,
         new_stores: newStores,
         linked_existing: linkedExisting,
+        skipped_exists: skippedExists,
+        skipped_dup_google: skippedDupGoogle,
+        brand_errors: brandErrors,
         requests,
         est_cost_usd: Number(estCost.toFixed(3)),
       },

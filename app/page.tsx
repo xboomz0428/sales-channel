@@ -2,19 +2,25 @@
 
 import { useState, useEffect, CSSProperties, ReactNode } from "react";
 import Link from "next/link";
-import { C, downloadCSV } from "@/lib/design";
+import { C, STAGE_CFG, downloadCSV } from "@/lib/design";
 import MobileTabBar from "@/components/MobileTabBar";
 
 // ── 圖表種子資料（API 無資料時顯示）─────────────────────
-const FUNNEL_SEED = [
-  { stage: "新名單", n: 6, color: "#B5CAC5" },
-  { stage: "已聯繫", n: 5, color: "#9DBDB7" },
-  { stage: "打樣中", n: 3, color: "#8FAAA4" },
-  { stage: "報價中", n: 2, color: "#7A9893" },
-  { stage: "議約中", n: 1, color: "#6A8882" },
-  { stage: "成交", n: 1, color: "#4A6B50" },
+// 漏斗與管線顏色統一對應商機進度（STAGE_CFG）
+const STAGE_KEY_MAP: { stageKey: keyof typeof STAGE_CFG; label: string }[] = [
+  { stageKey: "new",         label: "新名單" },
+  { stageKey: "contacted",   label: "已聯繫" },
+  { stageKey: "sampling",    label: "打樣中" },
+  { stageKey: "quoting",     label: "報價中" },
+  { stageKey: "negotiating", label: "議約中" },
+  { stageKey: "won",         label: "成交"   },
 ];
-const FUNNEL_COLORS = ["#B5CAC5", "#9DBDB7", "#8FAAA4", "#7A9893", "#6A8882", "#4A6B50"];
+const FUNNEL_COLORS = STAGE_KEY_MAP.map((s) => STAGE_CFG[s.stageKey].color);
+const FUNNEL_SEED = STAGE_KEY_MAP.map((s, i) => ({
+  stage: s.label,
+  n: [6, 5, 3, 2, 1, 1][i],
+  color: STAGE_CFG[s.stageKey].color,
+}));
 
 const INDUSTRY_SEED = [
   { label: "養生館", n: 2 },
@@ -37,11 +43,11 @@ const NEGLECTED = [
 ];
 
 const PIPELINE_STAGES = [
-  { stage: "新名單", n: 4, value: 0 },
-  { stage: "已聯繫", n: 3, value: 600000 },
-  { stage: "打樣中", n: 2, value: 2400000 },
-  { stage: "報價中", n: 2, value: 1800000 },
-  { stage: "議約中", n: 1, value: 720000 },
+  { stage: "新名單",   stageKey: "new"         as keyof typeof STAGE_CFG, n: 4, value: 0       },
+  { stage: "已聯繫",   stageKey: "contacted"   as keyof typeof STAGE_CFG, n: 3, value: 600000  },
+  { stage: "打樣中",   stageKey: "sampling"    as keyof typeof STAGE_CFG, n: 2, value: 2400000 },
+  { stage: "報價中",   stageKey: "quoting"     as keyof typeof STAGE_CFG, n: 2, value: 1800000 },
+  { stage: "議約中",   stageKey: "negotiating" as keyof typeof STAGE_CFG, n: 1, value: 720000  },
 ];
 
 const IND_COLOR: Record<string, { c: string; d: string }> = {
@@ -407,22 +413,21 @@ function NeglectedList() {
 // ── 商機管線分佈 ─────────────────────────────────────
 function PipelineBar() {
   const total = PIPELINE_STAGES.reduce((s, d) => s + d.value, 0) || 1;
-  const colors = ["#B5CAC5", "#9DBDB7", "#8FAAA4", "#7A9893", "#6A8882"];
   return (
     <div>
       <div style={{ display: "flex", height: 36, borderRadius: 10, overflow: "hidden", marginBottom: 14 }}>
-        {PIPELINE_STAGES.filter((d) => d.value > 0).map((d, i) => (
+        {PIPELINE_STAGES.filter((d) => d.value > 0).map((d) => (
           <div
-            key={i}
+            key={d.stageKey}
             title={`${d.stage}: NT$${(d.value / 10000).toFixed(0)}萬`}
-            style={{ flex: d.value / total, background: colors[i], minWidth: 4, transition: "flex 800ms" }}
+            style={{ flex: d.value / total, background: STAGE_CFG[d.stageKey].color, minWidth: 4, transition: "flex 800ms" }}
           />
         ))}
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-        {PIPELINE_STAGES.filter((d) => d.value > 0).map((d, i) => (
-          <div key={i} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <div style={{ width: 8, height: 8, borderRadius: 2, background: colors[i], flexShrink: 0 }} />
+        {PIPELINE_STAGES.filter((d) => d.value > 0).map((d) => (
+          <div key={d.stageKey} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <div style={{ width: 8, height: 8, borderRadius: 2, background: STAGE_CFG[d.stageKey].color, flexShrink: 0 }} />
             <span style={{ fontSize: 11, color: C.muted }}>{d.stage}</span>
             <span style={{ fontSize: 11, fontWeight: 600, color: C.text, fontVariantNumeric: "tabular-nums" }}>
               NT${(d.value / 10000).toFixed(0)}萬
