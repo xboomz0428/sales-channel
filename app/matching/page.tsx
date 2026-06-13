@@ -39,12 +39,41 @@ interface Conflict {
 }
 
 interface ScrapeBrand {
-  id: number;
+  id: number | string;
   name: string;
   score: number;
   stage: string;
   tasks: Record<string, ScrapeTask>;
   conflicts: Conflict[];
+}
+
+// 將 DB 品牌映射為採集中心視圖（依現有資料推導各來源狀態）
+function dbBrandToScrapeBrand(b: Record<string, unknown>): ScrapeBrand {
+  const chRows = (Array.isArray(b.brand_channels) ? b.brand_channels : []) as { channel: string; value: string }[];
+  const links: Record<string, string> = {};
+  for (const c of chRows) if (c.channel && c.value) links[c.channel] = c.value;
+  const storeCount = (b.store_count as number) || 0;
+
+  const tasks: Record<string, ScrapeTask> = {
+    gov: b.tax_id
+      ? { status: "done", last: "已比對", result: { 統編: b.tax_id as string, ...(b.owner_name ? { 負責人: b.owner_name as string } : {}), ...(b.registered_name ? { 登記名: b.registered_name as string } : {}) } }
+      : { status: "queued", last: null, result: null },
+    line: links.line ? { status: "done", last: "已取得", result: { 連結: links.line } } : { status: "queued", last: null, result: null },
+    fb: links.fb ? { status: "done", last: "已取得", result: { 連結: links.fb } } : { status: "queued", last: null, result: null },
+    ig: links.ig ? { status: "done", last: "已取得", result: { 連結: links.ig } } : { status: "queued", last: null, result: null },
+    map: storeCount > 0
+      ? { status: "done", last: "Places", result: { 門市數: storeCount, ...(links.map ? { 地圖: "已連結" } : {}) } }
+      : { status: "queued", last: null, result: null },
+  };
+
+  return {
+    id: b.id as string,
+    name: (b.name as string) || "未命名",
+    score: (b.priority_score as number) ?? 50,
+    stage: (b.status as string) || "new",
+    tasks,
+    conflicts: [],
+  };
 }
 
 // ── 種子資料 ─────────────────────────────────────────
@@ -151,8 +180,8 @@ function BrandList({
   onRunAll,
 }: {
   brands: ScrapeBrand[];
-  selectedId: number;
-  onSelect: (id: number) => void;
+  selectedId: number | string;
+  onSelect: (id: number | string) => void;
   onRunAll: () => void;
 }) {
   return (
@@ -337,8 +366,8 @@ function DetailPanel({
   brand: ScrapeBrand;
   tab: string;
   onTabChange: (t: string) => void;
-  onRunTask: (brandId: number, src: string) => void;
-  onAcceptConflict: (brandId: number, idx: number, accepted: boolean) => void;
+  onRunTask: (brandId: number | string, src: string) => void;
+  onAcceptConflict: (brandId: number | string, idx: number, accepted: boolean) => void;
 }) {
   const pct = completeness(brand.tasks);
   const pending = brand.conflicts.filter((c) => c.accepted === null).length;
@@ -458,7 +487,7 @@ function MobileBlock() {
 }
 
 // ── 摘要列 ───────────────────────────────────────────
-function SummaryBar({ brands }: { brands: ScrapeBrand[] }) {
+function SummaryBar({ brands, lastRunAll }: { brands: ScrapeBrand[]; lastRunAll: string | null }) {
   const all = brands.length;
   const done = brands.filter((b) => completeness(b.tasks) === 100).length;
   const allTasks = brands.flatMap((b) => Object.values(b.tasks));
@@ -487,7 +516,7 @@ function SummaryBar({ brands }: { brands: ScrapeBrand[] }) {
       ))}
       <div style={{ marginLeft: "auto", fontSize: 12, color: C.muted, display: "flex", alignItems: "center", gap: 5 }}>
         <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#A3C9A3", display: "inline-block" }} />
-        上次全採：6/8 14:23
+        上次全採：{lastRunAll || "尚未執行"}
       </div>
     </div>
   );
@@ -514,7 +543,7 @@ const JOB_STATUS: Record<string, { label: string; color: string; bg: string }> =
 const CITY_OPTIONS = ["台北市", "新北市", "桃園市", "台中市", "台南市", "高雄市"];
 const KEYWORD_SUGGEST = ["養生館", "越式洗髮", "宮廟", "長照中心", "禮儀公司", "SPA"];
 
-function PlacesJobPanel({ onClose }: { onClose: () => void }) {
+function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () => void }) {
   const [keyword, setKeyword] = useState("");
   const [city, setCity] = useState("台中市");
   const [maxPages, setMaxPages] = useState(1);
@@ -552,6 +581,7 @@ function PlacesJobPanel({ onClose }: { onClose: () => void }) {
             (d.linked_existing > 0 ? `、歸戶 ${d.linked_existing} 間到既有品牌` : "") +
             ` · 費用約 $${d.est_cost_usd} USD`
         );
+        onDone?.(); // 立即刷新左側品牌清單
       } else {
         setResultOk(false);
         setResult(`採集失敗：${json.error}`);
@@ -705,12 +735,30 @@ function PlacesJobPanel({ onClose }: { onClose: () => void }) {
 // ── 主頁面 ───────────────────────────────────────────
 export default function MatchingPage() {
   const [brands, setBrands] = useState<ScrapeBrand[]>(INIT_BRANDS);
-  const [selectedId, setSelectedId] = useState(1);
+  const [selectedId, setSelectedId] = useState<number | string>(1);
+  const [usingApi, setUsingApi] = useState(false);
+
+  // 載入資料庫真實品牌（取代種子資料）
+  const loadBrands = () => {
+    fetch("/api/brands")
+      .then((r) => r.json())
+      .then((result) => {
+        if (result.success && Array.isArray(result.data) && result.data.length > 0) {
+          const mapped = result.data.map(dbBrandToScrapeBrand);
+          setBrands(mapped);
+          setUsingApi(true);
+          setSelectedId((prev) => (mapped.some((m: ScrapeBrand) => m.id === prev) ? prev : mapped[0].id));
+        }
+      })
+      .catch(() => {});
+  };
+  useEffect(loadBrands, []);
   const [tab, setTab] = useState("tasks");
   const [isMobile, setIsMobile] = useState(false);
   const [jobPanelOpen, setJobPanelOpen] = useState(false);
   const [bulkRunning, setBulkRunning] = useState<string | null>(null);
   const [bulkMsg, setBulkMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [lastRunAll, setLastRunAll] = useState<string | null>(null);
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   // 批次政府登記比對 / 管道補齊
@@ -735,6 +783,7 @@ export default function MatchingPage() {
               ? `工商登記比對完成：${d.total} 筆中 ${d.matched} 筆高信心回寫（統編/負責人/資本額），${d.low_confidence} 筆待人工確認`
               : `管道補齊完成：${d.total} 個品牌中 ${d.enriched} 個取得官網/電話/地圖/社群連結`,
         });
+        loadBrands();
       } else {
         setBulkMsg({ ok: false, text: json.error || "執行失敗" });
       }
@@ -767,8 +816,34 @@ export default function MatchingPage() {
     downloadCSV("HeroHerb_採集狀態.csv", hdrs, rows);
   };
 
-  // 模擬採集流程（1.8~3 秒完成，15% 失敗率）
-  const runTask = (brandId: number, srcKey: string) => {
+  // 真實採集：gov → 工商登記比對；其他來源 → 管道補齊
+  // line/fb/ig/map 共用同一支 enrich API，同品牌同時只發一次
+  const inflight = useRef<Set<string>>(new Set());
+  const runRealTask = async (brandId: string, srcKey: string) => {
+    setBrands((prev) =>
+      prev.map((b) => (b.id !== brandId ? b : { ...b, tasks: { ...b.tasks, [srcKey]: { ...b.tasks[srcKey], status: "running" as TaskStatusKey } } }))
+    );
+    const reqKey = srcKey === "gov" ? `gov:${brandId}` : `enrich:${brandId}`;
+    if (inflight.current.has(reqKey)) return;
+    inflight.current.add(reqKey);
+    try {
+      const url = srcKey === "gov" ? "/api/gov/lookup" : "/api/enrich/channels";
+      await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brand_id: brandId }),
+      });
+    } catch {}
+    inflight.current.delete(reqKey);
+    loadBrands();
+  };
+
+  // 模擬採集流程（種子資料用，1.8~3 秒完成，15% 失敗率）
+  const runTask = (brandId: number | string, srcKey: string) => {
+    if (usingApi && typeof brandId === "string") {
+      runRealTask(brandId, srcKey);
+      return;
+    }
     setBrands((prev) =>
       prev.map((b) => (b.id !== brandId ? b : { ...b, tasks: { ...b.tasks, [srcKey]: { ...b.tasks[srcKey], status: "running" as TaskStatusKey } } }))
     );
@@ -797,7 +872,7 @@ export default function MatchingPage() {
     }, 1800 + Math.random() * 1200);
   };
 
-  const resolveConflict = (brandId: number, idx: number, accepted: boolean) => {
+  const resolveConflict = (brandId: number | string, idx: number, accepted: boolean) => {
     setBrands((prev) =>
       prev.map((b) => (b.id !== brandId ? b : { ...b, conflicts: b.conflicts.map((c, i) => (i === idx ? { ...c, accepted } : c)) }))
     );
@@ -850,7 +925,7 @@ export default function MatchingPage() {
           <button onClick={() => setBulkMsg(null)} style={{ marginLeft: "auto", border: "none", background: "none", cursor: "pointer", color: "inherit", fontSize: 16, lineHeight: 1 }}>×</button>
         </div>
       )}
-      <SummaryBar brands={brands} />
+      <SummaryBar brands={brands} lastRunAll={lastRunAll} />
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         <BrandList
           brands={brands}
@@ -859,12 +934,22 @@ export default function MatchingPage() {
             setSelectedId(id);
             setTab("tasks");
           }}
-          onRunAll={() => brands.forEach((b) => Object.keys(b.tasks).forEach((k) => runTask(b.id, k)))}
+          onRunAll={async () => {
+            if (usingApi) {
+              // 真實模式：走批次端點（gov 比對缺統編品牌 → 管道補齊），避免逐品牌逐來源狂打
+              await runBulk("gov");
+              await runBulk("channels");
+            } else {
+              brands.forEach((b) => Object.keys(b.tasks).forEach((k) => runTask(b.id, k)));
+            }
+            const now = new Date();
+            setLastRunAll(`${now.getMonth() + 1}/${now.getDate()} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`);
+          }}
         />
         {selected && <DetailPanel brand={selected} tab={tab} onTabChange={setTab} onRunTask={runTask} onAcceptConflict={resolveConflict} />}
       </div>
 
-      {jobPanelOpen && <PlacesJobPanel onClose={() => setJobPanelOpen(false)} />}
+      {jobPanelOpen && <PlacesJobPanel onClose={() => setJobPanelOpen(false)} onDone={loadBrands} />}
     </>
   );
 }
