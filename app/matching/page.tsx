@@ -121,69 +121,6 @@ function dbBrandToScrapeBrand(b: Record<string, unknown>): ScrapeBrand {
   };
 }
 
-// ── 種子資料 ─────────────────────────────────────────
-const INIT_BRANDS: ScrapeBrand[] = [
-  {
-    id: 1, name: "6星集足體養生會館", score: 92, stage: "quoting",
-    tasks: {
-      gov: { status: "done", last: "6/8", result: { tax_id: "16830000", owner: "江○○", est: "2017-03", addr: "台北市大安區忠孝東路四段…" } },
-      line: { status: "done", last: "6/5", result: { account: "@sixstar_spa", followers: 12400, posts: 88 } },
-      fb: { status: "done", last: "6/5", result: { page: "6星集足體養生", likes: 8900 } },
-      ig: { status: "stale", last: "5/20", result: { handle: "@sixstar_spa_tw", followers: 3200 } },
-      map: { status: "done", last: "6/8", result: { rating: 4.7, reviews: 312, branches: 9 } },
-    },
-    conflicts: [
-      { field: "門市數", current: "7", collected: "9", source: "map", accepted: null },
-      { field: "LINE粉絲數", current: "11,200", collected: "12,400", source: "line", accepted: null },
-    ],
-  },
-  {
-    id: 2, name: "悅禾莊園SPA", score: 78, stage: "sampling",
-    tasks: {
-      gov: { status: "done", last: "6/2", result: { tax_id: "23150000", owner: "陳○○", est: "2019-07", addr: "新北市板橋區…" } },
-      line: { status: "queued", last: null, result: null },
-      fb: { status: "done", last: "6/1", result: { page: "悅禾莊園", likes: 4200 } },
-      ig: { status: "error", last: "6/1", result: null, error: "帳號私人，無法抓取" },
-      map: { status: "running", last: null, result: null },
-    },
-    conflicts: [],
-  },
-  {
-    id: 3, name: "小林越式洗髮", score: 61, stage: "contacted",
-    tasks: {
-      gov: { status: "done", last: "5/28", result: { tax_id: "48920000", owner: "林○○", est: "2021-01", addr: "台中市西區…" } },
-      line: { status: "queued", last: null, result: null },
-      fb: { status: "queued", last: null, result: null },
-      ig: { status: "done", last: "5/28", result: { handle: "@holin_viet_hair", followers: 6800 } },
-      map: { status: "stale", last: "5/10", result: { rating: 4.5, reviews: 89, branches: 3 } },
-    },
-    conflicts: [],
-  },
-  {
-    id: 4, name: "大甲鎮瀾宮", score: 55, stage: "new",
-    tasks: {
-      gov: { status: "error", last: "6/7", result: null, error: "非公司登記，為財團法人" },
-      line: { status: "done", last: "6/6", result: { account: "@dajia_mazu", followers: 51000 } },
-      fb: { status: "done", last: "6/6", result: { page: "大甲鎮瀾宮", likes: 120000 } },
-      ig: { status: "queued", last: null, result: null },
-      map: { status: "done", last: "6/6", result: { rating: 4.9, reviews: 12400, branches: 1 } },
-    },
-    conflicts: [],
-  },
-  {
-    id: 5, name: "春天養生館", score: 74, stage: "negotiating",
-    tasks: {
-      gov: { status: "done", last: "6/3", result: { tax_id: "29410000", owner: "黃○○", est: "2015-05", addr: "高雄市苓雅區…" } },
-      line: { status: "done", last: "6/3", result: { account: "@spring_spa_ks", followers: 7800 } },
-      fb: { status: "stale", last: "5/8", result: { page: "春天養生館", likes: 3100 } },
-      ig: { status: "queued", last: null, result: null },
-      map: { status: "done", last: "6/3", result: { rating: 4.6, reviews: 203, branches: 4 } },
-    },
-    conflicts: [
-      { field: "FB 粉絲數", current: "3,100", collected: "3,100", source: "fb", accepted: null },
-    ],
-  },
-];
 
 // ── 輔助 ─────────────────────────────────────────────
 const completeness = (tasks: Record<string, ScrapeTask>) => {
@@ -225,7 +162,7 @@ function BrandList({
   onRunAll,
 }: {
   brands: ScrapeBrand[];
-  selectedId: number | string;
+  selectedId: number | string | null;
   onSelect: (id: number | string) => void;
   onRunAll: () => void;
 }) {
@@ -877,8 +814,15 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
 }
 
 // ── 官網爬蟲面板 ─────────────────────────────────────
+type ScrapeMode = "limit" | "industry" | "brand";
+
 function WebsiteScraperPanel({ onClose, onDone }: { onClose: () => void; onDone?: () => void }) {
+  const [mode, setMode] = useState<ScrapeMode>("limit");
   const [limit, setLimit] = useState(20);
+  const [industry, setIndustry] = useState("");
+  const [brandSearch, setBrandSearch] = useState("");
+  const [allBrands, setAllBrands] = useState<{ id: string; name: string; industry: string }[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [running, setRunning] = useState(false);
   const [steps, setSteps] = useState<{ type: string; text: string; ok?: boolean }[]>([]);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
@@ -888,8 +832,45 @@ function WebsiteScraperPanel({ onClose, onDone }: { onClose: () => void; onDone?
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [steps]);
 
+  // 指定品牌模式：載入品牌清單
+  useEffect(() => {
+    if (mode !== "brand") return;
+    fetch("/api/brands")
+      .then((r) => r.json())
+      .then((j) => {
+        if (j.success) setAllBrands((j.data ?? []).map((b: Record<string, unknown>) => ({ id: b.id, name: b.name, industry: b.industry ?? "" })));
+      })
+      .catch(() => {});
+  }, [mode]);
+
+  const toggleBrand = (id: string) =>
+    setSelectedIds((prev) => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+
+  const filteredBrands = brandSearch
+    ? allBrands.filter((b) => b.name.includes(brandSearch) || b.industry.includes(brandSearch))
+    : allBrands;
+
+  const buildBody = () => {
+    if (mode === "brand") return { brand_ids: [...selectedIds] };
+    if (mode === "industry") return { all: true, limit: 50, industry };
+    return { all: true, limit };
+  };
+
+  const canRun = !running && (
+    mode === "limit" ||
+    (mode === "industry" && industry) ||
+    (mode === "brand" && selectedIds.size > 0)
+  );
+
+  const runLabel = () => {
+    if (running) return "爬取中…";
+    if (mode === "brand") return `🌐 爬取已選 ${selectedIds.size} 個品牌`;
+    if (mode === "industry") return industry ? `🌐 爬取「${industry}」類品牌` : "請先選擇類別";
+    return `🌐 開始爬取（${limit} 個品牌）`;
+  };
+
   const run = async () => {
-    if (running) return;
+    if (!canRun) return;
     setRunning(true);
     setResult(null);
     setSteps([]);
@@ -897,13 +878,9 @@ function WebsiteScraperPanel({ onClose, onDone }: { onClose: () => void; onDone?
       const res = await fetch("/api/scrape/website", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ all: true, limit }),
+        body: JSON.stringify(buildBody()),
       });
-      if (!res.ok || !res.body) {
-        setResult({ ok: false, text: "爬取失敗" });
-        setRunning(false);
-        return;
-      }
+      if (!res.ok || !res.body) { setResult({ ok: false, text: "爬取失敗" }); setRunning(false); return; }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buf = "";
@@ -911,11 +888,9 @@ function WebsiteScraperPanel({ onClose, onDone }: { onClose: () => void; onDone?
         const { done, value } = await reader.read();
         if (done) break;
         buf += decoder.decode(value, { stream: true });
-        const lines = buf.split("\n");
-        buf = lines.pop() ?? "";
+        const lines = buf.split("\n"); buf = lines.pop() ?? "";
         for (const line of lines) {
-          const t = line.trim();
-          if (!t) continue;
+          const t = line.trim(); if (!t) continue;
           try {
             const evt = JSON.parse(t);
             if (evt.type === "done") {
@@ -930,17 +905,26 @@ function WebsiteScraperPanel({ onClose, onDone }: { onClose: () => void; onDone?
           } catch {}
         }
       }
-    } catch {
-      setResult({ ok: false, text: "網路錯誤" });
-    }
+    } catch { setResult({ ok: false, text: "網路錯誤" }); }
     setRunning(false);
   };
+
+  const INDUSTRIES_LIST = ["養生館", "越式洗髮", "宮廟", "長照", "禮儀"];
+
+  const ModeBtn = ({ m, label }: { m: ScrapeMode; label: string }) => (
+    <button
+      onClick={() => { setMode(m); setResult(null); setSteps([]); }}
+      style={{ flex: 1, padding: "8px 0", borderRadius: 9, fontSize: 13, fontWeight: mode === m ? 700 : 400, border: `1px solid ${mode === m ? C.primary : C.border}`, background: mode === m ? C.p50 : "transparent", color: mode === m ? C.primary : C.muted, cursor: "pointer" }}
+    >
+      {label}
+    </button>
+  );
 
   return (
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(46,69,53,.4)", backdropFilter: "blur(2px)" }} />
-      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 510, width: "94vw", maxWidth: 520, maxHeight: "82vh", background: C.surface, borderRadius: 20, boxShadow: "0 24px 64px rgba(21,20,26,.22)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <div style={{ padding: "18px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 510, width: "94vw", maxWidth: 520, maxHeight: "86vh", background: C.surface, borderRadius: 20, boxShadow: "0 24px 64px rgba(21,20,26,.22)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ padding: "18px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>🌐 官網爬蟲</div>
             <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>爬取品牌官網，擷取 LINE / FB / IG / 電話 / Email</div>
@@ -949,34 +933,82 @@ function WebsiteScraperPanel({ onClose, onDone }: { onClose: () => void; onDone?
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px" }}>
-          <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>一次爬取筆數</div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
-            {[10, 20, 30].map((n) => (
-              <button
-                key={n}
-                onClick={() => setLimit(n)}
-                style={{ flex: 1, padding: "9px 0", borderRadius: 10, fontSize: 13, fontWeight: limit === n ? 700 : 400, border: `1px solid ${limit === n ? C.primary : C.border}`, background: limit === n ? C.p50 : "transparent", color: limit === n ? C.primary : C.muted, cursor: "pointer" }}
-              >
-                {n} 個品牌
-              </button>
-            ))}
+          {/* 模式切換 */}
+          <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
+            <ModeBtn m="limit" label="依數量" />
+            <ModeBtn m="industry" label="依類別" />
+            <ModeBtn m="brand" label="指定品牌" />
           </div>
 
-          <button
-            onClick={run}
-            disabled={running}
-            className="pressable"
-            style={{ width: "100%", padding: 13, borderRadius: 12, border: "none", background: running ? C.surf2 : C.primary, color: running ? C.muted : "white", fontWeight: 700, fontSize: 15, cursor: running ? "default" : "pointer" }}
-          >
-            {running ? <span><span className="spin" style={{ marginRight: 6 }}>↻</span>爬取中…</span> : `🌐 開始爬取（${limit} 個品牌）`}
+          {/* 依數量 */}
+          {mode === "limit" && (
+            <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+              {[10, 20, 30].map((n) => (
+                <button key={n} onClick={() => setLimit(n)}
+                  style={{ flex: 1, padding: "9px 0", borderRadius: 10, fontSize: 13, fontWeight: limit === n ? 700 : 400, border: `1px solid ${limit === n ? C.primary : C.border}`, background: limit === n ? C.p50 : "transparent", color: limit === n ? C.primary : C.muted, cursor: "pointer" }}>
+                  {n} 個品牌
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* 依類別 */}
+          {mode === "industry" && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
+              {INDUSTRIES_LIST.map((ind) => (
+                <button key={ind} onClick={() => setIndustry(industry === ind ? "" : ind)}
+                  style={{ padding: "8px 16px", borderRadius: 999, fontSize: 13, fontWeight: industry === ind ? 700 : 400, border: `1px solid ${industry === ind ? C.primary : C.border}`, background: industry === ind ? C.p50 : "transparent", color: industry === ind ? C.primary : C.text, cursor: "pointer" }}>
+                  {ind}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* 指定品牌 */}
+          {mode === "brand" && (
+            <div style={{ marginBottom: 18 }}>
+              <input
+                placeholder="搜尋品牌名稱或類別…"
+                value={brandSearch}
+                onChange={(e) => setBrandSearch(e.target.value)}
+                style={{ width: "100%", padding: "9px 13px", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surf2, fontSize: 13, color: C.text, outline: "none", boxSizing: "border-box", marginBottom: 10 }}
+              />
+              {selectedIds.size > 0 && (
+                <div style={{ fontSize: 12, color: C.primary, fontWeight: 600, marginBottom: 8 }}>
+                  已選 {selectedIds.size} 個品牌
+                  <button onClick={() => setSelectedIds(new Set())} style={{ marginLeft: 8, fontSize: 11, color: C.muted, background: "none", border: "none", cursor: "pointer" }}>全部清除</button>
+                </div>
+              )}
+              <div style={{ maxHeight: 200, overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
+                {filteredBrands.length === 0 ? (
+                  <div style={{ padding: "20px", textAlign: "center", color: C.muted, fontSize: 13 }}>
+                    {allBrands.length === 0 ? "載入中…" : "找不到符合的品牌"}
+                  </div>
+                ) : filteredBrands.map((b) => (
+                  <div key={b.id} onClick={() => toggleBrand(b.id)}
+                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", cursor: "pointer", background: selectedIds.has(b.id) ? C.p50 : "transparent", borderBottom: `1px solid ${C.border}`, transition: "background 120ms" }}>
+                    <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${selectedIds.has(b.id) ? C.primary : C.border}`, background: selectedIds.has(b.id) ? C.primary : "transparent", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {selectedIds.has(b.id) && <span style={{ color: "white", fontSize: 10, lineHeight: 1 }}>✓</span>}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: selectedIds.has(b.id) ? 600 : 400, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.name}</div>
+                      {b.industry && <div style={{ fontSize: 11, color: C.muted }}>{b.industry}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <button onClick={run} disabled={!canRun} className="pressable"
+            style={{ width: "100%", padding: 13, borderRadius: 12, border: "none", background: !canRun ? C.surf2 : C.primary, color: !canRun ? C.muted : "white", fontWeight: 700, fontSize: 15, cursor: !canRun ? "default" : "pointer" }}>
+            {running ? <span><span className="spin" style={{ marginRight: 6 }}>↻</span>爬取中…</span> : runLabel()}
           </button>
 
           {steps.length > 0 && (
             <div ref={logRef} style={{ marginTop: 12, maxHeight: 240, overflowY: "auto", background: "#0e1a11", borderRadius: 10, padding: "10px 14px", fontFamily: "monospace", fontSize: 12, lineHeight: 1.75 }}>
               {steps.map((s, i) => (
-                <div key={i} style={{ color: s.type === "store" ? (s.ok ? "#5be585" : "#666") : "#9dbeaa" }}>
-                  {s.text}
-                </div>
+                <div key={i} style={{ color: s.type === "store" ? (s.ok ? "#5be585" : "#666") : "#9dbeaa" }}>{s.text}</div>
               ))}
               {running && <div style={{ color: "#5be585", opacity: 0.7 }}>▌</div>}
             </div>
@@ -995,11 +1027,11 @@ function WebsiteScraperPanel({ onClose, onDone }: { onClose: () => void; onDone?
 
 // ── 主頁面 ───────────────────────────────────────────
 export default function MatchingPage() {
-  const [brands, setBrands] = useState<ScrapeBrand[]>(INIT_BRANDS);
-  const [selectedId, setSelectedId] = useState<number | string>(1);
+  const [brands, setBrands] = useState<ScrapeBrand[]>([]);
+  const [loadingBrands, setLoadingBrands] = useState(true);
+  const [selectedId, setSelectedId] = useState<number | string | null>(null);
   const [usingApi, setUsingApi] = useState(false);
 
-  // 載入資料庫真實品牌（取代種子資料）
   const loadBrands = () => {
     fetch("/api/brands")
       .then((r) => r.json())
@@ -1011,7 +1043,8 @@ export default function MatchingPage() {
           setSelectedId((prev) => (mapped.some((m: ScrapeBrand) => m.id === prev) ? prev : mapped[0].id));
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoadingBrands(false));
   };
   useEffect(loadBrands, []);
   const [tab, setTab] = useState("tasks");
@@ -1155,9 +1188,24 @@ export default function MatchingPage() {
     }
   };
 
-  const selected = brands.find((b) => b.id === selectedId) || brands[0];
+  const selected = selectedId != null ? brands.find((b) => b.id === selectedId) ?? brands[0] : brands[0];
 
   if (isMobile) return <MobileBlock />;
+
+  if (loadingBrands) return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, color: C.muted }}>
+      <div className="spin" style={{ width: 28, height: 28, border: `3px solid ${C.border}`, borderTopColor: C.primary, borderRadius: "50%" }} />
+      <div style={{ fontSize: 14 }}>載入品牌資料中…</div>
+    </div>
+  );
+
+  if (brands.length === 0) return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, color: C.muted }}>
+      <div style={{ fontSize: 36 }}>🌿</div>
+      <div style={{ fontSize: 15, fontWeight: 500, color: C.text }}>尚無品牌資料</div>
+      <div style={{ fontSize: 13 }}>請先至名單總覽新增品牌，或執行 Google Places 採集</div>
+    </div>
+  );
 
   return (
     <>

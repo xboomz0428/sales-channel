@@ -28,15 +28,6 @@ export interface BrandVM {
   lost_reason?: string;
 }
 
-// 種子資料（API 無資料時顯示）
-const SEED_BRANDS: BrandVM[] = [
-  { id: 1, name: "6星集足體養生會館", industry: "養生館", stores: 9, cities: "北/中/南", channels: ["line", "fb", "ig", "email"], score: 92, status: "quoting", owner: "江○○", tax_id: "16830000", est_annual: 1800000, probability: 60, stage_days: 12 },
-  { id: 2, name: "悅禾莊園SPA", industry: "養生館", stores: 12, cities: "北/中/南", channels: ["line", "fb", "ig"], score: 89, status: "sampling", est_annual: 2400000, probability: 40, stage_days: 18 },
-  { id: 3, name: "小林越式洗髮", industry: "越式洗髮", stores: 5, cities: "新北", channels: ["fb"], score: 61, status: "contacted" },
-  { id: 4, name: "大甲鎮瀾宮", industry: "宮廟", stores: 1, cities: "台中", channels: ["fb", "line"], score: 95, status: "new", extra: "主祀:天上聖母" },
-  { id: 5, name: "青松健康(長照)", industry: "長照", stores: 23, cities: "中部", channels: ["email", "fb"], score: 88, status: "won", tier: "A", reorder_in_days: 6 },
-  { id: 6, name: "龍巖人本", industry: "禮儀", stores: 40, cities: "全台", channels: ["email"], score: 85, status: "lost", lost_reason: "已有供應商" },
-];
 
 // ── 基礎元件 ─────────────────────────────────────────
 function ChannelDots({ channels, links }: { channels: string[]; links?: Record<string, string> }) {
@@ -359,6 +350,29 @@ function FilterBar({
               {s.label}
             </button>
           ))}
+      </div>
+
+      {/* 桌機：類別快速篩選 */}
+      <div className="d-only" style={{ display: "flex", gap: 4, marginLeft: 8, paddingLeft: 8, borderLeft: `1px solid ${C.border}` }}>
+        {INDUSTRIES.map((ind) => (
+          <button
+            key={ind}
+            onClick={() => filters.industry === ind ? onRemove("industry") : onAdd("industry", ind)}
+            style={{
+              padding: "4px 11px",
+              borderRadius: 999,
+              fontSize: 12,
+              fontWeight: 600,
+              border: `1px solid ${filters.industry === ind ? C.primary : C.border}`,
+              background: filters.industry === ind ? C.p50 : "transparent",
+              color: filters.industry === ind ? C.primary : C.muted,
+              cursor: "pointer",
+              transition: "all 130ms",
+            }}
+          >
+            {ind}
+          </button>
+        ))}
       </div>
 
       {chips.length > 0 && (
@@ -1137,7 +1151,8 @@ function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
 // ── 主頁面 ───────────────────────────────────────────
 export default function LeadsPage() {
   const router = useRouter();
-  const [brands, setBrands] = useState<BrandVM[]>(SEED_BRANDS);
+  const [brands, setBrands] = useState<BrandVM[]>([]);
+  const [loading, setLoading] = useState(true);
   const [usingApi, setUsingApi] = useState(false);
   const [selected, setSelected] = useState<BrandVM | null>(null);
   const [recorder, setRecorder] = useState<BrandVM | null>(null);
@@ -1182,7 +1197,8 @@ export default function LeadsPage() {
           setUsingApi(true);
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   const exportXLS = () => {
@@ -1351,14 +1367,23 @@ export default function LeadsPage() {
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: 80 }}>
-        <div className="d-only">
-          {visible.length > 0 ? <BrandTable brands={visible} onRowClick={setSelected} onStatusChange={changeStatus} /> : <Empty />}
-        </div>
-        <div className="m-only" style={{ padding: "12px 16px" }}>
-          {visible.length > 0
-            ? visible.map((b) => <BrandCard key={b.id} brand={b} onClick={() => setSelected(b)} onStatusChange={changeStatus} />)
-            : <Empty />}
-        </div>
+        {loading ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 20px", gap: 14, color: C.muted }}>
+            <div className="spin" style={{ width: 28, height: 28, border: `3px solid ${C.border}`, borderTopColor: C.primary, borderRadius: "50%" }} />
+            <div style={{ fontSize: 14 }}>載入品牌資料中…</div>
+          </div>
+        ) : (
+          <>
+            <div className="d-only">
+              {visible.length > 0 ? <BrandTable brands={visible} onRowClick={setSelected} onStatusChange={changeStatus} /> : <Empty />}
+            </div>
+            <div className="m-only" style={{ padding: "12px 16px" }}>
+              {visible.length > 0
+                ? visible.map((b) => <BrandCard key={b.id} brand={b} onClick={() => setSelected(b)} onStatusChange={changeStatus} />)
+                : <Empty />}
+            </div>
+          </>
+        )}
       </div>
 
       <MobileTabBar />

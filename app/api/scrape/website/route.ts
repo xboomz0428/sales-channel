@@ -224,22 +224,40 @@ export async function POST(request: NextRequest) {
     try {
       let brands: { id: string; name: string }[] = [];
 
-      if (body.brand_id) {
+      // 指定品牌 IDs
+      if (Array.isArray(body.brand_ids) && (body.brand_ids as string[]).length > 0) {
+        const ids = (body.brand_ids as string[]).slice(0, 50);
+        const { data } = await sb.from("brands").select("id,name").in("id", ids);
+        brands = data ?? [];
+      } else if (body.brand_id) {
         const { data } = await sb.from("brands").select("id,name").eq("id", String(body.brand_id)).single();
         if (data) brands = [data];
       } else if (body.all) {
         const limit = Math.min(Number(body.limit) || 30, 50);
+        const industry = body.industry ? String(body.industry) : null;
 
-        // 找有官網的品牌
-        const { data: rows } = await sb
-          .from("stores")
-          .select("brand_id")
-          .not("website", "is", null)
-          .neq("website", "")
-          .limit(limit * 5);
-        const candidateIds = [...new Set((rows ?? []).map((r) => r.brand_id).filter(Boolean))];
+        let candidateIds: string[] = [];
 
-        // 撈已有管道資料的品牌 id（≥ 2 筆 channel 視為已完成）
+        if (industry) {
+          // 指定類別：直接從 brands 篩選
+          const { data: rows } = await sb
+            .from("brands")
+            .select("id")
+            .ilike("industry", `%${industry}%`)
+            .limit(limit * 3);
+          candidateIds = (rows ?? []).map((r) => r.id).filter(Boolean);
+        } else {
+          // 找有官網的品牌
+          const { data: rows } = await sb
+            .from("stores")
+            .select("brand_id")
+            .not("website", "is", null)
+            .neq("website", "")
+            .limit(limit * 5);
+          candidateIds = [...new Set((rows ?? []).map((r) => r.brand_id).filter(Boolean))];
+        }
+
+        // 排除已有 ≥ 2 筆管道資料的品牌
         const { data: enrichedRows } = await sb
           .from("brand_channels")
           .select("brand_id")

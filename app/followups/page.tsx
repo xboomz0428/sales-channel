@@ -26,13 +26,6 @@ interface Task {
   channels: string[];
 }
 
-// 種子任務（API 無資料時顯示）
-const SEED_TASKS: Task[] = [
-  { id: 1, section: "reorder", brand: "青松健康(長照)", tier: "A", title: "預估補貨日剩 6 天", desc: "上次出貨 5月5日 · 預估月用量 20包", channels: ["email", "fb"] },
-  { id: 2, section: "stagnant", brand: "悅禾莊園SPA", title: "打樣中 — 停留 18 天", desc: "已超過建議跟進時限（14天），建議本週追蹤", channels: ["line", "fb"] },
-  { id: 3, section: "festival", brand: "6星集足體養生會館", title: "端午節送禮任務", desc: "去年：足浴禮盒×3 · 本週最後機會", channels: ["line", "fb"] },
-  { id: 4, section: "visit", brand: "滋和堂中醫養生", tier: "A", title: "A 級客戶季拜訪到期", desc: "上次拜訪 3月12日 · 間隔已 91 天", channels: ["line", "phone"] },
-];
 
 // API type → section 對映
 const TYPE_TO_SECTION: Record<string, SectionKey> = {
@@ -248,14 +241,15 @@ function AllDone() {
 
 // ── 主頁面 ───────────────────────────────────────────
 export default function FollowupsPage() {
-  const [tasks, setTasks] = useState<Task[]>(SEED_TASKS);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
   const [usingApi, setUsingApi] = useState(false);
 
   useEffect(() => {
     fetch("/api/followups")
       .then((r) => r.json())
       .then((result) => {
-        if (result.success && Array.isArray(result.data) && result.data.length > 0) {
+        if (result.success && Array.isArray(result.data)) {
           setTasks(
             result.data
               .filter((t: Record<string, unknown>) => !t.done)
@@ -271,7 +265,8 @@ export default function FollowupsPage() {
           setUsingApi(true);
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   const complete = (id: Task["id"]) => {
@@ -308,7 +303,12 @@ export default function FollowupsPage() {
 
       {/* Scroll area */}
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: 80 }}>
-        {tasks.length === 0 ? (
+        {loading ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 20px", gap: 14, color: C.muted }}>
+            <div className="spin" style={{ width: 28, height: 28, border: `3px solid ${C.border}`, borderTopColor: C.primary, borderRadius: "50%" }} />
+            <div style={{ fontSize: 14 }}>載入跟進任務中…</div>
+          </div>
+        ) : tasks.length === 0 ? (
           <AllDone />
         ) : (
           (["reorder", "stagnant", "festival", "visit"] as SectionKey[]).map((s) => (

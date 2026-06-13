@@ -16,16 +16,6 @@ interface Opp {
   lost_reason?: string;
 }
 
-// 種子資料（API 無資料時顯示）
-const SEED_OPPS: Opp[] = [
-  { id: 1, brand: "6星集足體養生會館", product: "足浴包OEM", stage: "quoting", est: 1800000, prob: 60, days: 12 },
-  { id: 2, brand: "悅禾莊園SPA", product: "艾草浴包OEM", stage: "sampling", est: 2400000, prob: 40, days: 18 },
-  { id: 3, brand: "小林越式洗髮", product: "精油足浴包", stage: "contacted", est: 600000, prob: 20, days: 5 },
-  { id: 4, brand: "大甲鎮瀾宮", product: "禮盒客製", stage: "new", est: 300000, prob: 15, days: 2 },
-  { id: 5, brand: "青松健康(長照)", product: "足浴包長照版", stage: "won", est: 960000, prob: 100, days: 0 },
-  { id: 6, brand: "龍巖人本", product: "禮儀香氛系列", stage: "lost", est: 1200000, prob: 0, days: 45, lost_reason: "已有供應商" },
-  { id: 7, brand: "春天養生館", product: "艾草浴包OEM", stage: "negotiating", est: 720000, prob: 75, days: 8 },
-];
 
 // ── 看板卡片 ─────────────────────────────────────────
 function KanbanCard({ opp, onMove, stageIdx }: { opp: Opp; onMove: (id: Opp["id"], dir: number) => void; stageIdx: number }) {
@@ -184,14 +174,15 @@ function MobileList({ opps, onMove }: { opps: Opp[]; onMove: (id: Opp["id"], dir
 
 // ── 主頁面 ───────────────────────────────────────────
 export default function OpportunitiesPage() {
-  const [opps, setOpps] = useState<Opp[]>(SEED_OPPS);
+  const [opps, setOpps] = useState<Opp[]>([]);
+  const [loading, setLoading] = useState(true);
   const [usingApi, setUsingApi] = useState(false);
 
   useEffect(() => {
     fetch("/api/opportunities")
       .then((r) => r.json())
       .then((result) => {
-        if (result.success && Array.isArray(result.data) && result.data.length > 0) {
+        if (result.success && Array.isArray(result.data)) {
           setOpps(
             result.data.map((o: Record<string, unknown>) => {
               const entered = o.stage_entered_at ? new Date(o.stage_entered_at as string).getTime() : Date.now();
@@ -211,7 +202,8 @@ export default function OpportunitiesPage() {
           setUsingApi(true);
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   const move = (id: Opp["id"], dir: number) => {
@@ -268,19 +260,28 @@ export default function OpportunitiesPage() {
         </div>
       </div>
 
-      {/* Desktop kanban */}
-      <div className="d-only" style={{ flex: 1, overflowX: "auto", overflowY: "hidden", padding: "16px 20px" }}>
-        <div style={{ display: "flex", gap: 10, height: "100%", alignItems: "flex-start" }}>
-          {STAGES.map((s) => (
-            <KanbanCol key={s} stageKey={s} opps={opps.filter((o) => o.stage === s)} onMove={move} />
-          ))}
+      {loading ? (
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, color: C.muted }}>
+          <div className="spin" style={{ width: 28, height: 28, border: `3px solid ${C.border}`, borderTopColor: C.primary, borderRadius: "50%" }} />
+          <div style={{ fontSize: 14 }}>載入商機資料中…</div>
         </div>
-      </div>
+      ) : (
+        <>
+          {/* Desktop kanban */}
+          <div className="d-only" style={{ flex: 1, overflowX: "auto", overflowY: "hidden", padding: "16px 20px" }}>
+            <div style={{ display: "flex", gap: 10, height: "100%", alignItems: "flex-start" }}>
+              {STAGES.map((s) => (
+                <KanbanCol key={s} stageKey={s} opps={opps.filter((o) => o.stage === s)} onMove={move} />
+              ))}
+            </div>
+          </div>
 
-      {/* Mobile list */}
-      <div className="m-only" style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-        <MobileList opps={opps} onMove={move} />
-      </div>
+          {/* Mobile list */}
+          <div className="m-only" style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+            <MobileList opps={opps} onMove={move} />
+          </div>
+        </>
+      )}
 
       <MobileTabBar />
     </>

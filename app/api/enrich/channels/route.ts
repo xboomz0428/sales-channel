@@ -126,6 +126,16 @@ export async function POST(request: NextRequest) {
   const supabase = getSupabaseServerClient();
 
   try {
+    // 指定多個品牌
+    if (Array.isArray(body.brand_ids) && (body.brand_ids as string[]).length > 0) {
+      const ids = (body.brand_ids as string[]).slice(0, 50);
+      const { data: brands } = await supabase.from("brands").select("id, name").in("id", ids);
+      const results = [];
+      for (const b of brands || []) results.push(await enrichBrand(supabase, b.id, b.name));
+      const withChannels = results.filter((r) => r.channels.length > 0).length;
+      return NextResponse.json({ success: true, data: { total: results.length, enriched: withChannels, results } });
+    }
+
     if (body.brand_id) {
       const { data: brand } = await supabase.from("brands").select("id, name").eq("id", body.brand_id).single();
       if (!brand) return NextResponse.json({ success: false, error: "品牌不存在" }, { status: 404 });
@@ -134,12 +144,12 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.all) {
-      // 找還沒有任何管道的品牌
-      const { data: brands } = await supabase.from("brands").select("id, name").limit(10);
+      const industry = body.industry ? String(body.industry) : null;
+      let query = supabase.from("brands").select("id, name");
+      if (industry) query = query.ilike("industry", `%${industry}%`);
+      const { data: brands } = await query.limit(20);
       const results = [];
-      for (const b of brands || []) {
-        results.push(await enrichBrand(supabase, b.id, b.name));
-      }
+      for (const b of brands || []) results.push(await enrichBrand(supabase, b.id, b.name));
       const withChannels = results.filter((r) => r.channels.length > 0).length;
       return NextResponse.json({
         success: true,
@@ -147,7 +157,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({ success: false, error: "請提供 brand_id 或 all" }, { status: 400 });
+    return NextResponse.json({ success: false, error: "請提供 brand_id、brand_ids 或 all" }, { status: 400 });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "補齊失敗";
     return NextResponse.json({ success: false, error: msg }, { status: 500 });
