@@ -20,6 +20,7 @@ const P = {
   line_at:   String.raw`(?:line|賴|加好友|官方帳號)[^\n@＠]{0,40}[@＠]([\w.\-]{3,20})`,
   fb:        String.raw`https?://(?:www\.|m\.|zh-tw\.)?facebook\.com/([\w.\-]{3,80})/?(?:[?#][^\s"'<>]*)?`,
   ig:        String.raw`https?://(?:www\.)?instagram\.com/([\w.\-]{1,30})/?(?:[?#][^\s"'<>]*)?`,
+  tel_href:  String.raw`href=["']tel:([+0-9\-\s()]+)["']`,
   phone:     String.raw`0[2-8]-?\d{3,4}-?\d{4}|09\d{2}-?\d{3}-?\d{3}`,
   email:     String.raw`\b([A-Za-z0-9_.+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b`,
   stylemap:  String.raw`https?://(?:www\.)?stylemapapp\.com/[^\s"'<>]+`,
@@ -27,9 +28,27 @@ const P = {
   linktree:  String.raw`https?://linktr\.ee/[\w.\-]+`,
 };
 
-const FB_JUNK  = /^(?:sharer|share\.php|dialog|plugins|help|policies|legal|login|l\.php|photo|video|events|groups|pages|permalink|profile\.php|messages)/i;
-const IG_JUNK  = /^(?:p|explore|accounts|stories|reels|tv|a|static)/i;
+const FB_JUNK    = /^(?:sharer|share\.php|dialog|plugins|help|policies|legal|login|l\.php|photo|video|events|groups|pages|permalink|profile\.php|messages)/i;
+const IG_JUNK    = /^(?:p|explore|accounts|stories|reels|tv|a|static)/i;
 const EMAIL_JUNK = /^(?:noreply|no-reply|support|webmaster|admin|postmaster)/i;
+
+// 從 JSON-LD 結構化資料取電話
+function phoneFromJsonLd(html: string): string | null {
+  const blocks = [...html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
+  for (const b of blocks) {
+    try {
+      const obj = JSON.parse(b[1]);
+      const tel = (Array.isArray(obj) ? obj[0] : obj)?.telephone;
+      if (typeof tel === "string" && tel.trim()) return tel.trim();
+    } catch { /* 略過格式錯誤的 JSON-LD */ }
+  }
+  return null;
+}
+
+// 標準化台灣電話格式
+function normalizePhone(raw: string): string {
+  return raw.replace(/[\s\-().+]/g, "").replace(/^886/, "0");
+}
 
 function extractLinks(html: string): Record<string, string> {
   const r: Record<string, string> = {};
@@ -62,9 +81,20 @@ function extractLinks(html: string): Record<string, string> {
     }
   }
 
-  // 台灣電話
-  const phones = html.match(new RegExp(P.phone, "g"));
-  if (phones) r.phone = phones[0];
+  // 電話：優先順序 tel: href → JSON-LD → 純文字 regex
+  const telHref = [...html.matchAll(new RegExp(P.tel_href, "gi"))];
+  if (telHref.length) {
+    const normalized = normalizePhone(telHref[0][1]);
+    if (/^0[2-9]/.test(normalized)) r.phone = normalized;
+  }
+  if (!r.phone) {
+    const jsonLdPhone = phoneFromJsonLd(html);
+    if (jsonLdPhone) r.phone = normalizePhone(jsonLdPhone);
+  }
+  if (!r.phone) {
+    const phones = html.match(new RegExp(P.phone, "g"));
+    if (phones) r.phone = phones[0];
+  }
 
   // Email（排除圖片附檔名 & noreply 類）
   for (const m of html.matchAll(new RegExp(P.email, "gi"))) {
@@ -91,6 +121,32 @@ function extractLinks(html: string): Record<string, string> {
   if (lt.length) r.linktree = lt[0][0];
 
   return r;
+}
+
+// 常見聯絡頁路徑（找不到電話時 fallback）
+const CONTACT_PATHS = ["/contact", "/contact-us", "/聯絡我們", "/about", "/about-us", "/關於我們"];
+
+async function findPhoneFromContactPage(baseUrl: string): Promise<string | null> {
+  const origin = new URL(baseUrl).origin;
+  for (const path of CONTACT_PATHS) {
+    try {
+      const html = await fetchHtml(origin + path);
+      if (!html) continue;
+      // 先試 tel: href
+      const telMatch = html.match(new RegExp(P.tel_href, "i"));
+      if (telMatch) {
+        const n = normalizePhone(telMatch[1]);
+        if (/^0[2-9]/.test(n)) return n;
+      }
+      // 再試 JSON-LD
+      const jl = phoneFromJsonLd(html);
+      if (jl) return normalizePhone(jl);
+      // 再試 regex
+      const phones = html.match(new RegExp(P.phone, "g"));
+      if (phones) return phones[0];
+    } catch { /* 略過 */ }
+  }
+  return null;
 }
 
 async function fetchHtml(url: string): Promise<string | null> {
@@ -233,6 +289,15 @@ export async function POST(request: NextRequest) {
           }
           for (const [k, v] of Object.entries(extractLinks(html))) {
             merged[k] ??= v;
+          }
+        }
+
+        // 找不到電話 → 試聯絡頁 fallback（只對第一個 website 嘗試）
+        if (!merged.phone && websites[0] && !/facebook|instagram|line|linktr/i.test(websites[0])) {
+          const fallbackPhone = await findPhoneFromContactPage(websites[0]);
+          if (fallbackPhone) {
+            merged.phone = fallbackPhone;
+            await emit({ type: "step", text: `${prefix} 聯絡頁找到電話` });
           }
         }
 

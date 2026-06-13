@@ -52,10 +52,6 @@ interface ContactItem {
   note?: string;
 }
 
-const CONTACTS_SEED: ContactItem[] = [
-  { id: 1, name: "林明美", title: "採購主管", role: "decision_maker", mobile: "0912-345-678", line: "@mingmei", note: "月底開採購會，建議本週寄報價" },
-  { id: 2, name: "陳志文", title: "大安店長", role: "gatekeeper", mobile: "0923-456-789", note: "可請他幫忙引薦總部採購" },
-];
 
 interface LogItem {
   id: number | string;
@@ -191,17 +187,123 @@ function Col1({ brand }: { brand: BrandDetail }) {
   );
 }
 
+// ── 聯絡窗口 表單 Modal ──────────────────────────────
+function ContactModal({
+  brandId,
+  initial,
+  onClose,
+  onSaved,
+}: {
+  brandId: string;
+  initial?: ContactItem;
+  onClose: () => void;
+  onSaved: (c: ContactItem) => void;
+}) {
+  const isEdit = !!initial;
+  const [form, setForm] = useState<Omit<ContactItem, "id">>({
+    name: initial?.name ?? "",
+    title: initial?.title ?? "",
+    role: initial?.role ?? "gatekeeper",
+    mobile: initial?.mobile ?? "",
+    line: initial?.line ?? "",
+    note: initial?.note ?? "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const set = (k: keyof typeof form, v: string) => setForm((p) => ({ ...p, [k]: v }));
+
+  const save = async () => {
+    if (!form.name.trim()) { setErr("姓名為必填"); return; }
+    setSaving(true); setErr(null);
+    try {
+      const url = isEdit ? `/api/contacts/${initial!.id}` : "/api/contacts";
+      const method = isEdit ? "PATCH" : "POST";
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brand_id: brandId, name: form.name, title: form.title, role: form.role, mobile: form.mobile, email: undefined, line_id: form.line, note: form.note }),
+      });
+      const json = await res.json();
+      if (!json.success) { setErr(json.error || "儲存失敗"); setSaving(false); return; }
+      onSaved({ id: json.data?.id ?? initial?.id ?? Date.now(), ...form });
+      onClose();
+    } catch { setErr("網路錯誤"); }
+    setSaving(false);
+  };
+
+  const inputStyle = { width: "100%", padding: "9px 12px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surf2, fontSize: 14, color: C.text, outline: "none" };
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 600, background: "rgba(0,0,0,.3)" }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 610, width: "92vw", maxWidth: 420, background: C.surface, borderRadius: 18, boxShadow: "0 20px 60px rgba(0,0,0,.18)", padding: "22px 22px 18px" }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 18 }}>{isEdit ? "編輯聯絡窗口" : "新增聯絡窗口"}</div>
+        <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>姓名 *</div>
+            <input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="王大明" style={inputStyle} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>職稱</div>
+            <input value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="採購主管" style={inputStyle} />
+          </div>
+        </div>
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>角色</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {Object.entries(ROLE_CFG).map(([k, v]) => (
+              <button key={k} onClick={() => set("role", k)} style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: `1px solid ${form.role === k ? v.fg : C.border}`, background: form.role === k ? v.bg : "transparent", color: form.role === k ? v.fg : C.muted, fontSize: 13, fontWeight: form.role === k ? 700 : 400, cursor: "pointer" }}>
+                {v.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>手機</div>
+            <input value={form.mobile} onChange={(e) => set("mobile", e.target.value)} placeholder="0912-345-678" style={inputStyle} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>LINE ID</div>
+            <input value={form.line} onChange={(e) => set("line", e.target.value)} placeholder="@xxx" style={inputStyle} />
+          </div>
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>備註</div>
+          <textarea value={form.note} onChange={(e) => set("note", e.target.value)} rows={2} placeholder="例：月底開採購會" style={{ ...inputStyle, resize: "none" }} />
+        </div>
+        {err && <div style={{ marginBottom: 10, padding: "7px 10px", borderRadius: 8, background: C.dangerBg, color: C.danger, fontSize: 13 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={save} disabled={saving} style={{ flex: 1, padding: 10, borderRadius: 10, border: "none", background: C.primary, color: "white", fontSize: 14, fontWeight: 700, cursor: saving ? "default" : "pointer" }}>
+            {saving ? "儲存中…" : "儲存"}
+          </button>
+          <button onClick={onClose} style={{ padding: "10px 16px", borderRadius: 10, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontSize: 14, cursor: "pointer" }}>取消</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── 第二欄：聯絡窗口 + 商機概況 ───────────────────────
-function Col2({ brand, contacts }: { brand: BrandDetail; contacts: ContactItem[] }) {
+function Col2({
+  brand,
+  contacts,
+  onAdd,
+  onEdit,
+  onDelete,
+}: {
+  brand: BrandDetail;
+  contacts: ContactItem[];
+  onAdd: () => void;
+  onEdit: (c: ContactItem) => void;
+  onDelete: (id: number | string) => void;
+}) {
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
         <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.2, color: C.muted }}>聯絡窗口</span>
-        <button
-          style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", cursor: "pointer", fontSize: 12, color: C.primary, fontWeight: 600 }}
-        >
-          <Icon n="plus" size={13} color={C.primary} />
-          新增
+        <button onClick={onAdd} style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", cursor: "pointer", fontSize: 12, color: C.primary, fontWeight: 600 }}>
+          <Icon n="plus" size={13} color={C.primary} />新增
         </button>
       </div>
       {contacts.length === 0 && (
@@ -223,12 +325,14 @@ function Col2({ brand, contacts }: { brand: BrandDetail; contacts: ContactItem[]
                   <div style={{ fontSize: 12, color: C.muted, marginTop: 1 }}>{c.title}</div>
                 </div>
               </div>
-              <span style={{ padding: "3px 9px", borderRadius: 999, background: role.bg, color: role.fg, fontSize: 11, fontWeight: 700, flexShrink: 0, marginLeft: 8 }}>
-                {role.label}
-              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 8 }}>
+                <span style={{ padding: "3px 9px", borderRadius: 999, background: role.bg, color: role.fg, fontSize: 11, fontWeight: 700 }}>{role.label}</span>
+                <button onClick={() => onEdit(c)} style={{ border: "none", background: "none", cursor: "pointer", color: C.muted, fontSize: 14, padding: "2px 4px" }} title="編輯">✏️</button>
+                <button onClick={() => onDelete(c.id)} style={{ border: "none", background: "none", cursor: "pointer", color: C.danger, fontSize: 14, padding: "2px 4px" }} title="刪除">🗑</button>
+              </div>
             </div>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: c.note ? 8 : 0 }}>
-              {c.mobile && <span style={{ fontSize: 12, color: C.muted }}>📞 {c.mobile}</span>}
+              {c.mobile && <a href={`tel:${c.mobile}`} style={{ fontSize: 12, color: C.muted, textDecoration: "none" }}>📞 {c.mobile}</a>}
               {c.line && <span style={{ fontSize: 12, color: "#06C755", fontWeight: 500 }}>💬 {c.line}</span>}
             </div>
             {c.note && <div style={{ fontSize: 12, color: C.muted, background: C.surf2, borderRadius: 8, padding: "6px 10px" }}>{c.note}</div>}
@@ -373,9 +477,10 @@ function Col3({
 // ── 主頁面 ───────────────────────────────────────────
 export default function BrandDetailPage() {
   const [brand, setBrand] = useState<BrandDetail>(BRAND_DEFAULT);
-  const [contacts, setContacts] = useState<ContactItem[]>(CONTACTS_SEED);
+  const [contacts, setContacts] = useState<ContactItem[]>([]);
   const [logs, setLogs] = useState<LogItem[]>(LOGS_SEED);
   const [tab, setTab] = useState<"info" | "contacts" | "logs">("info");
+  const [contactModal, setContactModal] = useState<{ mode: "add" | "edit"; contact?: ContactItem } | null>(null);
 
   // 從名單總覽帶入選取的品牌；若有 API id 則載入完整資料
   useEffect(() => {
@@ -447,6 +552,21 @@ export default function BrandDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ brand_id: brand.id, channel: "visit", summary: text }),
       }).catch(() => {});
+    }
+  };
+
+  const handleContactSaved = (c: ContactItem) => {
+    setContacts((prev) => {
+      const idx = prev.findIndex((x) => x.id === c.id);
+      return idx >= 0 ? prev.map((x) => (x.id === c.id ? c : x)) : [...prev, c];
+    });
+  };
+
+  const handleDeleteContact = async (id: number | string) => {
+    if (!confirm("確定刪除此聯絡窗口？")) return;
+    setContacts((prev) => prev.filter((c) => c.id !== id));
+    if (typeof id === "string") {
+      await fetch(`/api/contacts/${id}`, { method: "DELETE" }).catch(() => {});
     }
   };
 
@@ -543,7 +663,7 @@ export default function BrandDetailPage() {
             <Col1 brand={brand} />
           </div>
           <div style={{ width: 280, flexShrink: 0 }}>
-            <Col2 brand={brand} contacts={contacts} />
+            <Col2 brand={brand} contacts={contacts} onAdd={() => setContactModal({ mode: "add" })} onEdit={(c) => setContactModal({ mode: "edit", contact: c })} onDelete={handleDeleteContact} />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <Col3 brand={brand} logs={logs} onAddLog={addLog} />
@@ -551,11 +671,19 @@ export default function BrandDetailPage() {
         </div>
         <div className="m-only">
           {tab === "info" && <Col1 brand={brand} />}
-          {tab === "contacts" && <Col2 brand={brand} contacts={contacts} />}
+          {tab === "contacts" && <Col2 brand={brand} contacts={contacts} onAdd={() => setContactModal({ mode: "add" })} onEdit={(c) => setContactModal({ mode: "edit", contact: c })} onDelete={handleDeleteContact} />}
           {tab === "logs" && <Col3 brand={brand} logs={logs} onAddLog={addLog} />}
         </div>
       </div>
 
+      {contactModal && brand.id && typeof brand.id === "string" && (
+        <ContactModal
+          brandId={brand.id}
+          initial={contactModal.mode === "edit" ? contactModal.contact : undefined}
+          onClose={() => setContactModal(null)}
+          onSaved={handleContactSaved}
+        />
+      )}
       <MobileTabBar />
     </>
   );
