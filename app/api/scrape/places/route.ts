@@ -290,7 +290,7 @@ export async function POST(request: NextRequest) {
           status: "error",
           error: msg,
           updated_at: new Date().toISOString(),
-        }).eq("id", jobId).catch(() => {});
+        }).eq("id", jobId);
       }
       await emit({ type: "error", text: msg });
     } finally {
