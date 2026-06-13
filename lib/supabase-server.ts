@@ -5,9 +5,12 @@ import { cleanEnv } from "@/lib/env";
 // 優先用 Service Role Key（繞過 RLS）；未設定時退回 anon key
 // （開發期 RLS 政策允許 anon 讀寫，導入 Auth 後務必補上 Service Role Key）
 export function getSupabaseServerClient() {
-  const supabaseUrl = cleanEnv("NEXT_PUBLIC_SUPABASE_URL");
+  const supabaseUrl =
+    cleanEnv("SUPABASE_URL") ||
+    cleanEnv("NEXT_PUBLIC_SUPABASE_URL");
   const key =
     cleanEnv("SUPABASE_SERVICE_ROLE_KEY") ||
+    cleanEnv("SUPABASE_ANON_KEY") ||
     cleanEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
   if (!supabaseUrl || !key) {
