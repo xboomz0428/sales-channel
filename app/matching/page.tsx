@@ -627,6 +627,8 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
   const [result, setResult] = useState<string | null>(null);
   const [resultOk, setResultOk] = useState(false);
   const [jobs, setJobs] = useState<ScrapeJob[]>([]);
+  const [steps, setSteps] = useState<{ type: string; text: string; ok?: boolean }[]>([]);
+  const logRef = useRef<HTMLDivElement>(null);
 
   const loadJobs = () => {
     fetch("/api/scrape/places")
@@ -637,30 +639,64 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
       .catch(() => {});
   };
   useEffect(loadJobs, []);
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [steps]);
 
   const run = async () => {
     if (!keyword.trim() || running) return;
     setRunning(true);
     setResult(null);
+    setResultOk(false);
+    setSteps([]);
     try {
-      const res = await fetch("/api/scrape/places", {
+      const response = await fetch("/api/scrape/places", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ keyword: keyword.trim(), city, maxPages }),
       });
-      const json = await res.json();
-      if (json.success) {
-        const d = json.data;
-        setResultOk(true);
-        setResult(
-          `找到 ${d.found} 間店家 → 新增 ${d.new_brands} 個品牌、${d.new_stores} 間門市` +
-            (d.linked_existing > 0 ? `、歸戶 ${d.linked_existing} 間到既有品牌` : "") +
-            ` · 費用約 $${d.est_cost_usd} USD`
-        );
-        onDone?.(); // 立即刷新左側品牌清單
-      } else {
+      if (!response.ok || !response.body) {
+        const text = await response.text();
+        let msg = "採集失敗";
+        try { msg = JSON.parse(text).error || msg; } catch {}
         setResultOk(false);
-        setResult(`採集失敗：${json.error}`);
+        setResult(msg);
+        setRunning(false);
+        return;
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const evt = JSON.parse(trimmed);
+            if (evt.type === "done") {
+              const d = evt.data;
+              setResultOk(true);
+              setResult(
+                `找到 ${d.found} 間店家 → 新增 ${d.new_brands} 個品牌、${d.new_stores} 間門市` +
+                (d.linked_existing > 0 ? `、歸戶 ${d.linked_existing} 間到既有品牌` : "") +
+                (d.skipped_exists > 0 ? `、跳過 ${d.skipped_exists} 筆（已存在）` : "") +
+                (d.brand_errors > 0 ? `、失敗 ${d.brand_errors} 筆` : "") +
+                ` · 費用約 $${d.est_cost_usd} USD`
+              );
+              onDone?.();
+            } else if (evt.type === "error") {
+              setResultOk(false);
+              setResult(`採集失敗：${evt.text}`);
+            } else if (evt.type === "step" || evt.type === "store") {
+              setSteps((prev) => [...prev, { type: evt.type, text: evt.text, ok: evt.ok }]);
+            }
+          } catch {}
+        }
       }
     } catch {
       setResultOk(false);
@@ -772,6 +808,38 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
               `⚡ 開始採集「${keyword || "…"} × ${city}」`
             )}
           </button>
+
+          {steps.length > 0 && (
+            <div
+              ref={logRef}
+              style={{
+                marginTop: 12,
+                maxHeight: 220,
+                overflowY: "auto",
+                background: "#0e1a11",
+                borderRadius: 10,
+                padding: "10px 14px",
+                fontFamily: "monospace",
+                fontSize: 12,
+                lineHeight: 1.75,
+              }}
+            >
+              {steps.map((s, i) => (
+                <div
+                  key={i}
+                  style={{
+                    color:
+                      s.type === "store"
+                        ? s.ok ? "#5be585" : "#666"
+                        : "#9dbeaa",
+                  }}
+                >
+                  {s.text}
+                </div>
+              ))}
+              {running && <div style={{ color: "#5be585", opacity: 0.7 }}>▌</div>}
+            </div>
+          )}
 
           {result && (
             <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 10, background: resultOk ? C.successBg : C.dangerBg, fontSize: 13, color: resultOk ? C.success : C.danger, lineHeight: 1.6 }}>

@@ -4,12 +4,20 @@ import { cleanEnv } from "@/lib/env";
 
 /**
  * POST /api/scrape/places
- * Google Places (New) Text Search 採集
+ * Google Places (New) Text Search 採集 — 串流 NDJSON 進度回報
  * body: { keyword: string, city: string, maxPages?: number }
  *
  * 流程：Text Search → 去重（place_id / 店名+地址指紋）→ 連鎖歸戶（品牌 key）
  * → 寫入 stores + brands → 記錄 scrape_jobs
+ *
+ * 每個動作都透過 NDJSON 串流回報：
+ *   { type: "step", text: string }        一般進度步驟
+ *   { type: "store", ok: boolean, text }  每間門市處理結果
+ *   { type: "done", data: {...} }         完成摘要
+ *   { type: "error", text: string }       失敗
  */
+
+export const maxDuration = 300;
 
 const TAIWAN_CITIES = [
   "台北市", "新北市", "桃園市", "台中市", "台南市", "高雄市",
@@ -26,10 +34,9 @@ function extractCity(address: string): string {
   return "";
 }
 
-// 品牌歸戶 key：去空白、去括號註記、去結尾分店名（XX店/XX館/XX分店）
 function brandKey(name: string): string {
   let n = name.split(/[（(【]/)[0].trim().replace(/\s+/g, "");
-  n = n.replace(/[-－·].{1,8}$/, ""); // 「品牌-大安店」
+  n = n.replace(/[-－·].{1,8}$/, "");
   const m = n.match(/^(.{2,}?)(旗艦店|分店|[一-龥]{1,3}店)$/);
   if (m && m[1].length >= 2) n = m[1];
   return n;
@@ -79,189 +86,225 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "請提供 keyword 與 city" }, { status: 400 });
   }
 
-  const supabase = getSupabaseServerClient();
+  const encoder = new TextEncoder();
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+  const writer = writable.getWriter();
 
-  // 建立採集任務紀錄
-  const { data: job } = await supabase
-    .from("scrape_jobs")
-    .insert({ keywords: [keyword], cities: [city], job_type: "places", status: "running" })
-    .select()
-    .single();
+  const emit = async (msg: object) => {
+    try {
+      await writer.write(encoder.encode(JSON.stringify(msg) + "\n"));
+    } catch {}
+  };
 
-  try {
-    // ── 1. Places Text Search（分頁最多 maxPages × 20 筆）──
-    const places: PlaceResult[] = [];
-    let pageToken: string | undefined;
-    let requests = 0;
+  (async () => {
+    const supabase = getSupabaseServerClient();
+    let jobId: string | null = null;
 
-    for (let page = 0; page < maxPages; page++) {
-      const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Goog-Api-Key": apiKey,
-          "X-Goog-FieldMask":
-            "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.websiteUri,places.nationalPhoneNumber,places.businessStatus,places.googleMapsUri,places.reviews,nextPageToken",
-        },
-        body: JSON.stringify({
-          textQuery: `${keyword} ${city}`,
-          languageCode: "zh-TW",
-          regionCode: "TW",
-          pageSize: 20,
-          ...(pageToken ? { pageToken } : {}),
-        }),
-      });
-      requests++;
+    try {
+      await emit({ type: "step", text: "建立採集任務紀錄…" });
+      const { data: job } = await supabase
+        .from("scrape_jobs")
+        .insert({ keywords: [keyword], cities: [city], job_type: "places", status: "running" })
+        .select()
+        .single();
+      jobId = job?.id ?? null;
 
-      if (!res.ok) {
-        const detail = await res.text();
-        throw new Error(`Places API ${res.status}: ${detail.slice(0, 300)}`);
+      await emit({ type: "step", text: `開始採集：「${keyword}」×「${city}」，最多 ${maxPages * 20} 筆` });
+
+      const places: PlaceResult[] = [];
+      let pageToken: string | undefined;
+      let requests = 0;
+
+      for (let page = 0; page < maxPages; page++) {
+        await emit({ type: "step", text: `第 ${page + 1} 頁：呼叫 Google Places API…` });
+        const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": apiKey,
+            "X-Goog-FieldMask":
+              "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.websiteUri,places.nationalPhoneNumber,places.businessStatus,places.googleMapsUri,places.reviews,nextPageToken",
+          },
+          body: JSON.stringify({
+            textQuery: `${keyword} ${city}`,
+            languageCode: "zh-TW",
+            regionCode: "TW",
+            pageSize: 20,
+            ...(pageToken ? { pageToken } : {}),
+          }),
+        });
+        requests++;
+
+        if (!res.ok) {
+          const detail = await res.text();
+          throw new Error(`Places API ${res.status}: ${detail.slice(0, 300)}`);
+        }
+        const data = await res.json();
+        const pagePlaces: PlaceResult[] = data.places || [];
+        places.push(...pagePlaces);
+        await emit({ type: "step", text: `第 ${page + 1} 頁：取得 ${pagePlaces.length} 筆` });
+        pageToken = data.nextPageToken;
+        if (!pageToken) break;
       }
-      const data = await res.json();
-      places.push(...(data.places || []));
-      pageToken = data.nextPageToken;
-      if (!pageToken) break;
-    }
 
-    // ── 2. 去重 + 寫入 ──
-    // Google 跨頁有時重複回傳相同 place_id，先在 JS 層去重
-    const uniquePlaces = [...new Map(places.map((p) => [p.id, p])).values()];
-    const skippedDupGoogle = places.length - uniquePlaces.length;
+      const uniquePlaces = [...new Map(places.map((p) => [p.id, p])).values()];
+      const skippedDupGoogle = places.length - uniquePlaces.length;
+      await emit({
+        type: "step",
+        text: `共 ${uniquePlaces.length} 間獨立店家${skippedDupGoogle > 0 ? `（Google 重複 ${skippedDupGoogle} 筆已去除）` : ""}，開始寫入資料庫…`,
+      });
 
-    let newStores = 0;
-    let newBrands = 0;
-    let linkedExisting = 0;
-    let skippedExists = 0;
-    let brandErrors = 0;
+      let newStores = 0;
+      let newBrands = 0;
+      let linkedExisting = 0;
+      let skippedExists = 0;
+      let brandErrors = 0;
 
-    for (const p of uniquePlaces) {
-      const name = p.displayName?.text || "";
-      if (!name) continue;
-      if (p.businessStatus === "CLOSED_PERMANENTLY") continue;
+      for (let i = 0; i < uniquePlaces.length; i++) {
+        const p = uniquePlaces[i];
+        const name = p.displayName?.text || "";
+        const prefix = `[${i + 1}/${uniquePlaces.length}]`;
+        if (!name) continue;
+        if (p.businessStatus === "CLOSED_PERMANENTLY") {
+          await emit({ type: "store", ok: false, text: `${prefix} — 跳過「${name}」（永久停業）` });
+          continue;
+        }
 
-      const address = p.formattedAddress || "";
-      const storeCity = extractCity(address) || city;
-      const key = brandKey(name) || name.replace(/\s+/g, "");
-      if (!key) continue;
-      const addressKey = address.replace(/\s+/g, "");
+        const address = p.formattedAddress || "";
+        const storeCity = extractCity(address) || city;
+        const key = brandKey(name) || name.replace(/\s+/g, "");
+        if (!key) continue;
+        const addressKey = address.replace(/\s+/g, "");
 
-      // place_id 已存在 → 跳過（去重第一層）
-      const { data: existStore } = await supabase
-        .from("stores")
-        .select("id, brand_id")
-        .eq("place_id", p.id)
-        .maybeSingle();
-      if (existStore) { skippedExists++; continue; }
+        const { data: existStore } = await supabase
+          .from("stores").select("id").eq("place_id", p.id).maybeSingle();
+        if (existStore) {
+          skippedExists++;
+          await emit({ type: "store", ok: false, text: `${prefix} — 跳過「${name}」（place_id 已存在）` });
+          continue;
+        }
 
-      // 店名+地址指紋（去重第二層，place_id 變動時防重複）
-      const { data: fpStore } = await supabase
-        .from("stores")
-        .select("id")
-        .eq("address_key", addressKey)
-        .eq("name", name)
-        .maybeSingle();
-      if (fpStore) { skippedExists++; continue; }
+        const { data: fpStore } = await supabase
+          .from("stores").select("id").eq("address_key", addressKey).eq("name", name).maybeSingle();
+        if (fpStore) {
+          skippedExists++;
+          await emit({ type: "store", ok: false, text: `${prefix} — 跳過「${name}」（地址重複）` });
+          continue;
+        }
 
-      // 連鎖歸戶：找同 brand_key 的品牌
-      let brandId: string;
-      const { data: existBrand } = await supabase
-        .from("brands")
-        .select("id, store_count")
-        .eq("brand_key", key)
-        .maybeSingle();
+        let brandId: string;
+        const { data: existBrand } = await supabase
+          .from("brands").select("id, store_count").eq("brand_key", key).maybeSingle();
 
-      if (existBrand) {
-        brandId = existBrand.id;
-        await supabase
-          .from("brands")
-          .update({ store_count: (existBrand.store_count || 1) + 1, is_chain: true, updated_at: new Date().toISOString() })
-          .eq("id", brandId);
-        linkedExisting++;
-      } else {
-        const { data: nb, error: nbErr } = await supabase
-          .from("brands")
-          .insert({
+        if (existBrand) {
+          brandId = existBrand.id;
+          await supabase.from("brands").update({
+            store_count: (existBrand.store_count || 1) + 1,
+            is_chain: true,
+            updated_at: new Date().toISOString(),
+          }).eq("id", brandId);
+          linkedExisting++;
+          await emit({ type: "store", ok: true, text: `${prefix} → 歸戶「${name}」到品牌「${key}」` });
+        } else {
+          const { data: nb, error: nbErr } = await supabase.from("brands").insert({
             name: key,
             brand_key: key,
             industry: keyword,
             store_count: 1,
             status: "new",
-            // 初始評分：有評論數的店家給較高分（之後可由評分引擎覆寫）
             priority_score: Math.min(50 + Math.round(Math.log10((p.userRatingCount || 1) + 1) * 12), 95),
-          })
-          .select()
-          .single();
-        if (nbErr || !nb) { brandErrors++; continue; }
-        brandId = nb.id;
-        newBrands++;
-      }
+          }).select().single();
+          if (nbErr || !nb) {
+            brandErrors++;
+            await emit({ type: "store", ok: false, text: `${prefix} ✕ 品牌建立失敗「${key}」：${nbErr?.message || "未知"}` });
+            continue;
+          }
+          brandId = nb.id;
+          newBrands++;
+          await emit({ type: "store", ok: true, text: `${prefix} ✓ 新增品牌「${key}」` });
+        }
 
-      const { data: newStore, error: storeErr } = await supabase.from("stores").insert({
-        brand_id: brandId,
-        place_id: p.id,
-        name,
-        address,
-        address_key: addressKey,
-        city: storeCity,
-        phone: p.nationalPhoneNumber || null,
-        website: p.websiteUri || null,
-        rating: p.rating ?? null,
-        review_count: p.userRatingCount ?? null,
-        gmaps_url: p.googleMapsUri || null,
-        raw: p,
-      }).select("id").single();
+        const { data: newStore, error: storeErr } = await supabase.from("stores").insert({
+          brand_id: brandId,
+          place_id: p.id,
+          name,
+          address,
+          address_key: addressKey,
+          city: storeCity,
+          phone: p.nationalPhoneNumber || null,
+          website: p.websiteUri || null,
+          rating: p.rating ?? null,
+          review_count: p.userRatingCount ?? null,
+          gmaps_url: p.googleMapsUri || null,
+          raw: p,
+        }).select("id").single();
 
-      if (!storeErr && newStore) {
-        newStores++;
-        // 寫入最新評論（最多 5 筆）
-        if (p.reviews?.length) {
-          const reviewRows = p.reviews.slice(0, 5).map((r) => ({
-            store_id: newStore.id,
-            rating: r.rating ?? null,
-            text: r.text?.text || null,
-            author_name: r.authorAttribution?.displayName || null,
-            relative_time: r.relativePublishTimeDescription || null,
-          }));
-          await supabase.from("store_reviews").insert(reviewRows);
+        if (storeErr) {
+          await emit({ type: "store", ok: false, text: `${prefix} ✕ 門市寫入失敗「${name}」：${storeErr.message}` });
+        } else if (newStore) {
+          newStores++;
+          const addrShort = address.length > 18 ? address.slice(0, 18) + "…" : address;
+          await emit({ type: "store", ok: true, text: `${prefix} ✓ 新增門市「${name}」（${addrShort}）` });
+          if (p.reviews?.length) {
+            const reviewRows = p.reviews.slice(0, 5).map((r) => ({
+              store_id: newStore.id,
+              rating: r.rating ?? null,
+              text: r.text?.text || null,
+              author_name: r.authorAttribution?.displayName || null,
+              relative_time: r.relativePublishTimeDescription || null,
+            }));
+            await supabase.from("store_reviews").insert(reviewRows);
+          }
         }
       }
-    }
 
-    // ── 3. 任務完成 ──
-    const estCost = requests * 0.032; // Text Search Pro 約 $32/千次
-    if (job) {
-      await supabase
-        .from("scrape_jobs")
-        .update({ status: "done", progress: 100, result_count: places.length, updated_at: new Date().toISOString() })
-        .eq("id", job.id);
-    }
+      const estCost = requests * 0.032;
+      if (jobId) {
+        await supabase.from("scrape_jobs").update({
+          status: "done",
+          progress: 100,
+          result_count: uniquePlaces.length,
+          updated_at: new Date().toISOString(),
+        }).eq("id", jobId);
+      }
 
-    return NextResponse.json({
-      success: true,
-      data: {
-        keyword,
-        city,
-        found: uniquePlaces.length,
-        new_brands: newBrands,
-        new_stores: newStores,
-        linked_existing: linkedExisting,
-        skipped_exists: skippedExists,
-        skipped_dup_google: skippedDupGoogle,
-        brand_errors: brandErrors,
-        requests,
-        est_cost_usd: Number(estCost.toFixed(3)),
-      },
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "採集失敗";
-    if (job) {
-      await supabase
-        .from("scrape_jobs")
-        .update({ status: "error", error: msg, updated_at: new Date().toISOString() })
-        .eq("id", job.id);
+      await emit({
+        type: "done",
+        data: {
+          keyword, city,
+          found: uniquePlaces.length,
+          new_brands: newBrands,
+          new_stores: newStores,
+          linked_existing: linkedExisting,
+          skipped_exists: skippedExists,
+          skipped_dup_google: skippedDupGoogle,
+          brand_errors: brandErrors,
+          requests,
+          est_cost_usd: Number(estCost.toFixed(3)),
+        },
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "採集失敗";
+      if (jobId) {
+        await supabase.from("scrape_jobs").update({
+          status: "error",
+          error: msg,
+          updated_at: new Date().toISOString(),
+        }).eq("id", jobId).catch(() => {});
+      }
+      await emit({ type: "error", text: msg });
+    } finally {
+      await writer.close().catch(() => {});
     }
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
-  }
+  })();
+
+  return new Response(readable, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }
 
 /**
