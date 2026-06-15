@@ -584,12 +584,15 @@ function DetailPanel({
             )}
           </div>
         </div>
-        <Link
+        <a
           href="/brands"
+          onClick={() => {
+            try { localStorage.setItem("heroherb_selected_brand", JSON.stringify({ id: brand.id, name: brand.name, channels: [] })); } catch {}
+          }}
           style={{ padding: "7px 14px", borderRadius: 10, border: `1px solid ${C.border}`, background: "transparent", color: C.primary, fontSize: 13, fontWeight: 600, textDecoration: "none", display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}
         >
           開啟詳情 →
-        </Link>
+        </a>
       </div>
 
       {/* Tabs */}
