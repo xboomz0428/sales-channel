@@ -815,6 +815,92 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
   );
 }
 
+// ── Places 資料更新面板 ──────────────────────────────
+function PlacesRefreshPanel({ onClose, onDone }: { onClose: () => void; onDone?: () => void }) {
+  const [running, setRunning] = useState(false);
+  const [steps, setSteps] = useState<{ type: string; text: string; ok?: boolean }[]>([]);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const logRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [steps]);
+
+  const run = async () => {
+    if (running) return;
+    setRunning(true);
+    setResult(null);
+    setSteps([]);
+    try {
+      const res = await fetch("/api/enrich/places", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ all: true }),
+      });
+      if (!res.ok || !res.body) { setResult({ ok: false, text: "更新失敗" }); setRunning(false); return; }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n"); buf = lines.pop() ?? "";
+        for (const line of lines) {
+          const t = line.trim(); if (!t) continue;
+          try {
+            const evt = JSON.parse(t);
+            if (evt.type === "done") {
+              const d = evt.data;
+              setResult({ ok: true, text: `完成：${d.updated}/${d.total} 間門市更新（電話/地圖/評論），${d.failed} 筆失敗` });
+              onDone?.();
+            } else if (evt.type === "error") {
+              setResult({ ok: false, text: evt.text });
+            } else {
+              setSteps((prev) => [...prev, { type: evt.type, text: evt.text, ok: evt.ok }]);
+            }
+          } catch {}
+        }
+      }
+    } catch { setResult({ ok: false, text: "網路錯誤" }); }
+    setRunning(false);
+  };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(46,69,53,.4)", backdropFilter: "blur(2px)" }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 510, width: "94vw", maxWidth: 500, maxHeight: "82vh", background: C.surface, borderRadius: 20, boxShadow: "0 24px 64px rgba(21,20,26,.22)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ padding: "18px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>📍 更新 Places 資料</div>
+            <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>以現有 place_id 重新抓取電話 / 地圖連結 / 最新評論</div>
+          </div>
+          <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: C.muted, fontSize: 24, lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px" }}>
+          <button onClick={run} disabled={running} className="pressable"
+            style={{ width: "100%", padding: 13, borderRadius: 12, border: "none", background: running ? C.surf2 : "#B45309", color: running ? C.muted : "white", fontWeight: 700, fontSize: 15, cursor: running ? "default" : "pointer" }}>
+            {running ? <span><span className="spin" style={{ marginRight: 6 }}>↻</span>更新中，請稍候…</span> : "📍 開始更新所有門市 Places 資料"}
+          </button>
+          {steps.length > 0 && (
+            <div ref={logRef} style={{ marginTop: 12, maxHeight: 300, overflowY: "auto", background: "#0e1a11", borderRadius: 10, padding: "10px 14px", fontFamily: "monospace", fontSize: 12, lineHeight: 1.75 }}>
+              {steps.map((s, i) => (
+                <div key={i} style={{ color: s.type === "store" ? (s.ok ? "#5be585" : "#666") : "#9dbeaa" }}>{s.text}</div>
+              ))}
+              {running && <div style={{ color: "#5be585", opacity: 0.7 }}>▌</div>}
+            </div>
+          )}
+          {result && (
+            <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 10, background: result.ok ? C.successBg : C.dangerBg, fontSize: 13, color: result.ok ? C.success : C.danger, lineHeight: 1.6 }}>
+              {result.ok ? "✓ " : "✕ "}{result.text}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── 官網爬蟲面板 ─────────────────────────────────────
 type ScrapeMode = "limit" | "industry" | "brand";
 
@@ -1058,20 +1144,24 @@ export default function MatchingPage() {
   const [isMobile, setIsMobile] = useState(false);
   const [jobPanelOpen, setJobPanelOpen] = useState(false);
   const [websitePanelOpen, setWebsitePanelOpen] = useState(false);
+  const [placesRefreshOpen, setPlacesRefreshOpen] = useState(false);
   const [bulkRunning, setBulkRunning] = useState<string | null>(null);
   const [bulkMsg, setBulkMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [lastRunAll, setLastRunAll] = useState<string | null>(null);
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
-  // 批次政府登記比對 / 管道補齊
-  const runBulk = async (kind: "gov" | "channels", industry?: string | null) => {
+  // 批次政府登記比對 / 管道補齊 / 連鎖偵測
+  const runBulk = async (kind: "gov" | "channels" | "chains", industry?: string | null) => {
     if (bulkRunning) return;
     setBulkRunning(kind);
     setBulkMsg(null);
     try {
-      const url = kind === "gov" ? "/api/gov/lookup" : "/api/enrich/channels";
+      const url =
+        kind === "gov" ? "/api/gov/lookup"
+        : kind === "chains" ? "/api/brands/detect-chains"
+        : "/api/enrich/channels";
       const reqBody: Record<string, unknown> = { all: true };
-      if (industry) reqBody.industry = industry;
+      if (industry && kind !== "chains") reqBody.industry = industry;
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1086,6 +1176,8 @@ export default function MatchingPage() {
           text:
             kind === "gov"
               ? `工商登記比對完成${indsuffix}：${d.total} 筆中 ${d.matched} 筆高信心回寫（統編/負責人/資本額），${d.low_confidence} 筆待人工確認`
+              : kind === "chains"
+              ? `連鎖偵測完成：掃描 ${d.total_brands} 個品牌，識別 ${d.chains_found} 個連鎖品牌（全國連鎖 ${d.groups["全國連鎖"]}、區域連鎖 ${d.groups["區域連鎖"]}、多據點 ${d.groups["多據點"]}），已提升優先分`
               : `管道補齊完成${indsuffix}：${d.total} 個品牌中 ${d.enriched} 個取得官網/電話/地圖/社群連結`,
         });
         loadBrands();
@@ -1232,6 +1324,21 @@ export default function MatchingPage() {
           ⚡ 新增採集任務
         </button>
         <button
+          onClick={() => setPlacesRefreshOpen(true)}
+          className="pressable"
+          style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid #D97706 60`, background: "#FEF3C7", color: "#B45309", fontSize: 13, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}
+        >
+          📍 更新 Places
+        </button>
+        <button
+          onClick={() => runBulk("chains")}
+          disabled={!!bulkRunning}
+          className="pressable"
+          style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid #0891B260`, background: "#E0F2FE", color: "#0369A1", fontSize: 13, fontWeight: 700, cursor: bulkRunning ? "default" : "pointer", flexShrink: 0 }}
+        >
+          {bulkRunning === "chains" ? <span className="spin">↻</span> : "🔗"} 連鎖偵測
+        </button>
+        <button
           onClick={() => runBulk("gov", filterIndustry)}
           disabled={!!bulkRunning}
           className="pressable"
@@ -1319,6 +1426,7 @@ export default function MatchingPage() {
 
       {jobPanelOpen && <PlacesJobPanel onClose={() => setJobPanelOpen(false)} onDone={loadBrands} />}
       {websitePanelOpen && <WebsiteScraperPanel onClose={() => setWebsitePanelOpen(false)} onDone={loadBrands} />}
+      {placesRefreshOpen && <PlacesRefreshPanel onClose={() => setPlacesRefreshOpen(false)} onDone={loadBrands} />}
     </>
   );
 }
