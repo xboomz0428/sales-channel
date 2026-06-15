@@ -88,6 +88,13 @@ function Sec({ title, action, children }: { title?: string; action?: ReactNode; 
   );
 }
 
+// 民國日期 "1051018" → "民國105年10月18日"
+function fmtRocDate(s: string): string {
+  const m = s.replace(/\D/g, "").match(/^(\d{3})(\d{2})(\d{2})$/);
+  if (!m) return s;
+  return `民國${m[1]}年${parseInt(m[2])}月${parseInt(m[3])}日`;
+}
+
 function IRow({ label, value, mono }: { label: string; value: ReactNode; mono?: boolean }) {
   return (
     <div style={{ display: "flex", gap: 8, marginBottom: 7, alignItems: "baseline" }}>
@@ -157,7 +164,7 @@ function Col1({ brand, channelLinks }: { brand: BrandDetail; channelLinks: Recor
         {brand.registered_name && <IRow label="登記名稱" value={brand.registered_name} />}
         <IRow label="負責人" value={brand.owner || "—"} />
         {brand.capital != null && <IRow label="資本額" value={`NT$${brand.capital.toLocaleString()}`} />}
-        {brand.setup_date && <IRow label="成立時間" value={brand.setup_date} />}
+        {brand.setup_date && <IRow label="成立時間" value={fmtRocDate(brand.setup_date)} />}
         {brand.company_address && <IRow label="登記地址" value={brand.company_address} />}
         <IRow label="行業代號" value={brand.industry_code || "—"} />
         <IRow label="分店數" value={`${brand.stores} 間`} />
