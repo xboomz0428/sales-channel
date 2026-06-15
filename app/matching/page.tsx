@@ -720,33 +720,69 @@ function MobileBlock() {
 }
 
 // ── 摘要列 ───────────────────────────────────────────
-function SummaryBar({ brands, lastRunAll }: { brands: ScrapeBrand[]; lastRunAll: string | null }) {
+type StatusFilter = "done" | "running" | "error" | "pending" | null;
+
+function SummaryBar({
+  brands,
+  lastRunAll,
+  activeFilter,
+  onFilter,
+}: {
+  brands: ScrapeBrand[];
+  lastRunAll: string | null;
+  activeFilter: StatusFilter;
+  onFilter: (f: StatusFilter) => void;
+}) {
   const all = brands.length;
   const done = brands.filter((b) => completeness(b.tasks) === 100).length;
   const allTasks = brands.flatMap((b) => Object.values(b.tasks));
   const running = allTasks.filter((t) => t.status === "running").length;
-  const errors = allTasks.filter((t) => t.status === "error").length;
+  const errors = brands.filter((b) => Object.values(b.tasks).some((t) => t.status === "error")).length;
   const pending = brands.reduce((s, b) => s + b.conflicts.filter((c) => c.accepted === null).length, 0);
 
-  const stats = [
-    { label: "品牌", value: all, color: C.text },
-    { label: "採集完整", value: done, color: C.success },
-    { label: "採集中", value: running, color: C.primary, cls: "pulse" },
-    { label: "失敗", value: errors, color: C.danger },
-    { label: "待確認差異", value: pending, color: C.warning },
+  const stats: { label: string; value: number; color: string; cls?: string; filter: StatusFilter }[] = [
+    { label: "品牌", value: all, color: C.text, filter: null },
+    { label: "採集完整", value: done, color: C.success, filter: "done" },
+    { label: "採集中", value: running, color: C.primary, cls: "pulse", filter: "running" },
+    { label: "失敗", value: errors, color: C.danger, filter: "error" },
+    { label: "待確認差異", value: pending, color: "#D97706", filter: "pending" },
   ];
 
   return (
-    <div style={{ display: "flex", gap: 12, padding: "10px 20px", background: C.surface, borderBottom: `1px solid ${C.border}`, flexShrink: 0, flexWrap: "wrap" }}>
-      {stats.map((s, i) => (
-        <div key={i} style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-          <span className={s.cls || ""} style={{ fontSize: 18, fontWeight: 800, color: s.color, fontVariantNumeric: "tabular-nums" }}>
-            {s.value}
-          </span>
-          <span style={{ fontSize: 12, color: C.muted }}>{s.label}</span>
-          {i < stats.length - 1 && <span style={{ color: C.border, marginLeft: 6 }}>·</span>}
-        </div>
-      ))}
+    <div style={{ display: "flex", gap: 6, padding: "10px 20px", background: C.surface, borderBottom: `1px solid ${C.border}`, flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
+      {stats.map((s, i) => {
+        const isActive = activeFilter === s.filter;
+        return (
+          <button
+            key={i}
+            onClick={() => onFilter(isActive ? null : s.filter)}
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              gap: 5,
+              padding: "4px 10px",
+              borderRadius: 8,
+              border: `1px solid ${isActive ? s.color : "transparent"}`,
+              background: isActive ? `${s.color}15` : "transparent",
+              cursor: "pointer",
+              transition: "all 150ms",
+            }}
+          >
+            <span className={s.cls || ""} style={{ fontSize: 18, fontWeight: 800, color: s.color, fontVariantNumeric: "tabular-nums" }}>
+              {s.value}
+            </span>
+            <span style={{ fontSize: 12, color: isActive ? s.color : C.muted, fontWeight: isActive ? 700 : 400 }}>{s.label}</span>
+          </button>
+        );
+      })}
+      {activeFilter && (
+        <button
+          onClick={() => onFilter(null)}
+          style={{ fontSize: 12, color: C.muted, border: "none", background: "none", cursor: "pointer", padding: "4px 6px", borderRadius: 6, textDecoration: "underline" }}
+        >
+          清除篩選
+        </button>
+      )}
       <div style={{ marginLeft: "auto", fontSize: 12, color: C.muted, display: "flex", alignItems: "center", gap: 5 }}>
         <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#A3C9A3", display: "inline-block" }} />
         上次全採：{lastRunAll || "尚未執行"}
@@ -1342,6 +1378,7 @@ export default function MatchingPage() {
   const [selectedId, setSelectedId] = useState<number | string | null>(null);
   const [usingApi, setUsingApi] = useState(false);
   const [filterIndustry, setFilterIndustry] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<StatusFilter>(null);
 
   const loadBrands = () => {
     fetch("/api/brands")
@@ -1516,7 +1553,14 @@ export default function MatchingPage() {
     }
   };
 
-  const visibleBrands = filterIndustry ? brands.filter((b) => b.industry === filterIndustry) : brands;
+  const visibleBrands = brands.filter((b) => {
+    if (filterIndustry && b.industry !== filterIndustry) return false;
+    if (filterStatus === "done") return completeness(b.tasks) === 100;
+    if (filterStatus === "running") return Object.values(b.tasks).some((t) => t.status === "running");
+    if (filterStatus === "error") return Object.values(b.tasks).some((t) => t.status === "error");
+    if (filterStatus === "pending") return b.conflicts.some((c) => c.accepted === null);
+    return true;
+  });
   const selected = selectedId != null ? visibleBrands.find((b) => b.id === selectedId) ?? visibleBrands[0] : visibleBrands[0];
 
   if (isMobile) return <MobileBlock />;
@@ -1601,7 +1645,7 @@ export default function MatchingPage() {
           <button onClick={() => setBulkMsg(null)} style={{ marginLeft: "auto", border: "none", background: "none", cursor: "pointer", color: "inherit", fontSize: 16, lineHeight: 1 }}>×</button>
         </div>
       )}
-      <SummaryBar brands={brands} lastRunAll={lastRunAll} />
+      <SummaryBar brands={brands} lastRunAll={lastRunAll} activeFilter={filterStatus} onFilter={setFilterStatus} />
 
       {/* 產業篩選欄 */}
       <div style={{ display: "flex", gap: 6, padding: "8px 20px", background: C.surface, borderBottom: `1px solid ${C.border}`, flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
