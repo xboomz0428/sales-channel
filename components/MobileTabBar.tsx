@@ -9,6 +9,7 @@ const TABS = [
   { id: "care", label: "跟進", sym: "♡", href: "/followups" },
   { id: "pipeline", label: "進度", sym: "↗", href: "/opportunities" },
   { id: "dashboard", label: "我的", sym: "◈", href: "/" },
+  { id: "settings", label: "設定", sym: "⚙", href: "/settings" },
 ];
 
 export default function MobileTabBar() {

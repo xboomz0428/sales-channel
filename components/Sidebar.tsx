@@ -13,6 +13,7 @@ const NAV = [
   { id: "care", label: "今日跟進", sym: "♡", href: "/followups" },
   { id: "match", label: "比對中心", sym: "⟳", href: "/matching" },
   { id: "collect", label: "採集任務", sym: "⚡", href: "/matching?tab=collect" },
+  { id: "settings", label: "API 設定", sym: "⚙", href: "/settings" },
 ];
 
 function isActive(pathname: string, href: string) {

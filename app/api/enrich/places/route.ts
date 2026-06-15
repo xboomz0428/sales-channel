@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 import { cleanEnv } from "@/lib/env";
+import { logApiUsage } from "@/lib/api-usage";
 
 /**
  * POST /api/enrich/places
@@ -113,6 +114,7 @@ export async function POST(request: NextRequest) {
               signal: AbortSignal.timeout(12000),
             }
           );
+          logApiUsage("places_detail", 1);
 
           if (!res.ok) {
             failed++;

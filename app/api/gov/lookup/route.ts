@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
+import { logApiUsage } from "@/lib/api-usage";
 
 /**
  * 經濟部商工登記公示資料串接（GCIS OData，免 token）
@@ -128,6 +129,7 @@ async function googleCseFind(
     const q = encodeURIComponent(`"${brandName.slice(0, 10)}" 統一編號 公司登記`);
     const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cseId}&q=${q}&num=5&hl=zh-TW&gl=tw`;
     const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    logApiUsage("cse", 1);
     if (!res.ok) return null;
     const data = (await res.json()) as { error?: unknown; items?: { title?: unknown; snippet?: unknown }[] };
     if (data.error) return null;

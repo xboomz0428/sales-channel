@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 import { cleanEnv } from "@/lib/env";
+import { logApiUsage } from "@/lib/api-usage";
 
 /**
  * POST /api/scrape/places
@@ -134,6 +135,7 @@ export async function POST(request: NextRequest) {
           }),
         });
         requests++;
+        logApiUsage("places_search", 1);
 
         if (!res.ok) {
           const detail = await res.text();
