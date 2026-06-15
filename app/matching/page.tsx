@@ -640,10 +640,9 @@ function DetailPanel({
             {Object.entries(brand.tasks).map(([k, task]) => (
               <TaskRow key={k} srcKey={k} task={task} onRun={(src) => onRunTask(brand.id, src)} />
             ))}
-            {(brand.tasks.gov?.status === "queued" || brand.tasks.gov?.status === "stale") &&
-              typeof brand.id === "string" && (
-                <GovManualSearch brandId={brand.id} onDone={onGovUpdated || (() => {})} />
-              )}
+            {typeof brand.id === "string" && (
+              <GovManualSearch brandId={brand.id} onDone={onGovUpdated || (() => {})} />
+            )}
           </div>
         )}
 

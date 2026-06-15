@@ -93,22 +93,25 @@ async function enrichBrand(supabase: SupabaseServerClient, brandId: string, bran
     added.push("map");
   }
   if (website) {
-    await upsertChannel(supabase, brandId, "website", website);
-    added.push("website");
+    // 如果 website 本身就是社群連結（FB/IG/LINE），不當 website 存
+    const isSocialUrl = LINK_PATTERNS.some(([, re]) => re.test(website));
+    if (isSocialUrl) {
+      for (const [ch, re] of LINK_PATTERNS) {
+        if (re.test(website)) {
+          await upsertChannel(supabase, brandId, ch, website, website);
+          added.push(ch);
+        }
+      }
+    } else {
+      await upsertChannel(supabase, brandId, "website", website);
+      added.push("website");
 
-    // 官網可能直接是 FB/IG/LINE 連結
-    for (const [ch, re] of LINK_PATTERNS) {
-      if (re.test(website)) {
-        await upsertChannel(supabase, brandId, ch, website, website);
+      // 抓官網 HTML 找社群連結
+      const links = await fetchSiteLinks(website);
+      for (const [ch, value] of Object.entries(links)) {
+        await upsertChannel(supabase, brandId, ch, value, website);
         added.push(ch);
       }
-    }
-
-    // 抓官網 HTML 找社群連結
-    const links = await fetchSiteLinks(website);
-    for (const [ch, value] of Object.entries(links)) {
-      await upsertChannel(supabase, brandId, ch, value, website);
-      added.push(ch);
     }
   }
 

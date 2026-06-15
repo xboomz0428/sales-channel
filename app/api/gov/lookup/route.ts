@@ -40,14 +40,14 @@ interface GcisCompany {
 }
 
 async function gcisFetch(url: string): Promise<GcisCompany[]> {
-  const res = await fetch(url, {
-    headers: { Accept: "application/json" },
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!res.ok) return [];
-  const text = await res.text();
-  if (!text || text.includes("API不存在")) return [];
   try {
+    const res = await fetch(url, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) return [];
+    const text = await res.text();
+    if (!text || text.includes("API不存在") || text.includes("參數有誤")) return [];
     const data = JSON.parse(text);
     return Array.isArray(data) ? data : [];
   } catch {
@@ -60,8 +60,10 @@ async function searchByTaxId(taxId: string): Promise<GcisCompany[]> {
   return gcisFetch(`${GCIS}/${BY_TAXID}?$format=json&$filter=${filter}&$skip=0&$top=3`);
 }
 
-async function searchByName(name: string): Promise<GcisCompany[]> {
-  const filter = encodeURIComponent(`Company_Name like '%${name}%' and Company_Status eq '01'`);
+// activeOnly=true 給自動比對用（只找在籍公司），false 給手動搜尋用（顯示全部）
+async function searchByName(name: string, activeOnly = true): Promise<GcisCompany[]> {
+  const statusClause = activeOnly ? ` and Company_Status eq '01'` : "";
+  const filter = encodeURIComponent(`Company_Name like '%${name}%'${statusClause}`);
   return gcisFetch(`${GCIS}/${BY_NAME}?$format=json&$filter=${filter}&$skip=0&$top=5`);
 }
 
@@ -301,16 +303,16 @@ export async function POST(request: NextRequest) {
       if (body.tax_id) {
         candidates = await searchByTaxId(String(body.tax_id));
       } else {
-        // 漸進式（最多 8 字 → 去通路詞 → 3 字 → registry）
-        candidates = await searchByName(nameQ.slice(0, 8));
+        // 漸進式（最多 8 字 → 去通路詞 → 3 字 → registry）；手動搜尋不限在籍狀態
+        candidates = await searchByName(nameQ.slice(0, 8), false);
         if (candidates.length === 0) {
           const stripped = nameQ.replace(VENUE_RE, "").trim();
           if (stripped.length >= 2 && stripped !== nameQ) {
-            candidates = await searchByName(stripped.slice(0, 8));
+            candidates = await searchByName(stripped.slice(0, 8), false);
           }
         }
         if (candidates.length === 0 && nameQ.length > 3) {
-          candidates = await searchByName(nameQ.slice(0, 3));
+          candidates = await searchByName(nameQ.slice(0, 3), false);
         }
         if (candidates.length === 0) {
           candidates = await searchRegistry(supabase, nameQ.slice(0, 5));
