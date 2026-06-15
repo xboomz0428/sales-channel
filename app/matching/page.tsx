@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { C, downloadCSV } from "@/lib/design";
+import { C, downloadCSV, INDUSTRIES } from "@/lib/design";
 
 // ── 來源定義 ─────────────────────────────────────────
 const SOURCES: Record<string, { label: string; icon: string; color: string; bg: string }> = {
@@ -50,6 +50,7 @@ interface Conflict {
 interface ScrapeBrand {
   id: number | string;
   name: string;
+  industry: string;
   score: number;
   stage: string;
   tasks: Record<string, ScrapeTask>;
@@ -114,6 +115,7 @@ function dbBrandToScrapeBrand(b: Record<string, unknown>): ScrapeBrand {
   return {
     id: b.id as string,
     name: (b.name as string) || "未命名",
+    industry: (b.industry as string) || "",
     score: (b.priority_score as number) ?? 50,
     stage: (b.status as string) || "new",
     tasks,
@@ -709,14 +711,14 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
 
           {/* 頁數 / 費用預估 */}
           <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>採集量（每頁 20 筆，Text Search 約 $0.032/次）</div>
-          <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
-            {[1, 2, 3].map((n) => (
+          <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+            {[1, 3, 5, 10].map((n) => (
               <button
                 key={n}
                 onClick={() => setMaxPages(n)}
-                style={{ flex: 1, padding: "8px 0", borderRadius: 10, fontSize: 13, fontWeight: maxPages === n ? 700 : 400, border: `1px solid ${maxPages === n ? C.primary : C.border}`, background: maxPages === n ? C.p50 : "transparent", color: maxPages === n ? C.primary : C.muted, cursor: "pointer" }}
+                style={{ flex: 1, padding: "8px 0", borderRadius: 10, fontSize: 13, fontWeight: maxPages === n ? 700 : 400, border: `1px solid ${maxPages === n ? C.primary : C.border}`, background: maxPages === n ? C.p50 : "transparent", color: maxPages === n ? C.primary : C.muted, cursor: "pointer", minWidth: 70 }}
               >
-                {n * 20} 筆<span style={{ fontSize: 11, opacity: 0.7 }}>（${(n * 0.032).toFixed(3)}）</span>
+                {n * 20} 筆<br /><span style={{ fontSize: 10, opacity: 0.7 }}>≈${(n * 0.032).toFixed(2)}</span>
               </button>
             ))}
           </div>
@@ -818,7 +820,7 @@ type ScrapeMode = "limit" | "industry" | "brand";
 
 function WebsiteScraperPanel({ onClose, onDone }: { onClose: () => void; onDone?: () => void }) {
   const [mode, setMode] = useState<ScrapeMode>("limit");
-  const [limit, setLimit] = useState(20);
+  const [limit, setLimit] = useState(0); // 0 = 全部
   const [industry, setIndustry] = useState("");
   const [brandSearch, setBrandSearch] = useState("");
   const [allBrands, setAllBrands] = useState<{ id: string; name: string; industry: string }[]>([]);
@@ -852,8 +854,8 @@ function WebsiteScraperPanel({ onClose, onDone }: { onClose: () => void; onDone?
 
   const buildBody = () => {
     if (mode === "brand") return { brand_ids: [...selectedIds] };
-    if (mode === "industry") return { all: true, limit: 50, industry };
-    return { all: true, limit };
+    if (mode === "industry") return { all: true, industry }; // 不加 limit，全類別採集
+    return limit > 0 ? { all: true, limit } : { all: true }; // limit=0 → 不限制
   };
 
   const canRun = !running && (
@@ -865,8 +867,8 @@ function WebsiteScraperPanel({ onClose, onDone }: { onClose: () => void; onDone?
   const runLabel = () => {
     if (running) return "爬取中…";
     if (mode === "brand") return `🌐 爬取已選 ${selectedIds.size} 個品牌`;
-    if (mode === "industry") return industry ? `🌐 爬取「${industry}」類品牌` : "請先選擇類別";
-    return `🌐 開始爬取（${limit} 個品牌）`;
+    if (mode === "industry") return industry ? `🌐 爬取「${industry}」全部品牌` : "請先選擇類別";
+    return limit > 0 ? `🌐 開始爬取（${limit} 個品牌）` : "🌐 爬取全部品牌";
   };
 
   const run = async () => {
@@ -942,13 +944,17 @@ function WebsiteScraperPanel({ onClose, onDone }: { onClose: () => void; onDone?
 
           {/* 依數量 */}
           {mode === "limit" && (
-            <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
-              {[10, 20, 30].map((n) => (
+            <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
+              {[20, 50, 100].map((n) => (
                 <button key={n} onClick={() => setLimit(n)}
-                  style={{ flex: 1, padding: "9px 0", borderRadius: 10, fontSize: 13, fontWeight: limit === n ? 700 : 400, border: `1px solid ${limit === n ? C.primary : C.border}`, background: limit === n ? C.p50 : "transparent", color: limit === n ? C.primary : C.muted, cursor: "pointer" }}>
-                  {n} 個品牌
+                  style={{ flex: 1, padding: "9px 0", borderRadius: 10, fontSize: 13, fontWeight: limit === n ? 700 : 400, border: `1px solid ${limit === n ? C.primary : C.border}`, background: limit === n ? C.p50 : "transparent", color: limit === n ? C.primary : C.muted, cursor: "pointer", minWidth: 60 }}>
+                  {n} 個
                 </button>
               ))}
+              <button onClick={() => setLimit(0)}
+                style={{ flex: 1, padding: "9px 0", borderRadius: 10, fontSize: 13, fontWeight: limit === 0 ? 700 : 400, border: `1px solid ${limit === 0 ? C.primary : C.border}`, background: limit === 0 ? C.p50 : "transparent", color: limit === 0 ? C.primary : C.muted, cursor: "pointer", minWidth: 60 }}>
+                全部
+              </button>
             </div>
           )}
 
@@ -1031,6 +1037,7 @@ export default function MatchingPage() {
   const [loadingBrands, setLoadingBrands] = useState(true);
   const [selectedId, setSelectedId] = useState<number | string | null>(null);
   const [usingApi, setUsingApi] = useState(false);
+  const [filterIndustry, setFilterIndustry] = useState<string | null>(null);
 
   const loadBrands = () => {
     fetch("/api/brands")
@@ -1057,26 +1064,29 @@ export default function MatchingPage() {
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   // 批次政府登記比對 / 管道補齊
-  const runBulk = async (kind: "gov" | "channels") => {
+  const runBulk = async (kind: "gov" | "channels", industry?: string | null) => {
     if (bulkRunning) return;
     setBulkRunning(kind);
     setBulkMsg(null);
     try {
       const url = kind === "gov" ? "/api/gov/lookup" : "/api/enrich/channels";
+      const reqBody: Record<string, unknown> = { all: true };
+      if (industry) reqBody.industry = industry;
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ all: true }),
+        body: JSON.stringify(reqBody),
       });
       const json = await res.json();
       if (json.success) {
         const d = json.data;
+        const indsuffix = industry ? `（「${industry}」類）` : "";
         setBulkMsg({
           ok: true,
           text:
             kind === "gov"
-              ? `工商登記比對完成：${d.total} 筆中 ${d.matched} 筆高信心回寫（統編/負責人/資本額），${d.low_confidence} 筆待人工確認`
-              : `管道補齊完成：${d.total} 個品牌中 ${d.enriched} 個取得官網/電話/地圖/社群連結`,
+              ? `工商登記比對完成${indsuffix}：${d.total} 筆中 ${d.matched} 筆高信心回寫（統編/負責人/資本額），${d.low_confidence} 筆待人工確認`
+              : `管道補齊完成${indsuffix}：${d.total} 個品牌中 ${d.enriched} 個取得官網/電話/地圖/社群連結`,
         });
         loadBrands();
       } else {
@@ -1188,7 +1198,8 @@ export default function MatchingPage() {
     }
   };
 
-  const selected = selectedId != null ? brands.find((b) => b.id === selectedId) ?? brands[0] : brands[0];
+  const visibleBrands = filterIndustry ? brands.filter((b) => b.industry === filterIndustry) : brands;
+  const selected = selectedId != null ? visibleBrands.find((b) => b.id === selectedId) ?? visibleBrands[0] : visibleBrands[0];
 
   if (isMobile) return <MobileBlock />;
 
@@ -1221,20 +1232,20 @@ export default function MatchingPage() {
           ⚡ 新增採集任務
         </button>
         <button
-          onClick={() => runBulk("gov")}
+          onClick={() => runBulk("gov", filterIndustry)}
           disabled={!!bulkRunning}
           className="pressable"
           style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid #7B6E9960`, background: "#EAE5F0", color: "#7B6E99", fontSize: 13, fontWeight: 700, cursor: bulkRunning ? "default" : "pointer", flexShrink: 0 }}
         >
-          {bulkRunning === "gov" ? <span className="spin">↻</span> : "🏛"} 工商登記比對
+          {bulkRunning === "gov" ? <span className="spin">↻</span> : "🏛"} 工商登記比對{filterIndustry ? `（${filterIndustry}）` : ""}
         </button>
         <button
-          onClick={() => runBulk("channels")}
+          onClick={() => runBulk("channels", filterIndustry)}
           disabled={!!bulkRunning}
           className="pressable"
           style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid #5B7C9960`, background: "#E3EDFB", color: "#5B7C99", fontSize: 13, fontWeight: 700, cursor: bulkRunning ? "default" : "pointer", flexShrink: 0 }}
         >
-          {bulkRunning === "channels" ? <span className="spin">↻</span> : "🔗"} 管道補齊
+          {bulkRunning === "channels" ? <span className="spin">↻</span> : "🔗"} 管道補齊{filterIndustry ? `（${filterIndustry}）` : ""}
         </button>
         <button
           onClick={() => setWebsitePanelOpen(true)}
@@ -1258,9 +1269,35 @@ export default function MatchingPage() {
         </div>
       )}
       <SummaryBar brands={brands} lastRunAll={lastRunAll} />
+
+      {/* 產業篩選欄 */}
+      <div style={{ display: "flex", gap: 6, padding: "8px 20px", background: C.surface, borderBottom: `1px solid ${C.border}`, flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ fontSize: 11, color: C.muted, fontWeight: 700, letterSpacing: 0.6 }}>類別：</span>
+        <button
+          onClick={() => { setFilterIndustry(null); }}
+          style={{ padding: "4px 12px", borderRadius: 999, fontSize: 12, fontWeight: filterIndustry === null ? 700 : 400, border: `1px solid ${filterIndustry === null ? C.primary : C.border}`, background: filterIndustry === null ? C.p50 : "transparent", color: filterIndustry === null ? C.primary : C.muted, cursor: "pointer" }}
+        >
+          全部（{brands.length}）
+        </button>
+        {INDUSTRIES.map((ind) => {
+          const cnt = brands.filter((b) => b.industry === ind).length;
+          if (cnt === 0) return null;
+          const active = filterIndustry === ind;
+          return (
+            <button
+              key={ind}
+              onClick={() => setFilterIndustry(active ? null : ind)}
+              style={{ padding: "4px 12px", borderRadius: 999, fontSize: 12, fontWeight: active ? 700 : 400, border: `1px solid ${active ? C.primary : C.border}`, background: active ? C.p50 : "transparent", color: active ? C.primary : C.muted, cursor: "pointer" }}
+            >
+              {ind}（{cnt}）
+            </button>
+          );
+        })}
+      </div>
+
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         <BrandList
-          brands={brands}
+          brands={visibleBrands}
           selectedId={selectedId}
           onSelect={(id) => {
             setSelectedId(id);
@@ -1268,11 +1305,10 @@ export default function MatchingPage() {
           }}
           onRunAll={async () => {
             if (usingApi) {
-              // 真實模式：走批次端點（gov 比對缺統編品牌 → 管道補齊），避免逐品牌逐來源狂打
-              await runBulk("gov");
-              await runBulk("channels");
+              await runBulk("gov", filterIndustry);
+              await runBulk("channels", filterIndustry);
             } else {
-              brands.forEach((b) => Object.keys(b.tasks).forEach((k) => runTask(b.id, k)));
+              visibleBrands.forEach((b) => Object.keys(b.tasks).forEach((k) => runTask(b.id, k)));
             }
             const now = new Date();
             setLastRunAll(`${now.getMonth() + 1}/${now.getDate()} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`);

@@ -233,27 +233,23 @@ export async function POST(request: NextRequest) {
         const { data } = await sb.from("brands").select("id,name").eq("id", String(body.brand_id)).single();
         if (data) brands = [data];
       } else if (body.all) {
-        const limit = Math.min(Number(body.limit) || 30, 50);
+        const rawLimit = Number(body.limit) || 0; // 0 = 不限制
         const industry = body.industry ? String(body.industry) : null;
 
         let candidateIds: string[] = [];
 
         if (industry) {
-          // 指定類別：直接從 brands 篩選
           const { data: rows } = await sb
             .from("brands")
             .select("id")
-            .ilike("industry", `%${industry}%`)
-            .limit(limit * 3);
+            .ilike("industry", `%${industry}%`);
           candidateIds = (rows ?? []).map((r) => r.id).filter(Boolean);
         } else {
-          // 找有官網的品牌
           const { data: rows } = await sb
             .from("stores")
             .select("brand_id")
             .not("website", "is", null)
-            .neq("website", "")
-            .limit(limit * 5);
+            .neq("website", "");
           candidateIds = [...new Set((rows ?? []).map((r) => r.brand_id).filter(Boolean))];
         }
 
@@ -266,9 +262,10 @@ export async function POST(request: NextRequest) {
         for (const r of enrichedRows ?? []) {
           enrichedCounts[r.brand_id] = (enrichedCounts[r.brand_id] ?? 0) + 1;
         }
-        const unenrichedIds = candidateIds.filter((id) => (enrichedCounts[id] ?? 0) < 2).slice(0, limit);
+        const allUnenrichedIds = candidateIds.filter((id) => (enrichedCounts[id] ?? 0) < 2);
+        const unenrichedIds = rawLimit > 0 ? allUnenrichedIds.slice(0, rawLimit) : allUnenrichedIds;
 
-        const skippedAlready = candidateIds.length - unenrichedIds.length;
+        const skippedAlready = candidateIds.length - allUnenrichedIds.length;
         if (skippedAlready > 0) {
           await emit({ type: "step", text: `略過 ${skippedAlready} 個品牌（已有管道資料），剩餘 ${unenrichedIds.length} 個待爬取` });
         }

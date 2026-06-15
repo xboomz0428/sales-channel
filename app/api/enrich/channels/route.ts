@@ -147,7 +147,7 @@ export async function POST(request: NextRequest) {
       const industry = body.industry ? String(body.industry) : null;
       let query = supabase.from("brands").select("id, name");
       if (industry) query = query.ilike("industry", `%${industry}%`);
-      const { data: brands } = await query.limit(20);
+      const { data: brands } = await query;
       const results = [];
       for (const b of brands || []) results.push(await enrichBrand(supabase, b.id, b.name));
       const withChannels = results.filter((r) => r.channels.length > 0).length;

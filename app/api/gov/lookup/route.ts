@@ -185,13 +185,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, data: result });
     }
 
-    // 批次比對：缺統編的品牌（GCIS 有限流，每次 15 筆、間隔 400ms）
+    // 批次比對：缺統編的品牌（GCIS 有限流，每筆間隔 400ms）
     if (body.all) {
-      const { data: brands } = await supabase
+      const industry = body.industry ? String(body.industry) : null;
+      let brandQuery = supabase
         .from("brands")
         .select("id, name, brand_key, tax_id")
-        .is("tax_id", null)
-        .limit(15);
+        .is("tax_id", null);
+      if (industry) brandQuery = brandQuery.ilike("industry", `%${industry}%`);
+      const { data: brands } = await brandQuery;
 
       const results = [];
       for (const b of brands || []) {

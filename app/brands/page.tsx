@@ -2,7 +2,7 @@
 
 import { useState, useEffect, ReactNode } from "react";
 import Link from "next/link";
-import { C, STATUS, StatusKey } from "@/lib/design";
+import { C, STATUS, StatusKey, CHANNELS, CHANNEL_ORDER, channelHref } from "@/lib/design";
 import Icon from "@/components/Icon";
 import MobileTabBar from "@/components/MobileTabBar";
 
@@ -17,7 +17,9 @@ interface BrandDetail {
   score: number;
   status: string;
   tax_id?: string;
+  registered_name?: string;
   owner?: string;
+  capital?: number;
   industry_code?: string;
   est_annual?: number;
   probability?: number;
@@ -26,20 +28,13 @@ interface BrandDetail {
 }
 
 const BRAND_DEFAULT: BrandDetail = {
-  name: "6星集足體養生會館",
-  industry: "養生館",
-  stores: 9,
-  cities: "北/中/南",
-  channels: ["line", "fb", "ig", "email"],
-  score: 92,
-  status: "quoting",
-  tax_id: "16830000",
-  owner: "江○○",
-  industry_code: "9640",
-  est_annual: 1800000,
-  probability: 60,
-  stage_days: 12,
-  pitch: "連鎖養生館高頻耗材，員工足浴需求穩定，建議先從 3 個主力門市試跑，談定期採購合約。",
+  name: "—",
+  industry: "",
+  stores: 0,
+  cities: "—",
+  channels: [],
+  score: 50,
+  status: "new",
 };
 
 interface ContactItem {
@@ -61,18 +56,7 @@ interface LogItem {
   next?: string;
 }
 
-const LOGS_SEED: LogItem[] = [
-  { id: 3, date: "6/8", ch: "visit", summary: "門市拜訪，展示完整產品線，試泡反應正面，要求正式報價單", next: "寄報價單 6/18前" },
-  { id: 2, date: "6/1", ch: "phone", summary: "確認樣品已到貨，安排兩週試用期，約定 6/8 門市拜訪" },
-  { id: 1, date: "5/28", ch: "line", summary: "初次聯繫，對艾草足浴包有興趣，詢問是否有樣品可試", next: "寄樣品" },
-];
 
-const CH_CFG: Record<string, { label: string; bg: string }> = {
-  line: { label: "LINE", bg: "#06C755" },
-  fb: { label: "FB", bg: "#1877F2" },
-  ig: { label: "IG", bg: "#C13584" },
-  email: { label: "Email", bg: "#8FAAA4" },
-};
 const LOG_EM: Record<string, string> = { visit: "📍", phone: "📞", line: "💬", email: "✉️" };
 const ROLE_CFG: Record<string, { label: string; bg: string; fg: string }> = {
   decision_maker: { label: "決策者", bg: "#EDF3F2", fg: "#5E8880" },
@@ -112,7 +96,16 @@ function IRow({ label, value, mono }: { label: string; value: ReactNode; mono?: 
 }
 
 // ── 第一欄：基本資料 ─────────────────────────────────
-function Col1({ brand }: { brand: BrandDetail }) {
+function Col1({ brand, channelLinks }: { brand: BrandDetail; channelLinks: Record<string, string> }) {
+  const phoneVal = channelLinks.phone;
+  const lineVal = channelLinks.line;
+
+  const allChannels = Object.keys(channelLinks).length > 0
+    ? CHANNEL_ORDER.filter((ch) => channelLinks[ch]).concat(
+        Object.keys(channelLinks).filter((ch) => !CHANNEL_ORDER.includes(ch) && channelLinks[ch])
+      )
+    : brand.channels;
+
   return (
     <div>
       <div style={{ background: C.sidebar, borderRadius: 16, padding: "18px 18px 16px", marginBottom: 14 }}>
@@ -137,52 +130,77 @@ function Col1({ brand }: { brand: BrandDetail }) {
 
       <div className="d-only" style={{ display: "flex", gap: 8, marginBottom: 14 }}>
         <a
-          href="tel:+886"
+          href={phoneVal ? `tel:${phoneVal.replace(/[^+\d]/g, "")}` : "tel:+886"}
           className="pressable"
           style={{ flex: 1, padding: 11, borderRadius: 12, background: C.surf2, color: C.text, textDecoration: "none", fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
         >
           <Icon n="phone" size={14} color={C.primary} />
-          撥號
+          {phoneVal || "撥號"}
         </a>
-        <a
-          href="https://line.me"
-          target="_blank"
-          rel="noopener"
-          className="pressable"
-          style={{ flex: 1, padding: 11, borderRadius: 12, background: "#06C75515", color: "#06C755", textDecoration: "none", fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-        >
-          💬 LINE
-        </a>
+        {lineVal && (
+          <a
+            href={channelHref("line", lineVal)}
+            target="_blank"
+            rel="noopener"
+            className="pressable"
+            style={{ flex: 1, padding: 11, borderRadius: 12, background: "#06C75515", color: "#06C755", textDecoration: "none", fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+          >
+            💬 LINE
+          </a>
+        )}
       </div>
 
       <Sec title="基本資料">
         <IRow label="統一編號" value={brand.tax_id || "—"} mono />
+        {brand.registered_name && <IRow label="登記名稱" value={brand.registered_name} />}
         <IRow label="負責人" value={brand.owner || "—"} />
+        {brand.capital != null && <IRow label="資本額" value={`NT$${brand.capital.toLocaleString()}`} />}
         <IRow label="行業代號" value={brand.industry_code || "—"} />
         <IRow label="分店數" value={`${brand.stores} 間`} />
         <IRow label="城市" value={brand.cities} />
       </Sec>
 
       <Sec title="聯絡管道">
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {brand.channels.map((ch) => {
-            const cfg = CH_CFG[ch] || { label: ch, bg: "#aaa" };
-            return (
-              <div key={ch} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 9, background: C.surf2, border: `1px solid ${C.border}` }}>
-                <div style={{ width: 18, height: 18, borderRadius: 4, background: cfg.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <span style={{ color: "white", fontSize: 8, fontWeight: 700 }}>{cfg.label.slice(0, 2)}</span>
+        {allChannels.length === 0 ? (
+          <div style={{ fontSize: 13, color: C.muted }}>尚未採集聯絡管道</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {allChannels.map((ch) => {
+              const cfg = CHANNELS[ch] || { label: ch, bg: "#aaa", abbr: ch.slice(0, 3).toUpperCase() };
+              const value = channelLinks[ch];
+              const href = value ? channelHref(ch, value) : null;
+              const displayVal = value
+                ? ch === "email" ? value
+                  : ch === "phone" ? value
+                  : value.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "").slice(0, 40)
+                : null;
+              const chip = (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 9, background: C.surf2, border: `1px solid ${C.border}` }}>
+                  <div style={{ width: 22, height: 22, borderRadius: 5, background: cfg.bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <span style={{ color: "white", fontSize: 8, fontWeight: 700 }}>{cfg.abbr}</span>
+                  </div>
+                  <span style={{ fontSize: 13, color: C.text, fontWeight: 600, minWidth: 36 }}>{cfg.label}</span>
+                  {displayVal && (
+                    <span style={{ fontSize: 12, color: C.muted, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayVal}</span>
+                  )}
+                  {href && <span style={{ fontSize: 11, color: C.primary, fontWeight: 700, flexShrink: 0 }}>↗</span>}
                 </div>
-                <span style={{ fontSize: 13, color: C.text }}>{cfg.label}</span>
-                <span style={{ fontSize: 11, color: C.primary, fontWeight: 600 }}>已驗證</span>
-              </div>
-            );
-          })}
-        </div>
+              );
+              return href ? (
+                <a key={ch} href={href} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>{chip}</a>
+              ) : (
+                <div key={ch}>{chip}</div>
+              );
+            })}
+          </div>
+        )}
       </Sec>
 
-      <Sec title="建議切入點">
-        <p style={{ fontSize: 13, color: C.muted, lineHeight: 1.7, margin: 0 }}>{brand.pitch || "尚無建議，可由 AI 分析產生。"}</p>
-      </Sec>
+      {brand.pitch && (
+        <Sec title="建議切入點">
+          <p style={{ fontSize: 13, color: C.muted, lineHeight: 1.7, margin: 0 }}>{brand.pitch}</p>
+        </Sec>
+      )}
     </div>
   );
 }
@@ -478,7 +496,8 @@ function Col3({
 export default function BrandDetailPage() {
   const [brand, setBrand] = useState<BrandDetail>(BRAND_DEFAULT);
   const [contacts, setContacts] = useState<ContactItem[]>([]);
-  const [logs, setLogs] = useState<LogItem[]>(LOGS_SEED);
+  const [logs, setLogs] = useState<LogItem[]>([]);
+  const [channelLinks, setChannelLinks] = useState<Record<string, string>>({});
   const [tab, setTab] = useState<"info" | "contacts" | "logs">("info");
   const [contactModal, setContactModal] = useState<{ mode: "add" | "edit"; contact?: ContactItem } | null>(null);
 
@@ -489,9 +508,13 @@ export default function BrandDetailPage() {
       const s = localStorage.getItem("heroherb_selected_brand");
       if (s) {
         const d = JSON.parse(s);
-        const merged: BrandDetail = { ...BRAND_DEFAULT, ...d, channels: Array.isArray(d.channels) ? d.channels : BRAND_DEFAULT.channels };
+        const merged: BrandDetail = { ...BRAND_DEFAULT, ...d, channels: Array.isArray(d.channels) ? d.channels : [] };
         picked = merged;
         setBrand(merged);
+        // channelLinks from leads page
+        if (d.channelLinks && typeof d.channelLinks === "object") {
+          setChannelLinks(d.channelLinks);
+        }
       }
     } catch {}
 
@@ -509,23 +532,26 @@ export default function BrandDetailPage() {
               stores: b.store_count || prev.stores,
               status: b.status || prev.status,
               tax_id: b.tax_id || prev.tax_id,
+              registered_name: b.registered_name || prev.registered_name,
               owner: b.owner_name || prev.owner,
+              capital: b.capital ?? prev.capital,
               score: b.priority_score ?? prev.score,
             }));
           }
-          if (Array.isArray(cs) && cs.length > 0) {
+          if (Array.isArray(cs)) {
             setContacts(
               cs.map((c: Record<string, unknown>) => ({
                 id: c.id as string,
                 name: (c.name as string) || "未命名",
                 title: c.title as string | undefined,
-                role: "gatekeeper",
+                role: (c.role as string) || "gatekeeper",
                 mobile: c.mobile as string | undefined,
                 line: c.line_id as string | undefined,
+                note: c.note as string | undefined,
               }))
             );
           }
-          if (Array.isArray(outreach) && outreach.length > 0) {
+          if (Array.isArray(outreach)) {
             setLogs(
               outreach.map((o: Record<string, unknown>) => {
                 const d = new Date(o.created_at as string);
@@ -537,6 +563,15 @@ export default function BrandDetailPage() {
                 };
               })
             );
+          }
+          if (Array.isArray(result.data.channels)) {
+            const links: Record<string, string> = {};
+            for (const c of result.data.channels as { channel: string; value: string }[]) {
+              if (c.channel && c.value) links[c.channel] = c.value;
+            }
+            setChannelLinks(links);
+            // 更新 brand.channels 列表
+            setBrand((prev) => ({ ...prev, channels: Object.keys(links) }));
           }
         })
         .catch(() => {});
@@ -659,8 +694,8 @@ export default function BrandDetailPage() {
       {/* Main content */}
       <div style={{ flex: 1, overflowY: "auto", padding: 20, paddingBottom: 80 }}>
         <div className="d-only" style={{ display: "flex", gap: 20, alignItems: "flex-start", maxWidth: 1100 }}>
-          <div style={{ width: 260, flexShrink: 0 }}>
-            <Col1 brand={brand} />
+          <div style={{ width: 280, flexShrink: 0 }}>
+            <Col1 brand={brand} channelLinks={channelLinks} />
           </div>
           <div style={{ width: 280, flexShrink: 0 }}>
             <Col2 brand={brand} contacts={contacts} onAdd={() => setContactModal({ mode: "add" })} onEdit={(c) => setContactModal({ mode: "edit", contact: c })} onDelete={handleDeleteContact} />
@@ -670,7 +705,7 @@ export default function BrandDetailPage() {
           </div>
         </div>
         <div className="m-only">
-          {tab === "info" && <Col1 brand={brand} />}
+          {tab === "info" && <Col1 brand={brand} channelLinks={channelLinks} />}
           {tab === "contacts" && <Col2 brand={brand} contacts={contacts} onAdd={() => setContactModal({ mode: "add" })} onEdit={(c) => setContactModal({ mode: "edit", contact: c })} onDelete={handleDeleteContact} />}
           {tab === "logs" && <Col3 brand={brand} logs={logs} onAddLog={addLog} />}
         </div>

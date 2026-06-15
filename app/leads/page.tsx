@@ -1163,6 +1163,8 @@ export default function LeadsPage() {
   const [aiText, setAiText] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [industryScraping, setIndustryScraping] = useState(false);
+  const [industryScrapeMsg, setIndustryScrapeMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     fetch("/api/brands")
@@ -1214,6 +1216,29 @@ export default function LeadsPage() {
       setAiText(analyzeBrands(brands));
       setAiLoading(false);
     }, 800);
+  };
+
+  const scrapeCurrentIndustry = async () => {
+    if (!filters.industry || industryScraping) return;
+    setIndustryScraping(true);
+    setIndustryScrapeMsg(null);
+    try {
+      const res = await fetch("/api/enrich/channels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ all: true, industry: filters.industry }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        const d = json.data;
+        setIndustryScrapeMsg({ ok: true, text: `管道補齊完成：${d.total} 個「${filters.industry}」品牌中 ${d.enriched} 個取得聯絡管道` });
+      } else {
+        setIndustryScrapeMsg({ ok: false, text: json.error || "採集失敗" });
+      }
+    } catch {
+      setIndustryScrapeMsg({ ok: false, text: "網路錯誤" });
+    }
+    setIndustryScraping(false);
   };
 
   const changeStatus = (id: BrandVM["id"], status: string) => {
@@ -1357,6 +1382,29 @@ export default function LeadsPage() {
 
       {/* Filter bar */}
       <FilterBar filters={filters} onAdd={addFilter} onRemove={removeFilter} onOpenDrawer={() => setFilterOpen(true)} />
+
+      {/* 類別採集列 */}
+      {filters.industry && (
+        <div style={{ padding: "7px 20px", background: C.p50, borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, color: C.primary }}>已選類別：<strong>「{filters.industry}」</strong>共 {visible.length} 筆</span>
+          <button
+            onClick={scrapeCurrentIndustry}
+            disabled={industryScraping}
+            className="pressable"
+            style={{ padding: "5px 13px", borderRadius: 8, border: "none", background: industryScraping ? C.surf2 : C.primary, color: industryScraping ? C.muted : "white", fontSize: 12, fontWeight: 700, cursor: industryScraping ? "default" : "pointer" }}
+          >
+            {industryScraping ? <span><span className="spin" style={{ marginRight: 4 }}>↻</span>採集中…</span> : "🔗 採集此類別管道"}
+          </button>
+          {industryScrapeMsg && (
+            <span style={{ fontSize: 12, color: industryScrapeMsg.ok ? C.success : C.danger }}>
+              {industryScrapeMsg.ok ? "✓" : "✕"} {industryScrapeMsg.text}
+            </span>
+          )}
+          {industryScrapeMsg && (
+            <button onClick={() => setIndustryScrapeMsg(null)} style={{ border: "none", background: "none", cursor: "pointer", color: C.muted, fontSize: 14, marginLeft: "auto" }}>×</button>
+          )}
+        </div>
+      )}
 
       {/* Results summary */}
       {(Object.values(filters).some(Boolean) || search) && (
