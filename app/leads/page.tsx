@@ -273,7 +273,7 @@ function Overlay({ onClick, blur }: { onClick: () => void; blur?: boolean }) {
 }
 
 // ── 篩選列 ───────────────────────────────────────────
-type Filters = { industry?: string; status?: string; city?: string };
+type Filters = { industry?: string; status?: string; city?: string; hasGov?: boolean; channel?: string };
 
 function FilterBar({
   filters,
@@ -283,12 +283,12 @@ function FilterBar({
   availableCities,
 }: {
   filters: Filters;
-  onAdd: (k: keyof Filters, v: string) => void;
+  onAdd: (k: keyof Filters, v: string | boolean) => void;
   onRemove: (k: keyof Filters) => void;
   onOpenDrawer: () => void;
   availableCities: string[];
 }) {
-  const chips = Object.entries(filters).filter(([, v]) => v) as [keyof Filters, string][];
+  const chips = Object.entries(filters).filter(([, v]) => v !== undefined && v !== null && v !== "") as [keyof Filters, string | boolean][];
   return (
     <div
       style={{
@@ -324,6 +324,17 @@ function FilterBar({
       {chips.map(([key, val]) => {
         const isStatus = key === "status";
         const s = isStatus ? STATUS[val as StatusKey] : null;
+        const isGov = key === "hasGov";
+        const isChannel = key === "channel";
+        const chipBg = s ? s.bg : isGov ? "#EAE5F0" : C.p50;
+        const chipFg = s ? s.fg : isGov ? "#7B6E99" : C.primary;
+        const chipLabel = isStatus
+          ? s?.label
+          : isGov
+          ? (val === true ? "有工商登記" : "缺工商資料")
+          : isChannel
+          ? (CHANNELS[val as string]?.label || String(val))
+          : String(val);
         return (
           <span
             key={key}
@@ -333,14 +344,15 @@ function FilterBar({
               gap: 4,
               padding: "5px 8px 5px 13px",
               borderRadius: 999,
-              background: s ? s.bg : C.p50,
-              color: s ? s.fg : C.primary,
+              background: chipBg,
+              color: chipFg,
               fontSize: 13,
               fontWeight: 600,
             }}
           >
             {key === "city" && <span style={{ fontSize: 11, opacity: 0.7 }}>縣市：</span>}
-            {isStatus ? s?.label : val}
+            {isChannel && <span style={{ fontSize: 11, opacity: 0.7 }}>管道：</span>}
+            {chipLabel}
             <button
               onClick={() => onRemove(key)}
               style={{ border: "none", background: "none", cursor: "pointer", color: "inherit", padding: 0, opacity: 0.65, lineHeight: 1, display: "flex", alignItems: "center" }}
@@ -422,6 +434,58 @@ function FilterBar({
           ))}
         </div>
       )}
+
+      {/* 桌機：工商登記篩選 */}
+      <div className="d-only" style={{ display: "flex", gap: 4, marginLeft: 8, paddingLeft: 8, borderLeft: `1px solid ${C.border}`, alignItems: "center" }}>
+        <span style={{ fontSize: 11, color: C.muted, whiteSpace: "nowrap" }}>工商：</span>
+        {([true, false] as const).map((v) => (
+          <button
+            key={String(v)}
+            onClick={() => filters.hasGov === v ? onRemove("hasGov") : onAdd("hasGov", v)}
+            style={{
+              padding: "4px 11px",
+              borderRadius: 999,
+              fontSize: 12,
+              fontWeight: 600,
+              border: `1px solid ${filters.hasGov === v ? "#7B6E99" : C.border}`,
+              background: filters.hasGov === v ? "#EAE5F0" : "transparent",
+              color: filters.hasGov === v ? "#7B6E99" : C.muted,
+              cursor: "pointer",
+              transition: "all 130ms",
+            }}
+          >
+            {v ? "有登記" : "缺登記"}
+          </button>
+        ))}
+      </div>
+
+      {/* 桌機：管道篩選 */}
+      <div className="d-only" style={{ display: "flex", gap: 4, marginLeft: 8, paddingLeft: 8, borderLeft: `1px solid ${C.border}`, alignItems: "center" }}>
+        <span style={{ fontSize: 11, color: C.muted, whiteSpace: "nowrap" }}>管道：</span>
+        {CHANNEL_ORDER.map((ch) => {
+          const cfg = CHANNELS[ch];
+          if (!cfg) return null;
+          return (
+            <button
+              key={ch}
+              onClick={() => filters.channel === ch ? onRemove("channel") : onAdd("channel", ch)}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 999,
+                fontSize: 11,
+                fontWeight: 600,
+                border: `1px solid ${filters.channel === ch ? cfg.bg : C.border}`,
+                background: filters.channel === ch ? cfg.bg : "transparent",
+                color: filters.channel === ch ? "white" : C.muted,
+                cursor: "pointer",
+                transition: "all 130ms",
+              }}
+            >
+              {cfg.abbr}
+            </button>
+          );
+        })}
+      </div>
 
       {chips.length > 0 && (
         <button
@@ -968,6 +1032,7 @@ function FilterDrawer({
 }) {
   const [local, setLocal] = useState<Filters>({ ...filters });
   const toggle = (k: keyof Filters, v: string) => setLocal((prev) => ({ ...prev, [k]: prev[k] === v ? undefined : v }));
+  const toggleBool = (k: keyof Filters, v: boolean) => setLocal((prev) => ({ ...prev, [k]: prev[k] === v ? undefined : v }));
 
   const Pill = ({ k, v, bg, fg, label }: { k: keyof Filters; v: string; bg?: string; fg?: string; label: string }) => (
     <button
@@ -1012,6 +1077,62 @@ function FilterDrawer({
           <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: C.muted }}>
             <Icon n="x" size={22} />
           </button>
+        </div>
+
+        {/* 工商登記 */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.4, color: C.muted, marginBottom: 10 }}>工商登記</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {([true, false] as const).map((v) => (
+              <button
+                key={String(v)}
+                onClick={() => toggleBool("hasGov", v)}
+                style={{
+                  padding: "7px 15px",
+                  borderRadius: 999,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  border: `1px solid ${local.hasGov === v ? "#7B6E99" : C.border}`,
+                  background: local.hasGov === v ? "#EAE5F0" : "transparent",
+                  color: local.hasGov === v ? "#7B6E99" : C.text,
+                  cursor: "pointer",
+                  transition: "all 130ms",
+                }}
+              >
+                {v ? "有工商登記" : "缺工商資料"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 聯絡管道 */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.4, color: C.muted, marginBottom: 10 }}>聯絡管道</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {CHANNEL_ORDER.map((ch) => {
+              const cfg = CHANNELS[ch];
+              if (!cfg) return null;
+              return (
+                <button
+                  key={ch}
+                  onClick={() => setLocal((prev) => ({ ...prev, channel: prev.channel === ch ? undefined : ch }))}
+                  style={{
+                    padding: "7px 15px",
+                    borderRadius: 999,
+                    fontSize: 13,
+                    fontWeight: 500,
+                    border: `1px solid ${local.channel === ch ? cfg.bg : C.border}`,
+                    background: local.channel === ch ? cfg.bg : "transparent",
+                    color: local.channel === ch ? "white" : C.text,
+                    cursor: "pointer",
+                    transition: "all 130ms",
+                  }}
+                >
+                  {cfg.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div style={{ marginBottom: 20 }}>
@@ -1337,7 +1458,7 @@ export default function LeadsPage() {
     router.push("/brands");
   };
 
-  const addFilter = (k: keyof Filters, v: string) => setFilters((prev) => ({ ...prev, [k]: prev[k] === v ? undefined : v }));
+  const addFilter = (k: keyof Filters, v: string | boolean) => setFilters((prev) => ({ ...prev, [k]: prev[k] === v ? undefined : v }));
   const removeFilter = (k: keyof Filters) =>
     setFilters((prev) => {
       const n = { ...prev };
@@ -1352,6 +1473,9 @@ export default function LeadsPage() {
     if (filters.industry && b.industry !== filters.industry) return false;
     if (filters.status && b.status !== filters.status) return false;
     if (filters.city && !b.citiesList.includes(filters.city)) return false;
+    if (filters.hasGov === true && !b.tax_id && !b.registeredName) return false;
+    if (filters.hasGov === false && (b.tax_id || b.registeredName)) return false;
+    if (filters.channel && !b.channels.includes(filters.channel)) return false;
     return true;
   });
 
@@ -1487,7 +1611,7 @@ export default function LeadsPage() {
       )}
 
       {/* Results summary */}
-      {(Object.values(filters).some(Boolean) || search) && (
+      {(Object.values(filters).some((v) => v !== undefined && v !== null && v !== "") || search) && (
         <div style={{ padding: "8px 20px", background: C.surf2, borderBottom: `1px solid ${C.border}`, fontSize: 13, color: C.muted, flexShrink: 0 }}>
           找到 <strong style={{ color: C.text }}>{visible.length}</strong> 筆，共 {brands.length} 筆
         </div>

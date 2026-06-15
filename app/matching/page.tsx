@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { C, downloadCSV, INDUSTRIES } from "@/lib/design";
+import { C, downloadCSV, INDUSTRIES, CHANNELS, CHANNEL_ORDER } from "@/lib/design";
 
 // ── 來源定義 ─────────────────────────────────────────
 const SOURCES: Record<string, { label: string; icon: string; color: string; bg: string }> = {
@@ -70,6 +70,9 @@ interface ScrapeBrand {
   tasks: Record<string, ScrapeTask>;
   conflicts: Conflict[];
   stores: StoreData[];
+  channels: string[];
+  cities: string[];
+  tax_id: string | null;
 }
 
 // 民國日期 "1051018" → "民國105年10月18日"
@@ -174,6 +177,9 @@ function dbBrandToScrapeBrand(b: Record<string, unknown>): ScrapeBrand {
     tasks,
     conflicts,
     stores,
+    channels: Object.keys(links),
+    cities: [...new Set(storeRows.map((s) => s.city).filter(Boolean))] as string[],
+    tax_id: (b.tax_id as string | null) || null,
   };
 }
 
@@ -1379,6 +1385,9 @@ export default function MatchingPage() {
   const [usingApi, setUsingApi] = useState(false);
   const [filterIndustry, setFilterIndustry] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<StatusFilter>(null);
+  const [filterGov, setFilterGov] = useState<boolean | null>(null);
+  const [filterChannel, setFilterChannel] = useState<string | null>(null);
+  const [filterCity, setFilterCity] = useState<string | null>(null);
 
   const loadBrands = () => {
     fetch("/api/brands")
@@ -1555,10 +1564,14 @@ export default function MatchingPage() {
 
   const visibleBrands = brands.filter((b) => {
     if (filterIndustry && b.industry !== filterIndustry) return false;
-    if (filterStatus === "done") return completeness(b.tasks) === 100;
-    if (filterStatus === "running") return Object.values(b.tasks).some((t) => t.status === "running");
-    if (filterStatus === "error") return Object.values(b.tasks).some((t) => t.status === "error");
-    if (filterStatus === "pending") return b.conflicts.some((c) => c.accepted === null);
+    if (filterStatus === "done" && completeness(b.tasks) !== 100) return false;
+    if (filterStatus === "running" && !Object.values(b.tasks).some((t) => t.status === "running")) return false;
+    if (filterStatus === "error" && !Object.values(b.tasks).some((t) => t.status === "error")) return false;
+    if (filterStatus === "pending" && !b.conflicts.some((c) => c.accepted === null)) return false;
+    if (filterGov === true && !b.tax_id) return false;
+    if (filterGov === false && !!b.tax_id) return false;
+    if (filterChannel && !b.channels.includes(filterChannel)) return false;
+    if (filterCity && !b.cities.includes(filterCity)) return false;
     return true;
   });
   const selected = selectedId != null ? visibleBrands.find((b) => b.id === selectedId) ?? visibleBrands[0] : visibleBrands[0];
@@ -1647,7 +1660,7 @@ export default function MatchingPage() {
       )}
       <SummaryBar brands={brands} lastRunAll={lastRunAll} activeFilter={filterStatus} onFilter={setFilterStatus} />
 
-      {/* 產業篩選欄 */}
+      {/* 類別篩選欄 */}
       <div style={{ display: "flex", gap: 6, padding: "8px 20px", background: C.surface, borderBottom: `1px solid ${C.border}`, flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
         <span style={{ fontSize: 11, color: C.muted, fontWeight: 700, letterSpacing: 0.6 }}>類別：</span>
         <button
@@ -1671,6 +1684,73 @@ export default function MatchingPage() {
           );
         })}
       </div>
+
+      {/* 工商 / 管道 / 縣市篩選欄 */}
+      {(() => {
+        const availableCities = [...new Set(brands.flatMap((b) => b.cities))].sort((a, z) => a.localeCompare(z, "zh-TW"));
+        const availableChannels = CHANNEL_ORDER.filter((ch) => brands.some((b) => b.channels.includes(ch)));
+        const hasAnyExtra = filterGov !== null || filterChannel !== null || filterCity !== null;
+        return (
+          <div style={{ display: "flex", gap: 6, padding: "7px 20px", background: C.surf2, borderBottom: `1px solid ${C.border}`, flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
+            {/* 工商登記 */}
+            <span style={{ fontSize: 11, color: C.muted, fontWeight: 700, letterSpacing: 0.6 }}>工商：</span>
+            {([true, false] as const).map((v) => (
+              <button
+                key={String(v)}
+                onClick={() => setFilterGov(filterGov === v ? null : v)}
+                style={{ padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: filterGov === v ? 700 : 400, border: `1px solid ${filterGov === v ? "#7B6E99" : C.border}`, background: filterGov === v ? "#EAE5F0" : "transparent", color: filterGov === v ? "#7B6E99" : C.muted, cursor: "pointer" }}
+              >
+                {v ? "有登記" : "缺登記"}
+              </button>
+            ))}
+
+            {/* 管道 */}
+            {availableChannels.length > 0 && (
+              <>
+                <span style={{ fontSize: 11, color: C.muted, fontWeight: 700, letterSpacing: 0.6, marginLeft: 8, paddingLeft: 8, borderLeft: `1px solid ${C.border}` }}>管道：</span>
+                {availableChannels.map((ch) => {
+                  const cfg = CHANNELS[ch];
+                  if (!cfg) return null;
+                  return (
+                    <button
+                      key={ch}
+                      onClick={() => setFilterChannel(filterChannel === ch ? null : ch)}
+                      style={{ padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: filterChannel === ch ? 700 : 400, border: `1px solid ${filterChannel === ch ? cfg.bg : C.border}`, background: filterChannel === ch ? cfg.bg : "transparent", color: filterChannel === ch ? "white" : C.muted, cursor: "pointer" }}
+                    >
+                      {cfg.label}
+                    </button>
+                  );
+                })}
+              </>
+            )}
+
+            {/* 縣市 */}
+            {availableCities.length > 0 && (
+              <>
+                <span style={{ fontSize: 11, color: C.muted, fontWeight: 700, letterSpacing: 0.6, marginLeft: 8, paddingLeft: 8, borderLeft: `1px solid ${C.border}` }}>縣市：</span>
+                {availableCities.slice(0, 8).map((city) => (
+                  <button
+                    key={city}
+                    onClick={() => setFilterCity(filterCity === city ? null : city)}
+                    style={{ padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: filterCity === city ? 700 : 400, border: `1px solid ${filterCity === city ? C.accent : C.border}`, background: filterCity === city ? "#EDF4F0" : "transparent", color: filterCity === city ? C.accentDk : C.muted, cursor: "pointer" }}
+                  >
+                    {city}
+                  </button>
+                ))}
+              </>
+            )}
+
+            {hasAnyExtra && (
+              <button
+                onClick={() => { setFilterGov(null); setFilterChannel(null); setFilterCity(null); }}
+                style={{ marginLeft: "auto", fontSize: 11, color: C.muted, border: "none", background: "none", cursor: "pointer", textDecoration: "underline" }}
+              >
+                清除
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         <BrandList
