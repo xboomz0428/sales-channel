@@ -47,14 +47,35 @@ interface Conflict {
   recordId?: string; // 真實模式：gov_records.id，確認時回寫 DB
 }
 
+interface StoreData {
+  id?: string;
+  name: string;
+  address?: string;
+  city?: string;
+  phone?: string;
+  rating?: number;
+  reviewCount?: number;
+  gmapsUrl?: string;
+}
+
 interface ScrapeBrand {
   id: number | string;
   name: string;
   industry: string;
   score: number;
   stage: string;
+  isChain: boolean;
+  chainType: string | null;
+  storeCount: number;
   tasks: Record<string, ScrapeTask>;
   conflicts: Conflict[];
+  stores: StoreData[];
+}
+
+// 民國日期 "1051018" → "民國105年10月18日"
+function fmtRocDate(s: string): string {
+  const m = s.replace(/\D/g, "").match(/^(\d{3})(\d{2})(\d{2})$/);
+  return m ? `民國${m[1]}年${parseInt(m[2])}月${parseInt(m[3])}日` : s;
 }
 
 // 將 DB 品牌映射為採集中心視圖（依現有資料推導各來源狀態）
@@ -64,10 +85,21 @@ function dbBrandToScrapeBrand(b: Record<string, unknown>): ScrapeBrand {
   for (const c of chRows) if (c.channel && c.value) links[c.channel] = c.value;
   const storeCount = (b.store_count as number) || 0;
 
-  // 從 stores 取 gmaps_url（brand_channels 補齊前先有此路徑）
-  type StoreRow = { city: string; gmaps_url: string | null; store_reviews?: { rating: number | null; text: string | null; author_name: string | null; relative_time: string | null }[] };
+  // 從 stores 取完整門市資料
+  type StoreRow = { id?: string; name?: string; address?: string; city: string; phone?: string | null; rating?: number | null; review_count?: number | null; gmaps_url: string | null; store_reviews?: { rating: number | null; text: string | null; author_name: string | null; relative_time: string | null }[] };
   const storeRows = (Array.isArray(b.stores) ? b.stores : []) as StoreRow[];
   const gmapsUrl = links.map || storeRows.find((s) => s.gmaps_url)?.gmaps_url || null;
+
+  const stores: StoreData[] = storeRows.map((s) => ({
+    id: s.id,
+    name: s.name || "",
+    address: s.address || "",
+    city: s.city || "",
+    phone: s.phone || "",
+    rating: s.rating ?? undefined,
+    reviewCount: s.review_count ?? undefined,
+    gmapsUrl: s.gmaps_url || "",
+  }));
 
   // 最新 5 筆評論（跨所有門市合併）
   const reviews: ReviewEntry[] = storeRows
@@ -100,15 +132,33 @@ function dbBrandToScrapeBrand(b: Record<string, unknown>): ScrapeBrand {
       recordId: r.id,
     }));
 
+  // gov task：已有統編=done；只有登記名（低信心）=stale；無=queued
+  const govDone = !!b.tax_id;
+  const govPartial = !b.tax_id && !!b.registered_name;
+  const govResult = govDone || govPartial ? {
+    ...(b.tax_id ? { 統編: b.tax_id as string } : {}),
+    ...(b.registered_name ? { 登記名: b.registered_name as string } : {}),
+    ...(b.owner_name ? { 負責人: b.owner_name as string } : {}),
+    ...(b.capital ? { 資本額: `NT$${(b.capital as number).toLocaleString()}` } : {}),
+    ...(b.setup_date ? { 成立: fmtRocDate(b.setup_date as string) } : {}),
+    ...(b.company_address ? { 地址: b.company_address as string } : {}),
+  } : null;
+
+  const avgRating = storeRows.length > 0
+    ? storeRows.reduce((s, r) => s + (r.rating || 0), 0) / storeRows.filter((r) => r.rating).length || 0
+    : 0;
+
   const tasks: Record<string, ScrapeTask> = {
-    gov: b.tax_id
-      ? { status: "done", last: "已比對", result: { 統編: b.tax_id as string, ...(b.owner_name ? { 負責人: b.owner_name as string } : {}), ...(b.registered_name ? { 登記名: b.registered_name as string } : {}) } }
+    gov: govDone
+      ? { status: "done", last: "已比對", result: govResult }
+      : govPartial
+      ? { status: "stale", last: "低信心比對", result: govResult }
       : { status: "queued", last: null, result: null },
     line: links.line ? { status: "done", last: "已取得", result: { 連結: links.line } } : { status: "queued", last: null, result: null },
     fb: links.fb ? { status: "done", last: "已取得", result: { 連結: links.fb } } : { status: "queued", last: null, result: null },
     ig: links.ig ? { status: "done", last: "已取得", result: { 連結: links.ig } } : { status: "queued", last: null, result: null },
     map: storeCount > 0
-      ? { status: "done", last: "Places", result: { 門市數: storeCount, ...(gmapsUrl ? { 地圖: gmapsUrl } : {}) }, extra: reviews.length ? { reviews } : undefined }
+      ? { status: "done", last: "Places", result: { 門市數: storeCount, ...(avgRating > 0 ? { 平均評分: `${avgRating.toFixed(1)} ★` } : {}), ...(gmapsUrl ? { 地圖: gmapsUrl } : {}) }, extra: reviews.length ? { reviews } : undefined }
       : { status: "queued", last: null, result: null },
   };
 
@@ -118,8 +168,12 @@ function dbBrandToScrapeBrand(b: Record<string, unknown>): ScrapeBrand {
     industry: (b.industry as string) || "",
     score: (b.priority_score as number) ?? 50,
     stage: (b.status as string) || "new",
+    isChain: !!(b.is_chain),
+    chainType: (b.chain_type as string | null) || null,
+    storeCount,
     tasks,
     conflicts,
+    stores,
   };
 }
 
@@ -395,7 +449,12 @@ function DetailPanel({
           <span style={{ fontSize: 17, fontWeight: 800, color: "white" }}>{brand.name[0]}</span>
         </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{brand.name}</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: C.text, display: "flex", alignItems: "center", gap: 8 }}>
+            {brand.name}
+            {brand.chainType && (
+              <span style={{ padding: "2px 8px", borderRadius: 999, background: "#E0F2FE", color: "#0369A1", fontSize: 11, fontWeight: 700 }}>{brand.chainType}</span>
+            )}
+          </div>
           <div style={{ fontSize: 12, color: C.muted, marginTop: 1 }}>
             資料完整度 {pct}%
             {pending > 0 && (
@@ -418,6 +477,7 @@ function DetailPanel({
         {[
           { id: "tasks", label: "採集任務" },
           { id: "diff", label: `比對結果${pending > 0 ? " (" + pending + ")" : ""}` },
+          ...(brand.stores.length > 0 ? [{ id: "stores", label: `分店（${brand.stores.length}）` }] : []),
         ].map((t) => (
           <button
             key={t.id}
@@ -457,6 +517,38 @@ function DetailPanel({
             {Object.entries(brand.tasks).map(([k, task]) => (
               <TaskRow key={k} srcKey={k} task={task} onRun={(src) => onRunTask(brand.id, src)} />
             ))}
+          </div>
+        )}
+
+        {tab === "stores" && (
+          <div>
+            {brand.stores.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "60px 20px", color: C.muted, fontSize: 13 }}>尚無門市資料</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {brand.stores.map((s, i) => (
+                  <div key={s.id || i} style={{ background: C.surface, borderRadius: 13, border: `1px solid ${C.border}`, padding: "12px 16px" }}>
+                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: C.text }}>{s.name || `門市 ${i + 1}`}</div>
+                      <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                        {s.city && <span style={{ padding: "2px 8px", borderRadius: 999, background: C.surf2, color: C.muted, fontSize: 11 }}>{s.city}</span>}
+                        {s.rating != null && <span style={{ padding: "2px 8px", borderRadius: 999, background: "#FEF3C7", color: "#B45309", fontSize: 11, fontWeight: 700 }}>{s.rating.toFixed(1)} ★</span>}
+                      </div>
+                    </div>
+                    {s.address && <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>📍 {s.address}</div>}
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                      {s.phone && (
+                        <a href={`tel:${s.phone}`} style={{ fontSize: 12, color: C.primary, textDecoration: "none", fontWeight: 600 }}>📞 {s.phone}</a>
+                      )}
+                      {s.reviewCount != null && <span style={{ fontSize: 11, color: C.muted }}>{s.reviewCount.toLocaleString()} 則評論</span>}
+                      {s.gmapsUrl && (
+                        <a href={s.gmapsUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "#D97706", fontWeight: 600, textDecoration: "none" }}>↗ Google 地圖</a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -1220,16 +1312,24 @@ export default function MatchingPage() {
     setBrands((prev) =>
       prev.map((b) => (b.id !== brandId ? b : { ...b, tasks: { ...b.tasks, [srcKey]: { ...b.tasks[srcKey], status: "running" as TaskStatusKey } } }))
     );
-    const reqKey = srcKey === "gov" ? `gov:${brandId}` : `enrich:${brandId}`;
+    const reqKey = `${srcKey}:${brandId}`;
     if (inflight.current.has(reqKey)) return;
     inflight.current.add(reqKey);
     try {
-      const url = srcKey === "gov" ? "/api/gov/lookup" : "/api/enrich/channels";
-      await fetch(url, {
+      const url =
+        srcKey === "gov" ? "/api/gov/lookup"
+        : srcKey === "map" ? "/api/enrich/places"
+        : "/api/enrich/channels";
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ brand_id: brandId }),
       });
+      // Places API 是串流，消耗完再繼續
+      if (srcKey === "map" && res.body) {
+        const reader = res.body.getReader();
+        while (!(await reader.read()).done) {}
+      }
     } catch {}
     inflight.current.delete(reqKey);
     loadBrands();

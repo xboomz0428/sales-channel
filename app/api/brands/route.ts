@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     // store_reviews 只帶最新 5 筆（在 JS 層截取，Supabase JS 不支援 nested limit）
     let query = supabase
       .from("brands")
-      .select("*, brand_channels(channel, value), stores(city, gmaps_url, store_reviews(rating, text, author_name, relative_time)), gov_records(id, tax_id, name, owner_name, address, match_confidence)")
+      .select("*, brand_channels(channel, value), stores(id, name, address, city, phone, rating, review_count, gmaps_url, store_reviews(rating, text, author_name, relative_time)), gov_records(id, tax_id, name, owner_name, address, match_confidence)")
       .eq("gov_records.match_confidence", "low");
 
     // 篩選條件
