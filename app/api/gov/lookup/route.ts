@@ -55,12 +55,12 @@ async function gcisFetch(url: string): Promise<GcisCompany[]> {
 }
 
 async function searchByTaxId(taxId: string): Promise<GcisCompany[]> {
-  const filter = encodeURIComponent(`Business_Accounting_NO eq ${taxId}`);
+  const filter = encodeURIComponent(`Business_Accounting_NO eq '${taxId}'`);
   return gcisFetch(`${GCIS}/${BY_TAXID}?$format=json&$filter=${filter}&$skip=0&$top=3`);
 }
 
 async function searchByName(name: string): Promise<GcisCompany[]> {
-  const filter = encodeURIComponent(`Company_Name like ${name} and Company_Status eq 01`);
+  const filter = encodeURIComponent(`Company_Name like '%${name}%' and Company_Status eq '01'`);
   return gcisFetch(`${GCIS}/${BY_NAME}?$format=json&$filter=${filter}&$skip=0&$top=5`);
 }
 
