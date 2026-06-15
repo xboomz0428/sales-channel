@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 
+export const dynamic = "force-dynamic";
+
 /**
  * POST /api/brands/import
  * 接收 multipart/form-data 的 XLS/XLSX 檔，解析後批次寫入 brands + brand_channels
@@ -19,12 +21,24 @@ function cleanInt(v: unknown): number | null {
 
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData();
+    let formData: FormData;
+    try {
+      formData = await request.formData();
+    } catch {
+      return NextResponse.json({ success: false, error: "無法解析上傳的表單資料，請確認檔案格式" }, { status: 400 });
+    }
+
     const file = formData.get("file") as File | null;
     if (!file) return NextResponse.json({ success: false, error: "請上傳檔案" }, { status: 400 });
+    if (file.size === 0) return NextResponse.json({ success: false, error: "檔案是空的" }, { status: 400 });
 
-    const buf = Buffer.from(await file.arrayBuffer());
-    const wb = XLSX.read(buf, { type: "buffer" });
+    let wb: XLSX.WorkBook;
+    try {
+      const buf = Buffer.from(await file.arrayBuffer());
+      wb = XLSX.read(buf, { type: "buffer" });
+    } catch {
+      return NextResponse.json({ success: false, error: "無法讀取檔案，請確認是有效的 .xlsx / .xls 格式" }, { status: 400 });
+    }
 
     // 取第一個工作表
     const ws = wb.Sheets[wb.SheetNames[0]];
@@ -63,7 +77,6 @@ export async function POST(request: NextRequest) {
       const probability = cleanInt(row["成交機率(%)"]);
       const pitch = cleanStr(row["備註"]) || null;
 
-      // 計算 brand_key（取前12字，用於連鎖歸戶）
       const brandKey = name.slice(0, 20);
 
       const { data: brand, error: brandErr } = await supabase
@@ -91,7 +104,7 @@ export async function POST(request: NextRequest) {
       existingNames.add(name);
       imported++;
 
-      // 寫入 brand_channels
+      // brand_channels
       const channels: Array<{ channel: string; value: string }> = [];
       if (website) channels.push({ channel: "website", value: website });
       if (phone)   channels.push({ channel: "phone",   value: phone });
@@ -105,7 +118,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // 如有年營收 / 機率，建立商機記錄
+      // opportunities
       if (estAnnual || probability) {
         await supabase.from("opportunities").insert({
           brand_id: brand.id,
@@ -118,11 +131,10 @@ export async function POST(request: NextRequest) {
       // 城市拆分存第一間門市（佔位用）
       if (cities) {
         const cityList = cities.split(/[,，]/).map((c) => c.trim()).filter(Boolean);
-        const firstCity = cityList[0];
         await supabase.from("stores").insert({
           brand_id: brand.id,
           name: `${name}（匯入）`,
-          city: firstCity ?? null,
+          city: cityList[0] ?? null,
           website: website ?? null,
           phone: phone ?? null,
         });

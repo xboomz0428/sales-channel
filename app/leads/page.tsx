@@ -13,12 +13,17 @@ export interface BrandVM {
   industry: string;
   stores: number;
   cities: string;
+  citiesList: string[];
   channels: string[];
   score: number;
   status: string;
   channelLinks?: Record<string, string>;
   owner?: string;
   tax_id?: string;
+  registeredName?: string;
+  companyAddress?: string;
+  setupDate?: string;
+  capital?: number;
   est_annual?: number;
   probability?: number;
   stage_days?: number;
@@ -26,6 +31,21 @@ export interface BrandVM {
   tier?: string;
   reorder_in_days?: number;
   lost_reason?: string;
+}
+
+function rocDate(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const s = String(raw).replace(/\D/g, "");
+  // GCIS integer format: 7 digits YYYMMDD (民國)
+  if (s.length === 7) {
+    return `民國${s.slice(0, 3)}年${s.slice(3, 5)}月${s.slice(5, 7)}日`;
+  }
+  // ISO date: YYYYMMDD or YYYY-MM-DD
+  if (s.length === 8) {
+    const y = parseInt(s.slice(0, 4)) - 1911;
+    return `民國${y}年${s.slice(4, 6)}月${s.slice(6, 8)}日`;
+  }
+  return raw;
 }
 
 
@@ -253,18 +273,20 @@ function Overlay({ onClick, blur }: { onClick: () => void; blur?: boolean }) {
 }
 
 // ── 篩選列 ───────────────────────────────────────────
-type Filters = { industry?: string; status?: string };
+type Filters = { industry?: string; status?: string; city?: string };
 
 function FilterBar({
   filters,
   onAdd,
   onRemove,
   onOpenDrawer,
+  availableCities,
 }: {
   filters: Filters;
   onAdd: (k: keyof Filters, v: string) => void;
   onRemove: (k: keyof Filters) => void;
   onOpenDrawer: () => void;
+  availableCities: string[];
 }) {
   const chips = Object.entries(filters).filter(([, v]) => v) as [keyof Filters, string][];
   return (
@@ -317,6 +339,7 @@ function FilterBar({
               fontWeight: 600,
             }}
           >
+            {key === "city" && <span style={{ fontSize: 11, opacity: 0.7 }}>縣市：</span>}
             {isStatus ? s?.label : val}
             <button
               onClick={() => onRemove(key)}
@@ -374,6 +397,31 @@ function FilterBar({
           </button>
         ))}
       </div>
+
+      {/* 桌機：縣市快速篩選 */}
+      {availableCities.length > 0 && (
+        <div className="d-only" style={{ display: "flex", gap: 4, marginLeft: 8, paddingLeft: 8, borderLeft: `1px solid ${C.border}` }}>
+          {availableCities.slice(0, 6).map((city) => (
+            <button
+              key={city}
+              onClick={() => filters.city === city ? onRemove("city") : onAdd("city", city)}
+              style={{
+                padding: "4px 11px",
+                borderRadius: 999,
+                fontSize: 12,
+                fontWeight: 600,
+                border: `1px solid ${filters.city === city ? C.accent : C.border}`,
+                background: filters.city === city ? "#EDF4F0" : "transparent",
+                color: filters.city === city ? C.accentDk : C.muted,
+                cursor: "pointer",
+                transition: "all 130ms",
+              }}
+            >
+              {city}
+            </button>
+          ))}
+        </div>
+      )}
 
       {chips.length > 0 && (
         <button
@@ -735,6 +783,17 @@ function BrandDrawer({
             </div>
           )}
 
+          {(b.registeredName || b.companyAddress || b.setupDate || b.capital) && (
+            <DrawerSection label="工商登記">
+              {b.registeredName && b.registeredName !== b.name && <DrawerRow label="登記名稱" value={b.registeredName} />}
+              {b.owner && <DrawerRow label="負責人" value={b.owner} />}
+              {b.tax_id && <DrawerRow label="統編" value={<span style={{ fontFamily: "monospace" }}>{b.tax_id}</span>} />}
+              {b.capital != null && <DrawerRow label="資本額" value={`NT$${b.capital.toLocaleString()}`} />}
+              {b.setupDate && <DrawerRow label="設立日期" value={rocDate(b.setupDate) ?? b.setupDate} />}
+              {b.companyAddress && <DrawerRow label="登記地址" value={b.companyAddress} />}
+            </DrawerSection>
+          )}
+
           <DrawerSection label="聯繫紀錄">
             <div style={{ padding: "16px 0", textAlign: "center", color: C.muted, fontSize: 14 }}>🌿 尚無聯繫紀錄，點下方快速記錄第一筆</div>
           </DrawerSection>
@@ -900,10 +959,12 @@ function FilterDrawer({
   filters,
   onApply,
   onClose,
+  availableCities,
 }: {
   filters: Filters;
   onApply: (f: Filters) => void;
   onClose: () => void;
+  availableCities: string[];
 }) {
   const [local, setLocal] = useState<Filters>({ ...filters });
   const toggle = (k: keyof Filters, v: string) => setLocal((prev) => ({ ...prev, [k]: prev[k] === v ? undefined : v }));
@@ -970,6 +1031,17 @@ function FilterDrawer({
             ))}
           </div>
         </div>
+
+        {availableCities.length > 0 && (
+          <div style={{ marginBottom: 26 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.4, color: C.muted, marginBottom: 10 }}>縣市</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {availableCities.map((city) => (
+                <Pill key={city} k="city" v={city} label={city} />
+              ))}
+            </div>
+          </div>
+        )}
 
         <div style={{ display: "flex", gap: 10 }}>
           <button
@@ -1180,19 +1252,24 @@ export default function LeadsPage() {
               const channels = CHANNEL_ORDER.filter((ch) => channelLinks[ch]);
               // 城市：來自 stores join 的去重清單
               const storeRows = (Array.isArray(b.stores) ? b.stores : []) as { city: string | null }[];
-              const cities = [...new Set(storeRows.map((s) => (s.city || "").replace(/[市縣]$/, "")).filter(Boolean))];
+              const citiesList = [...new Set(storeRows.map((s) => (s.city || "").replace(/[市縣]$/, "")).filter(Boolean))];
               return {
                 id: b.id as string,
                 name: (b.name as string) || "未命名",
                 industry: (b.industry as string) || "其他",
                 stores: (b.store_count as number) || 1,
-                cities: cities.length ? cities.slice(0, 3).join("/") : "—",
+                citiesList,
+                cities: citiesList.length ? citiesList.slice(0, 3).join("/") : "—",
                 channels,
                 channelLinks,
                 score: (b.priority_score as number) ?? 50,
                 status: (b.status as string) || "new",
                 owner: b.owner_name as string | undefined,
                 tax_id: b.tax_id as string | undefined,
+                registeredName: b.registered_name as string | undefined,
+                companyAddress: b.company_address as string | undefined,
+                setupDate: b.setup_date as string | undefined,
+                capital: b.capital as number | undefined,
               };
             })
           );
@@ -1268,10 +1345,13 @@ export default function LeadsPage() {
       return n;
     });
 
+  const availableCities = [...new Set(brands.flatMap((b) => b.citiesList))].sort((a, b) => a.localeCompare(b, "zh-TW"));
+
   const visible = brands.filter((b) => {
     if (search && !b.name.includes(search) && !b.industry.includes(search)) return false;
     if (filters.industry && b.industry !== filters.industry) return false;
     if (filters.status && b.status !== filters.status) return false;
+    if (filters.city && !b.citiesList.includes(filters.city)) return false;
     return true;
   });
 
@@ -1381,7 +1461,7 @@ export default function LeadsPage() {
       </div>
 
       {/* Filter bar */}
-      <FilterBar filters={filters} onAdd={addFilter} onRemove={removeFilter} onOpenDrawer={() => setFilterOpen(true)} />
+      <FilterBar filters={filters} onAdd={addFilter} onRemove={removeFilter} onOpenDrawer={() => setFilterOpen(true)} availableCities={availableCities} />
 
       {/* 類別採集列 */}
       {filters.industry && (
@@ -1504,7 +1584,7 @@ export default function LeadsPage() {
 
       {recorder && <QuickRecord brand={recorder} onClose={() => setRecorder(null)} />}
 
-      {filterOpen && <FilterDrawer filters={filters} onApply={(f) => setFilters(f)} onClose={() => setFilterOpen(false)} />}
+      {filterOpen && <FilterDrawer filters={filters} onApply={(f) => setFilters(f)} onClose={() => setFilterOpen(false)} availableCities={availableCities} />}
 
       {importOpen && (
         <ImportModal
@@ -1522,19 +1602,24 @@ export default function LeadsPage() {
                       for (const c of chRows) if (c.channel && c.value) channelLinks[c.channel] = c.value;
                       const channels = CHANNEL_ORDER.filter((ch) => channelLinks[ch]);
                       const storeRows = (Array.isArray(b.stores) ? b.stores : []) as { city: string | null }[];
-                      const cities = [...new Set(storeRows.map((s) => (s.city || "").replace(/[市縣]$/, "")).filter(Boolean))];
+                      const citiesList = [...new Set(storeRows.map((s) => (s.city || "").replace(/[市縣]$/, "")).filter(Boolean))];
                       return {
                         id: b.id as string,
                         name: (b.name as string) || "未命名",
                         industry: (b.industry as string) || "其他",
                         stores: (b.store_count as number) || 1,
-                        cities: cities.length ? cities.slice(0, 3).join("/") : "—",
+                        citiesList,
+                        cities: citiesList.length ? citiesList.slice(0, 3).join("/") : "—",
                         channels,
                         channelLinks,
                         score: (b.priority_score as number) ?? 50,
                         status: (b.status as string) || "new",
                         owner: b.owner_name as string | undefined,
                         tax_id: b.tax_id as string | undefined,
+                        registeredName: b.registered_name as string | undefined,
+                        companyAddress: b.company_address as string | undefined,
+                        setupDate: b.setup_date as string | undefined,
+                        capital: b.capital as number | undefined,
                       };
                     })
                   );

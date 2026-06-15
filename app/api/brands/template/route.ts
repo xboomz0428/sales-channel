@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 
+export const dynamic = "force-dynamic";
+
 /**
  * GET /api/brands/template
- * 下載品牌批次匯入樣板 XLS
+ * 下載品牌批次匯入樣板 XLSX
  */
 export async function GET() {
   const wb = XLSX.utils.book_new();
@@ -33,15 +35,12 @@ export async function GET() {
   ];
 
   const ws = XLSX.utils.aoa_to_sheet([headers, ...examples]);
-
-  // 欄寬
   ws["!cols"] = [
     { wch: 28 }, { wch: 14 }, { wch: 8 }, { wch: 20 },
     { wch: 12 }, { wch: 10 }, { wch: 32 }, { wch: 16 },
     { wch: 16 }, { wch: 32 }, { wch: 24 },
     { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 28 },
   ];
-
   XLSX.utils.book_append_sheet(wb, ws, "品牌清單");
 
   // ── 說明工作表 ──────────────────────────────────────
@@ -71,17 +70,16 @@ export async function GET() {
     ["・第二列起為資料，範例列可刪除"],
     ["・重複的品牌名稱將自動略過（不覆蓋）"],
   ];
-
   const wsInfo = XLSX.utils.aoa_to_sheet(infoData);
   wsInfo["!cols"] = [{ wch: 20 }, { wch: 6 }, { wch: 52 }, { wch: 36 }];
   XLSX.utils.book_append_sheet(wb, wsInfo, "欄位說明");
 
-  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+  const arr = Buffer.from(XLSX.write(wb, { type: "array", bookType: "xlsx" }) as Uint8Array);
 
-  return new NextResponse(buf, {
+  return new NextResponse(arr, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": 'attachment; filename="HeroHerb_品牌匯入樣板.xlsx"',
+      "Content-Disposition": "attachment; filename*=UTF-8''HeroHerb_%E5%93%81%E7%89%8C%E5%8C%AF%E5%85%A5%E6%A8%A3%E6%9D%BF.xlsx",
     },
   });
 }
