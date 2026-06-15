@@ -5,21 +5,25 @@ import { getSupabaseServerClient } from "@/lib/supabase-server";
  * 經濟部商工登記公示資料串接（GCIS OData，免 token）
  *
  * POST /api/gov/lookup
- *   { brand_id }            → 用品牌名稱/統編查詢並回寫
- *   { name } 或 { tax_id }  → 純查詢（回候選清單）
- *   { all: true }           → 批次比對所有缺統編的品牌（每次最多 15 筆）
+ *   { brand_id }               → 用品牌名稱/統編查詢並回寫
+ *   { brand_id, manual_tax_id }→ Step B：手動指定統編，強制回寫
+ *   { name } 或 { tax_id }     → 純查詢（回候選清單，供前端 Step B 用）
+ *   { all: true }              → 批次比對所有缺統編的品牌
  *
- * 已驗證端點：
- *  - 公司登記基本資料（依統編）  5F64D864-61CB-4D0D-8AD9-492047CC1EA6
- *  - 公司登記基本資料（依名稱）  6BBA2268-1367-4B42-9CCA-BC17499EBE8C
- * 註：獨資/合夥商號屬商業登記，GCIS 無穩定免費名稱查詢端點，
- *     GCIS 查不到時自動 fallback 到本地 gov_registry 表
- *     （財政部稅籍資料，由 /api/gov/registry 匯入）。
+ * 查詢策略（依序）：
+ *   已有統編  直接 searchByTaxId
+ *   0A        爬品牌官網找統一編號（若有 website）
+ *   0B        Google Custom Search API 找公司名/統編（需 GOOGLE_CSE_ID）
+ *   A         漸進式 GCIS 名稱搜尋（5字 → 去通路詞 → 3字）
+ *   Fallback  本地 gov_registry（財政部稅籍，獨資/合夥商號）
  */
 
 const GCIS = "https://data.gcis.nat.gov.tw/od/data/api";
 const BY_TAXID = "5F64D864-61CB-4D0D-8AD9-492047CC1EA6";
 const BY_NAME = "6BBA2268-1367-4B42-9CCA-BC17499EBE8C";
+
+// 通路詞：出現在品牌名但通常不在公司登記名中
+const VENUE_RE = /養生館|養生會館|足湯|足體|按摩|美容|美髮|洗髮|洗頭|SPA|spa|Spa|會館|行館|商行|工作室|造型|美學/g;
 
 interface GcisCompany {
   Business_Accounting_NO: string;
@@ -87,21 +91,138 @@ async function searchRegistry(supabase: SupabaseServerClient, name: string): Pro
   }));
 }
 
+// ── Step 0A：爬官網找統一編號 ─────────────────────────────────────────────────
+async function findTaxIdOnWebsite(website: string): Promise<string | null> {
+  try {
+    const res = await fetch(website, {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+      signal: AbortSignal.timeout(6000),
+      redirect: "follow",
+    });
+    if (!res.ok) return null;
+    const ct = res.headers.get("content-type") || "";
+    if (!ct.includes("html")) return null;
+    const html = (await res.text()).slice(0, 300_000);
+    const patterns = [
+      /統[一]?編號?[：:\s]{0,3}(\d{8})/,
+      /稅籍編號[：:\s]{0,3}(\d{8})/,
+      /統\s*編[：:\s]{0,3}(\d{8})/,
+      /公司統編[：:\s]{0,3}(\d{8})/,
+      /GUI[：:\s]{0,5}(\d{8})/i,
+    ];
+    for (const p of patterns) {
+      const m = html.match(p);
+      if (m?.[1] && /^\d{8}$/.test(m[1])) return m[1];
+    }
+  } catch {}
+  return null;
+}
+
+// ── Step 0B：Google CSE 找公司名/統編 ────────────────────────────────────────
+async function googleCseFind(
+  brandName: string,
+  apiKey: string,
+  cseId: string
+): Promise<{ taxId?: string; companyName?: string } | null> {
+  try {
+    const q = encodeURIComponent(`"${brandName.slice(0, 10)}" 統一編號 公司登記`);
+    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cseId}&q=${q}&num=5&hl=zh-TW&gl=tw`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { error?: unknown; items?: { title?: unknown; snippet?: unknown }[] };
+    if (data.error) return null;
+    const text = (data.items || [])
+      .map((i) => `${i.title || ""} ${i.snippet || ""}`)
+      .join(" ");
+
+    const taxMatch = text.match(/統[一]?編號?[：:\s]{0,3}(\d{8})/);
+    if (taxMatch?.[1]) return { taxId: taxMatch[1] };
+
+    const nameMatch = text.match(/[一-鿿]{2,15}(?:股份)?有限公司/);
+    if (nameMatch?.[0]) return { companyName: nameMatch[0] };
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// 從 stores/brand_channels 提取第一個網站 URL
+function extractWebsite(b: {
+  stores?: { website?: string | null }[];
+  brand_channels?: { channel: string; value: string }[];
+}): string | null {
+  const ch = (b.brand_channels || []).find((c) => c.channel === "website")?.value || null;
+  const st = (b.stores || []).find((s) => s.website)?.website || null;
+  return ch || st || null;
+}
+
 async function matchBrand(
   supabase: SupabaseServerClient,
-  brand: { id: string; name: string; brand_key?: string | null; tax_id?: string | null }
+  brand: { id: string; name: string; brand_key?: string | null; tax_id?: string | null; website?: string | null }
 ) {
-  // 取 ｜ 前的核心品牌名，再截 5 字；避免帶入「養生館」等通路詞導致 GCIS 找不到登記名
-  const queryName = (brand.brand_key || brand.name)
-    .split(/[｜|│]/)[0]
-    .trim()
-    .slice(0, 5);
   let source = "gcis_company";
-  let candidates = brand.tax_id ? await searchByTaxId(brand.tax_id) : await searchByName(queryName);
+  let candidates: GcisCompany[] = [];
+  let resolvedTaxId = brand.tax_id || null;
 
-  if (candidates.length === 0 && !brand.tax_id) {
-    candidates = await searchRegistry(supabase, queryName);
-    source = "fia_registry";
+  // ── 已有統編：直接查 ─────────────────────────────────
+  if (resolvedTaxId) {
+    candidates = await searchByTaxId(resolvedTaxId);
+  }
+
+  // ── Step 0A：爬官網找統一編號 ─────────────────────────
+  if (!resolvedTaxId && brand.website && candidates.length === 0) {
+    const found = await findTaxIdOnWebsite(brand.website);
+    if (found) {
+      const taxCands = await searchByTaxId(found);
+      if (taxCands.length > 0) {
+        candidates = taxCands;
+        resolvedTaxId = found;
+      }
+    }
+  }
+
+  // ── Step 0B：Google CSE ──────────────────────────────
+  const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
+  const cseId = process.env.GOOGLE_CSE_ID;
+  if (candidates.length === 0 && googleApiKey && cseId) {
+    const cseResult = await googleCseFind(brand.name, googleApiKey, cseId);
+    if (cseResult?.taxId) {
+      const taxCands = await searchByTaxId(cseResult.taxId);
+      if (taxCands.length > 0) {
+        candidates = taxCands;
+        resolvedTaxId = cseResult.taxId;
+      }
+    } else if (cseResult?.companyName) {
+      candidates = await searchByName(cseResult.companyName.slice(0, 8));
+    }
+  }
+
+  // ── Step A：漸進式 GCIS 名稱搜尋 ─────────────────────
+  if (candidates.length === 0) {
+    const rawName = (brand.brand_key || brand.name).split(/[｜|│]/)[0].trim();
+
+    // 試 5 字
+    candidates = await searchByName(rawName.slice(0, 5));
+
+    // 去通路詞再試
+    if (candidates.length === 0) {
+      const stripped = rawName.replace(VENUE_RE, "").trim();
+      if (stripped.length >= 2 && stripped !== rawName) {
+        candidates = await searchByName(stripped.slice(0, 5));
+      }
+    }
+
+    // 試 3 字
+    if (candidates.length === 0 && rawName.length > 3) {
+      candidates = await searchByName(rawName.slice(0, 3));
+    }
+
+    // Fallback：本地稅籍（獨資/合夥商號）
+    if (candidates.length === 0) {
+      candidates = await searchRegistry(supabase, rawName.slice(0, 5));
+      source = "fia_registry";
+    }
   }
 
   if (candidates.length === 0) {
@@ -109,10 +230,9 @@ async function matchBrand(
   }
 
   const best = candidates[0];
-  const conf = brand.tax_id ? "high" : confidence(brand.name, best.Company_Name);
+  const conf = resolvedTaxId ? "high" : confidence(brand.name, best.Company_Name);
 
-  // 寫入政府名冊原始資料（保留來源紀錄）；同品牌+統編已有紀錄則不重複建立，
-  // 避免重跑採集時產生重複的待確認差異
+  // ── 寫入 gov_records ─────────────────────────────────
   const { data: existRec } = await supabase
     .from("gov_records")
     .select("id")
@@ -132,7 +252,7 @@ async function matchBrand(
     });
   }
 
-  // 回寫品牌工商登記資料
+  // ── 回寫品牌 ─────────────────────────────────────────
   {
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (conf === "high") {
@@ -143,7 +263,6 @@ async function matchBrand(
       if (best.Company_Location) patch.company_address = best.Company_Location;
       if (best.Company_Setup_Date) patch.setup_date = best.Company_Setup_Date;
     } else {
-      // 低信心：僅記錄公司名稱供參考
       patch.registered_name = best.Company_Name;
     }
     await supabase.from("brands").update(patch).eq("id", brand.id);
@@ -157,6 +276,7 @@ async function matchBrand(
     tax_id: best.Business_Accounting_NO,
     owner: best.Responsible_Name,
     candidates: candidates.length,
+    source,
   };
 }
 
@@ -171,29 +291,98 @@ export async function POST(request: NextRequest) {
   const supabase = getSupabaseServerClient();
 
   try {
-    // 純查詢模式（不寫入）
+    // 純查詢模式（不寫入），供前端 Step B 手動搜尋用
     if (body.name || body.tax_id) {
-      const nameQ = String(body.name || "").split(/[｜|│]/)[0].trim().slice(0, 5);
-      let candidates = body.tax_id
-        ? await searchByTaxId(String(body.tax_id))
-        : await searchByName(nameQ);
-      if (candidates.length === 0 && body.name) {
-        candidates = await searchRegistry(supabase, nameQ);
+      const nameQ = String(body.name || "").split(/[｜|│]/)[0].trim();
+      let candidates: GcisCompany[] = [];
+
+      if (body.tax_id) {
+        candidates = await searchByTaxId(String(body.tax_id));
+      } else {
+        // 漸進式（最多 8 字 → 去通路詞 → 3 字 → registry）
+        candidates = await searchByName(nameQ.slice(0, 8));
+        if (candidates.length === 0) {
+          const stripped = nameQ.replace(VENUE_RE, "").trim();
+          if (stripped.length >= 2 && stripped !== nameQ) {
+            candidates = await searchByName(stripped.slice(0, 8));
+          }
+        }
+        if (candidates.length === 0 && nameQ.length > 3) {
+          candidates = await searchByName(nameQ.slice(0, 3));
+        }
+        if (candidates.length === 0) {
+          candidates = await searchRegistry(supabase, nameQ.slice(0, 5));
+        }
       }
       return NextResponse.json({ success: true, data: { candidates } });
     }
 
-    // 單一品牌比對
-    if (body.brand_id) {
+    // Step B：手動指定統編，強制回寫（不受信心度限制）
+    if (body.brand_id && body.manual_tax_id) {
       const { data: brand, error } = await supabase
         .from("brands")
         .select("id, name, brand_key, tax_id")
+        .eq("id", String(body.brand_id))
+        .single();
+      if (error || !brand) {
+        return NextResponse.json({ success: false, error: "品牌不存在" }, { status: 404 });
+      }
+
+      const cands = await searchByTaxId(String(body.manual_tax_id));
+      if (cands.length === 0) {
+        return NextResponse.json({ success: false, error: "找不到該統一編號的登記資料" }, { status: 404 });
+      }
+      const best = cands[0];
+
+      const { data: existRec } = await supabase
+        .from("gov_records")
+        .select("id")
+        .eq("matched_brand_id", brand.id)
+        .eq("tax_id", best.Business_Accounting_NO)
+        .maybeSingle();
+      if (!existRec) {
+        await supabase.from("gov_records").insert({
+          source: "gcis_company",
+          tax_id: best.Business_Accounting_NO,
+          name: best.Company_Name,
+          address: best.Company_Location || null,
+          owner_name: best.Responsible_Name || null,
+          extra: best,
+          matched_brand_id: brand.id,
+          match_confidence: "high",
+        });
+      }
+
+      // 強制寫入 tax_id（不判斷是否已有舊值）
+      const patch: Record<string, unknown> = {
+        tax_id: best.Business_Accounting_NO,
+        registered_name: best.Company_Name,
+        updated_at: new Date().toISOString(),
+      };
+      if (best.Responsible_Name) patch.owner_name = best.Responsible_Name;
+      if (best.Capital_Stock_Amount) patch.capital = best.Capital_Stock_Amount;
+      if (best.Company_Location) patch.company_address = best.Company_Location;
+      if (best.Company_Setup_Date) patch.setup_date = best.Company_Setup_Date;
+      await supabase.from("brands").update(patch).eq("id", brand.id);
+
+      return NextResponse.json({
+        success: true,
+        data: { brand: brand.name, matched: true, registered_name: best.Company_Name, tax_id: best.Business_Accounting_NO },
+      });
+    }
+
+    // 單一品牌比對（含 website 取得）
+    if (body.brand_id) {
+      const { data: brand, error } = await supabase
+        .from("brands")
+        .select("id, name, brand_key, tax_id, brand_channels(channel, value), stores(website)")
         .eq("id", body.brand_id)
         .single();
       if (error || !brand) {
         return NextResponse.json({ success: false, error: "品牌不存在" }, { status: 404 });
       }
-      const result = await matchBrand(supabase, brand);
+      const website = extractWebsite(brand as unknown as { stores?: { website?: string | null }[]; brand_channels?: { channel: string; value: string }[] });
+      const result = await matchBrand(supabase, { ...brand, website });
       return NextResponse.json({ success: true, data: result });
     }
 
@@ -202,14 +391,15 @@ export async function POST(request: NextRequest) {
       const industry = body.industry ? String(body.industry) : null;
       let brandQuery = supabase
         .from("brands")
-        .select("id, name, brand_key, tax_id")
+        .select("id, name, brand_key, tax_id, brand_channels(channel, value), stores(website)")
         .is("tax_id", null);
       if (industry) brandQuery = brandQuery.ilike("industry", `%${industry}%`);
       const { data: brands } = await brandQuery;
 
       const results = [];
       for (const b of brands || []) {
-        results.push(await matchBrand(supabase, b));
+        const website = extractWebsite(b as unknown as { stores?: { website?: string | null }[]; brand_channels?: { channel: string; value: string }[] });
+        results.push(await matchBrand(supabase, { ...b, website }));
         await new Promise((r) => setTimeout(r, 400));
       }
       const matched = results.filter((r) => r.matched).length;

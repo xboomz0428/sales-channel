@@ -364,6 +364,124 @@ function TaskRow({ srcKey, task, onRun }: { srcKey: string; task: ScrapeTask; on
   );
 }
 
+// ── 工商登記手動搜尋（Step B）────────────────────────
+interface GovCandidate {
+  Business_Accounting_NO: string;
+  Company_Name: string;
+  Responsible_Name?: string;
+  Company_Location?: string;
+  Company_Setup_Date?: string;
+}
+
+function GovManualSearch({ brandId, onDone }: { brandId: string; onDone: () => void }) {
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [candidates, setCandidates] = useState<GovCandidate[]>([]);
+  const [searchErr, setSearchErr] = useState<string | null>(null);
+
+  const search = async () => {
+    const q = query.trim();
+    if (!q) return;
+    setSearching(true);
+    setSearchErr(null);
+    setCandidates([]);
+    try {
+      const isId = /^\d{8}$/.test(q);
+      const res = await fetch("/api/gov/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(isId ? { tax_id: q } : { name: q }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        const cands: GovCandidate[] = json.data.candidates || [];
+        setCandidates(cands);
+        if (cands.length === 0) setSearchErr("找不到符合的工商登記資料");
+      } else {
+        setSearchErr(json.error || "查詢失敗");
+      }
+    } catch {
+      setSearchErr("網路錯誤");
+    }
+    setSearching(false);
+  };
+
+  const confirm = async (c: GovCandidate) => {
+    setConfirming(true);
+    try {
+      await fetch("/api/gov/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brand_id: brandId, manual_tax_id: c.Business_Accounting_NO }),
+      });
+    } catch {}
+    setConfirming(false);
+    onDone();
+  };
+
+  return (
+    <div style={{ marginTop: 10, padding: "14px 16px", borderRadius: 13, background: "#F0EBF8", border: "1px solid #DDD5EB" }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#7B6E99", marginBottom: 10 }}>🔍 手動查詢工商登記</div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && !searching && search()}
+          placeholder="輸入統一編號（8位數）或公司名稱關鍵字…"
+          style={{ flex: 1, padding: "8px 11px", borderRadius: 9, border: "1px solid #DDD5EB", background: "white", fontSize: 13, color: C.text, outline: "none" }}
+        />
+        <button
+          onClick={search}
+          disabled={searching || !query.trim()}
+          style={{
+            padding: "8px 14px",
+            borderRadius: 9,
+            border: "none",
+            background: !query.trim() ? C.surf2 : "#7B6E99",
+            color: !query.trim() ? C.muted : "white",
+            fontSize: 13,
+            fontWeight: 700,
+            cursor: !query.trim() ? "default" : "pointer",
+            flexShrink: 0,
+          }}
+        >
+          {searching ? <span className="spin">↻</span> : "搜尋"}
+        </button>
+      </div>
+      {searchErr && <div style={{ fontSize: 12, color: C.danger, marginBottom: 6 }}>{searchErr}</div>}
+      {candidates.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {candidates.map((c) => (
+            <div
+              key={c.Business_Accounting_NO}
+              onClick={() => !confirming && confirm(c)}
+              className="row-hover"
+              style={{
+                padding: "10px 12px",
+                borderRadius: 9,
+                background: "white",
+                border: "1px solid #DDD5EB",
+                cursor: confirming ? "default" : "pointer",
+                opacity: confirming ? 0.6 : 1,
+                transition: "all 120ms",
+              }}
+            >
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{c.Company_Name}</div>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 3, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <span>統編 {c.Business_Accounting_NO}</span>
+                {c.Responsible_Name && <span>負責人 {c.Responsible_Name}</span>}
+                {c.Company_Location && <span>{c.Company_Location.slice(0, 14)}</span>}
+              </div>
+            </div>
+          ))}
+          <div style={{ fontSize: 11, color: C.muted, textAlign: "center", marginTop: 2 }}>點擊任一筆確認並寫回品牌</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── 差異確認列 ───────────────────────────────────────
 function ConflictRow({ conflict, onAccept, onReject }: { conflict: Conflict; onAccept: () => void; onReject: () => void }) {
   const src = SOURCES[conflict.source];
@@ -431,12 +549,14 @@ function DetailPanel({
   onTabChange,
   onRunTask,
   onAcceptConflict,
+  onGovUpdated,
 }: {
   brand: ScrapeBrand;
   tab: string;
   onTabChange: (t: string) => void;
   onRunTask: (brandId: number | string, src: string) => void;
   onAcceptConflict: (brandId: number | string, idx: number, accepted: boolean) => void;
+  onGovUpdated?: () => void;
 }) {
   const pct = completeness(brand.tasks);
   const pending = brand.conflicts.filter((c) => c.accepted === null).length;
@@ -517,6 +637,10 @@ function DetailPanel({
             {Object.entries(brand.tasks).map(([k, task]) => (
               <TaskRow key={k} srcKey={k} task={task} onRun={(src) => onRunTask(brand.id, src)} />
             ))}
+            {(brand.tasks.gov?.status === "queued" || brand.tasks.gov?.status === "stale") &&
+              typeof brand.id === "string" && (
+                <GovManualSearch brandId={brand.id} onDone={onGovUpdated || (() => {})} />
+              )}
           </div>
         )}
 
@@ -1521,7 +1645,7 @@ export default function MatchingPage() {
             setLastRunAll(`${now.getMonth() + 1}/${now.getDate()} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`);
           }}
         />
-        {selected && <DetailPanel brand={selected} tab={tab} onTabChange={setTab} onRunTask={runTask} onAcceptConflict={resolveConflict} />}
+        {selected && <DetailPanel brand={selected} tab={tab} onTabChange={setTab} onRunTask={runTask} onAcceptConflict={resolveConflict} onGovUpdated={loadBrands} />}
       </div>
 
       {jobPanelOpen && <PlacesJobPanel onClose={() => setJobPanelOpen(false)} onDone={loadBrands} />}
