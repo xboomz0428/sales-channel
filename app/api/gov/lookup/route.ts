@@ -128,13 +128,20 @@ async function matchBrand(
     });
   }
 
-  // 高信心 → 回寫品牌（只補空欄位，不覆蓋人工資料）
-  if (conf === "high") {
+  // 回寫品牌工商登記資料
+  {
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
-    if (!brand.tax_id) patch.tax_id = best.Business_Accounting_NO;
-    patch.registered_name = best.Company_Name;
-    if (best.Responsible_Name) patch.owner_name = best.Responsible_Name;
-    if (best.Capital_Stock_Amount) patch.capital = best.Capital_Stock_Amount;
+    if (conf === "high") {
+      if (!brand.tax_id) patch.tax_id = best.Business_Accounting_NO;
+      patch.registered_name = best.Company_Name;
+      if (best.Responsible_Name) patch.owner_name = best.Responsible_Name;
+      if (best.Capital_Stock_Amount) patch.capital = best.Capital_Stock_Amount;
+      if (best.Company_Location) patch.company_address = best.Company_Location;
+      if (best.Company_Setup_Date) patch.setup_date = best.Company_Setup_Date;
+    } else {
+      // 低信心：僅記錄公司名稱供參考
+      patch.registered_name = best.Company_Name;
+    }
     await supabase.from("brands").update(patch).eq("id", brand.id);
   }
 

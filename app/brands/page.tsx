@@ -20,6 +20,8 @@ interface BrandDetail {
   registered_name?: string;
   owner?: string;
   capital?: number;
+  setup_date?: string;
+  company_address?: string;
   industry_code?: string;
   est_annual?: number;
   probability?: number;
@@ -155,6 +157,8 @@ function Col1({ brand, channelLinks }: { brand: BrandDetail; channelLinks: Recor
         {brand.registered_name && <IRow label="登記名稱" value={brand.registered_name} />}
         <IRow label="負責人" value={brand.owner || "—"} />
         {brand.capital != null && <IRow label="資本額" value={`NT$${brand.capital.toLocaleString()}`} />}
+        {brand.setup_date && <IRow label="成立時間" value={brand.setup_date} />}
+        {brand.company_address && <IRow label="登記地址" value={brand.company_address} />}
         <IRow label="行業代號" value={brand.industry_code || "—"} />
         <IRow label="分店數" value={`${brand.stores} 間`} />
         <IRow label="城市" value={brand.cities} />
@@ -535,6 +539,8 @@ export default function BrandDetailPage() {
               registered_name: b.registered_name || prev.registered_name,
               owner: b.owner_name || prev.owner,
               capital: b.capital ?? prev.capital,
+              setup_date: b.setup_date || prev.setup_date,
+              company_address: b.company_address || prev.company_address,
               score: b.priority_score ?? prev.score,
             }));
           }
