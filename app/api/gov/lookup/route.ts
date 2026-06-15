@@ -91,7 +91,11 @@ async function matchBrand(
   supabase: SupabaseServerClient,
   brand: { id: string; name: string; brand_key?: string | null; tax_id?: string | null }
 ) {
-  const queryName = (brand.brand_key || brand.name).slice(0, 12);
+  // 取 ｜ 前的核心品牌名，再截 5 字；避免帶入「養生館」等通路詞導致 GCIS 找不到登記名
+  const queryName = (brand.brand_key || brand.name)
+    .split(/[｜|│]/)[0]
+    .trim()
+    .slice(0, 5);
   let source = "gcis_company";
   let candidates = brand.tax_id ? await searchByTaxId(brand.tax_id) : await searchByName(queryName);
 
@@ -169,11 +173,12 @@ export async function POST(request: NextRequest) {
   try {
     // 純查詢模式（不寫入）
     if (body.name || body.tax_id) {
+      const nameQ = String(body.name || "").split(/[｜|│]/)[0].trim().slice(0, 5);
       let candidates = body.tax_id
         ? await searchByTaxId(String(body.tax_id))
-        : await searchByName(String(body.name).slice(0, 12));
+        : await searchByName(nameQ);
       if (candidates.length === 0 && body.name) {
-        candidates = await searchRegistry(supabase, String(body.name).slice(0, 12));
+        candidates = await searchRegistry(supabase, nameQ);
       }
       return NextResponse.json({ success: true, data: { candidates } });
     }
