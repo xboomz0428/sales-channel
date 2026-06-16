@@ -33,6 +33,69 @@ export interface BrandVM {
   lost_reason?: string;
 }
 
+// ── 資料映射工具 ──────────────────────────────────────
+const CHANNEL_ORDER_LOCAL = ["line", "fb", "ig", "email", "phone", "website", "map"];
+
+function mapBrandRow(b: Record<string, unknown>): BrandVM {
+  const chRows = (Array.isArray(b.brand_channels) ? b.brand_channels : []) as { channel: string; value: string }[];
+  const channelLinks: Record<string, string> = {};
+  for (const c of chRows) if (c.channel && c.value) channelLinks[c.channel] = c.value;
+  const channels = CHANNEL_ORDER_LOCAL.filter((ch) => channelLinks[ch]);
+
+  const storeRows = (Array.isArray(b.stores) ? b.stores : []) as { city: string | null }[];
+  const citiesList = [...new Set(storeRows.map((s) => (s.city || "").replace(/[市縣]$/, "")).filter(Boolean))];
+
+  // 商機摘要：優先取進行中的，其次最新一筆
+  const oppRows = (Array.isArray(b.opportunities) ? b.opportunities : []) as {
+    stage: string; est_annual_value?: number; probability?: number; stage_entered_at?: string; lost_reason?: string;
+  }[];
+  const activeOpp = oppRows.find((o) => !["won", "lost"].includes(o.stage));
+  const lostOpp = oppRows.find((o) => o.stage === "lost");
+  const refOpp = activeOpp ?? oppRows[0];
+
+  const stageDays = refOpp?.stage_entered_at
+    ? Math.floor((Date.now() - new Date(refOpp.stage_entered_at).getTime()) / 86400000)
+    : undefined;
+
+  // 護理計畫摘要
+  const planRows = (Array.isArray(b.care_plans) ? b.care_plans : []) as {
+    tier?: string; last_order_date?: string; reorder_cycle_days?: number;
+  }[];
+  const plan = planRows[0];
+  let reorder_in_days: number | undefined;
+  if (plan?.last_order_date && plan?.reorder_cycle_days) {
+    reorder_in_days = Math.ceil(
+      (new Date(plan.last_order_date).getTime() + plan.reorder_cycle_days * 86400000 - Date.now()) / 86400000
+    );
+    if (reorder_in_days > 7 || reorder_in_days < -30) reorder_in_days = undefined;
+  }
+
+  return {
+    id: b.id as string,
+    name: (b.name as string) || "未命名",
+    industry: (b.industry as string) || "其他",
+    stores: (b.store_count as number) || 1,
+    citiesList,
+    cities: citiesList.length ? citiesList.slice(0, 3).join("/") : "—",
+    channels,
+    channelLinks,
+    score: (b.priority_score as number) ?? 50,
+    status: (b.status as string) || "new",
+    owner: b.owner_name as string | undefined,
+    tax_id: b.tax_id as string | undefined,
+    registeredName: b.registered_name as string | undefined,
+    companyAddress: b.company_address as string | undefined,
+    setupDate: b.setup_date as string | undefined,
+    capital: b.capital as number | undefined,
+    est_annual: refOpp?.est_annual_value ?? undefined,
+    probability: refOpp?.probability ?? undefined,
+    stage_days: stageDays,
+    tier: plan?.tier ?? undefined,
+    reorder_in_days,
+    lost_reason: lostOpp?.lost_reason ?? undefined,
+  };
+}
+
 function rocDate(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const s = String(raw).replace(/\D/g, "");
@@ -727,18 +790,62 @@ function BrandCard({
 }
 
 // ── 品牌詳情抽屜 ─────────────────────────────────────
+interface OutreachLog { id: string | number; created_at: string; channel: string; summary: string; next_action?: string; }
+
 function BrandDrawer({
   brand: b,
   onClose,
   onRecord,
   onDetail,
+  onEnriched,
 }: {
   brand: BrandVM;
   onClose: () => void;
   onRecord: () => void;
   onDetail: () => void;
+  onEnriched?: (id: BrandVM["id"]) => void;
 }) {
   const pipeline = b.est_annual && b.probability ? Math.round((b.est_annual * b.probability) / 100) : null;
+  const [logs, setLogs] = useState<OutreachLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(true);
+  const [enriching, setEnriching] = useState<"channels" | "places" | null>(null);
+  const [enrichMsg, setEnrichMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    if (!b.id) return;
+    fetch(`/api/outreach?brand_id=${b.id}`)
+      .then((r) => r.json())
+      .then((res) => { if (res.success) setLogs(res.data || []); })
+      .catch(() => {})
+      .finally(() => setLogsLoading(false));
+  }, [b.id]);
+
+  const enrich = async (type: "channels" | "places") => {
+    setEnriching(type);
+    setEnrichMsg(null);
+    try {
+      const endpoint = type === "channels" ? "/api/enrich/channels" : "/api/enrich/places";
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brand_id: b.id }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        const d = json.data;
+        const found = type === "channels"
+          ? `取得 ${(d.channels || []).join("、") || "無新管道"}`
+          : `已更新 Google Maps 資料`;
+        setEnrichMsg({ ok: true, text: found });
+        onEnriched?.(b.id);
+      } else {
+        setEnrichMsg({ ok: false, text: json.error || "採集失敗" });
+      }
+    } catch { setEnrichMsg({ ok: false, text: "網路錯誤" }); }
+    finally { setEnriching(null); }
+  };
+
+  const LOG_CH: Record<string, string> = { visit: "📍", phone: "📞", line: "💬", email: "✉️", fb: "📘" };
   return (
     <>
       <Overlay onClick={onClose} blur />
@@ -858,8 +965,46 @@ function BrandDrawer({
             </DrawerSection>
           )}
 
+          {/* 採集工具 */}
+          <DrawerSection label="採集工具">
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button onClick={() => enrich("channels")} disabled={!!enriching} className="pressable"
+                style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid ${C.primary}60`, background: C.p50, color: C.primary, fontSize: 12, fontWeight: 600, cursor: enriching ? "default" : "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+                {enriching === "channels" ? <><span className="spin" style={{ display: "inline-block" }}>↻</span> 採集中…</> : "🔗 採集官網管道"}
+              </button>
+              <button onClick={() => enrich("places")} disabled={!!enriching} className="pressable"
+                style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surf2, color: C.muted, fontSize: 12, fontWeight: 600, cursor: enriching ? "default" : "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+                {enriching === "places" ? <><span className="spin" style={{ display: "inline-block" }}>↻</span> 更新中…</> : "🗺 更新 Google Maps"}
+              </button>
+            </div>
+            {enrichMsg && (
+              <div style={{ marginTop: 8, fontSize: 12, color: enrichMsg.ok ? C.success : C.danger, display: "flex", alignItems: "center", gap: 5 }}>
+                {enrichMsg.ok ? "✓" : "✕"} {enrichMsg.text}
+                <button onClick={() => setEnrichMsg(null)} style={{ border: "none", background: "none", cursor: "pointer", color: C.muted, marginLeft: "auto" }}>×</button>
+              </div>
+            )}
+          </DrawerSection>
+
           <DrawerSection label="聯繫紀錄">
-            <div style={{ padding: "16px 0", textAlign: "center", color: C.muted, fontSize: 14 }}>🌿 尚無聯繫紀錄，點下方快速記錄第一筆</div>
+            {logsLoading ? (
+              <div style={{ padding: "12px 0", textAlign: "center", color: C.muted, fontSize: 13 }}>載入中…</div>
+            ) : logs.length === 0 ? (
+              <div style={{ padding: "16px 0", textAlign: "center", color: C.muted, fontSize: 14 }}>🌿 尚無聯繫紀錄，點下方快速記錄第一筆</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {logs.map((log) => {
+                  const dateStr = new Date(log.created_at).toLocaleDateString("zh-TW", { month: "numeric", day: "numeric" });
+                  const em = LOG_CH[log.channel] || "📋";
+                  return (
+                    <div key={log.id} style={{ borderLeft: `3px solid ${C.primary}40`, paddingLeft: 10 }}>
+                      <div style={{ fontSize: 11, color: C.muted, marginBottom: 2 }}>{dateStr} {em} {log.channel}</div>
+                      <div style={{ fontSize: 13, color: C.text, lineHeight: 1.5 }}>{log.summary}</div>
+                      {log.next_action && <div style={{ fontSize: 11, color: C.accent, marginTop: 3 }}>→ {log.next_action}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </DrawerSection>
         </div>
 
@@ -1244,6 +1389,88 @@ function analyzeBrands(brands: BrandVM[]): string {
   return lines.join("\n");
 }
 
+// ── 新增品牌 Modal ────────────────────────────────────
+function AddBrandModal({ onClose, onAdded }: { onClose: () => void; onAdded: (b: BrandVM) => void }) {
+  const [name, setName] = useState("");
+  const [industry, setIndustry] = useState(INDUSTRIES[0]);
+  const [ownerName, setOwnerName] = useState("");
+  const [taxId, setTaxId] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async () => {
+    if (!name.trim()) { setError("品牌名稱為必填"); return; }
+    setSubmitting(true);
+    setError("");
+    try {
+      const res = await fetch("/api/brands", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), industry, owner_name: ownerName || undefined, tax_id: taxId || undefined }),
+      });
+      const json = await res.json();
+      if (!json.success) { setError(json.error || "新增失敗"); return; }
+      onAdded({
+        id: json.data?.id || Date.now(),
+        name: name.trim(),
+        industry,
+        stores: 1,
+        cities: "—",
+        citiesList: [],
+        channels: [],
+        channelLinks: {},
+        score: 50,
+        status: "new",
+        owner: ownerName || undefined,
+        tax_id: taxId || undefined,
+      });
+      onClose();
+    } catch { setError("網路錯誤"); }
+    finally { setSubmitting(false); }
+  };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 600, background: "rgba(0,0,0,.35)" }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 610, width: "92vw", maxWidth: 440, background: C.surface, borderRadius: 18, boxShadow: "0 20px 60px rgba(0,0,0,.2)", padding: "22px 22px 18px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>新增品牌</div>
+          <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: C.muted, fontSize: 22, lineHeight: 1 }}>×</button>
+        </div>
+
+        <label style={{ fontSize: 12, color: C.muted, fontWeight: 600, display: "block", marginBottom: 5 }}>品牌名稱 *</label>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="例：春天養生館" autoFocus style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: `1px solid ${C.border}`, fontSize: 14, color: C.text, background: C.surf2, boxSizing: "border-box", outline: "none", marginBottom: 14 }} />
+
+        <label style={{ fontSize: 12, color: C.muted, fontWeight: 600, display: "block", marginBottom: 5 }}>產業類別 *</label>
+        <select value={industry} onChange={(e) => setIndustry(e.target.value)} style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: `1px solid ${C.border}`, fontSize: 14, color: C.text, background: C.surf2, boxSizing: "border-box", outline: "none", marginBottom: 14 }}>
+          {INDUSTRIES.map((ind) => <option key={ind} value={ind}>{ind}</option>)}
+          <option value="其他">其他</option>
+        </select>
+
+        <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+          <div style={{ flex: 1 }}>
+            <label style={{ fontSize: 12, color: C.muted, fontWeight: 600, display: "block", marginBottom: 5 }}>負責人</label>
+            <input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} placeholder="選填" style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: `1px solid ${C.border}`, fontSize: 14, color: C.text, background: C.surf2, boxSizing: "border-box", outline: "none" }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={{ fontSize: 12, color: C.muted, fontWeight: 600, display: "block", marginBottom: 5 }}>統一編號</label>
+            <input value={taxId} onChange={(e) => setTaxId(e.target.value)} placeholder="選填" style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: `1px solid ${C.border}`, fontSize: 14, color: C.text, background: C.surf2, boxSizing: "border-box", outline: "none" }} />
+          </div>
+        </div>
+
+        {error && <div style={{ fontSize: 12, color: C.danger, marginBottom: 10 }}>{error}</div>}
+
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: 11, borderRadius: 10, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontSize: 14, cursor: "pointer" }}>取消</button>
+          <button onClick={submit} disabled={submitting} style={{ flex: 2, padding: 11, borderRadius: 10, border: "none", background: submitting ? C.border : C.primary, color: "white", fontSize: 14, fontWeight: 700, cursor: submitting ? "default" : "pointer" }}>
+            {submitting ? "新增中…" : "新增品牌"}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── 批次匯入 Modal ────────────────────────────────────
 function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const [file, setFile] = useState<File | null>(null);
@@ -1358,48 +1585,23 @@ export default function LeadsPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [industryScraping, setIndustryScraping] = useState(false);
   const [industryScrapeMsg, setIndustryScrapeMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [addBrandOpen, setAddBrandOpen] = useState(false);
 
-  useEffect(() => {
+  const loadBrands = () => {
+    setLoading(true);
     fetch("/api/brands")
       .then((r) => r.json())
       .then((result) => {
         if (result.success && Array.isArray(result.data) && result.data.length > 0) {
-          setBrands(
-            result.data.map((b: Record<string, unknown>) => {
-              // 管道：來自 brand_channels join，依固定順序排列
-              const chRows = (Array.isArray(b.brand_channels) ? b.brand_channels : []) as { channel: string; value: string }[];
-              const channelLinks: Record<string, string> = {};
-              for (const c of chRows) if (c.channel && c.value) channelLinks[c.channel] = c.value;
-              const channels = CHANNEL_ORDER.filter((ch) => channelLinks[ch]);
-              // 城市：來自 stores join 的去重清單
-              const storeRows = (Array.isArray(b.stores) ? b.stores : []) as { city: string | null }[];
-              const citiesList = [...new Set(storeRows.map((s) => (s.city || "").replace(/[市縣]$/, "")).filter(Boolean))];
-              return {
-                id: b.id as string,
-                name: (b.name as string) || "未命名",
-                industry: (b.industry as string) || "其他",
-                stores: (b.store_count as number) || 1,
-                citiesList,
-                cities: citiesList.length ? citiesList.slice(0, 3).join("/") : "—",
-                channels,
-                channelLinks,
-                score: (b.priority_score as number) ?? 50,
-                status: (b.status as string) || "new",
-                owner: b.owner_name as string | undefined,
-                tax_id: b.tax_id as string | undefined,
-                registeredName: b.registered_name as string | undefined,
-                companyAddress: b.company_address as string | undefined,
-                setupDate: b.setup_date as string | undefined,
-                capital: b.capital as number | undefined,
-              };
-            })
-          );
+          setBrands(result.data.map(mapBrandRow));
           setUsingApi(true);
         }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { loadBrands(); }, []);
 
   const exportXLS = () => {
     window.location.href = "/api/brands/export";
@@ -1449,6 +1651,22 @@ export default function LeadsPage() {
         body: JSON.stringify({ status }),
       }).catch(() => {});
     }
+  };
+
+  const refreshBrand = (id: BrandVM["id"]) => {
+    fetch("/api/brands")
+      .then((r) => r.json())
+      .then((result) => {
+        if (result.success && Array.isArray(result.data)) {
+          const updated = result.data.find((b: Record<string, unknown>) => b.id === id);
+          if (updated) {
+            const vm = mapBrandRow(updated);
+            setBrands((prev) => prev.map((b) => (b.id === id ? vm : b)));
+            setSelected((prev) => (prev?.id === id ? vm : prev));
+          }
+        }
+      })
+      .catch(() => {});
   };
 
   const goDetail = (b: BrandVM) => {
@@ -1575,6 +1793,7 @@ export default function LeadsPage() {
             ✦ AI 分析
           </button>
           <button
+            onClick={() => setAddBrandOpen(true)}
             className="pressable"
             style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", border: "none", borderRadius: 10, background: C.primary, color: "white", cursor: "pointer", fontSize: 14, fontWeight: 600, whiteSpace: "nowrap" }}
           >
@@ -1651,6 +1870,7 @@ export default function LeadsPage() {
             setRecorder(b);
           }}
           onDetail={() => goDetail(selected)}
+          onEnriched={refreshBrand}
         />
       )}
 
@@ -1706,6 +1926,13 @@ export default function LeadsPage() {
         </div>
       )}
 
+      {addBrandOpen && (
+        <AddBrandModal
+          onClose={() => setAddBrandOpen(false)}
+          onAdded={(b) => { setBrands((prev) => [b, ...prev]); setSelected(b); }}
+        />
+      )}
+
       {recorder && <QuickRecord brand={recorder} onClose={() => setRecorder(null)} />}
 
       {filterOpen && <FilterDrawer filters={filters} onApply={(f) => setFilters(f)} onClose={() => setFilterOpen(false)} availableCities={availableCities} />}
@@ -1715,42 +1942,7 @@ export default function LeadsPage() {
           onClose={() => setImportOpen(false)}
           onDone={() => {
             setImportOpen(false);
-            fetch("/api/brands")
-              .then((r) => r.json())
-              .then((result) => {
-                if (result.success && Array.isArray(result.data) && result.data.length > 0) {
-                  setBrands(
-                    result.data.map((b: Record<string, unknown>) => {
-                      const chRows = (Array.isArray(b.brand_channels) ? b.brand_channels : []) as { channel: string; value: string }[];
-                      const channelLinks: Record<string, string> = {};
-                      for (const c of chRows) if (c.channel && c.value) channelLinks[c.channel] = c.value;
-                      const channels = CHANNEL_ORDER.filter((ch) => channelLinks[ch]);
-                      const storeRows = (Array.isArray(b.stores) ? b.stores : []) as { city: string | null }[];
-                      const citiesList = [...new Set(storeRows.map((s) => (s.city || "").replace(/[市縣]$/, "")).filter(Boolean))];
-                      return {
-                        id: b.id as string,
-                        name: (b.name as string) || "未命名",
-                        industry: (b.industry as string) || "其他",
-                        stores: (b.store_count as number) || 1,
-                        citiesList,
-                        cities: citiesList.length ? citiesList.slice(0, 3).join("/") : "—",
-                        channels,
-                        channelLinks,
-                        score: (b.priority_score as number) ?? 50,
-                        status: (b.status as string) || "new",
-                        owner: b.owner_name as string | undefined,
-                        tax_id: b.tax_id as string | undefined,
-                        registeredName: b.registered_name as string | undefined,
-                        companyAddress: b.company_address as string | undefined,
-                        setupDate: b.setup_date as string | undefined,
-                        capital: b.capital as number | undefined,
-                      };
-                    })
-                  );
-                  setUsingApi(true);
-                }
-              })
-              .catch(() => {});
+            loadBrands();
           }}
         />
       )}
