@@ -10,25 +10,34 @@ export async function GET(request: NextRequest) {
     const supabase = getSupabaseServerClient();
     const today = new Date().toISOString().split("T")[0];
 
+    const channelSelect = "brand_channels(channel, value)";
+
     // 查詢回購提醒
     const { data: reorderTasks } = await supabase
       .from("care_plans")
-      .select("*, brands(id, name)")
+      .select(`*, brands(id, name, ${channelSelect})`)
       .not("reorder_cycle_days", "is", null);
 
     // 查詢停滯商機
     const { data: stalledOpp } = await supabase
       .from("opportunities")
-      .select("*, brands(name)")
+      .select(`*, brands(name, ${channelSelect})`)
       .in("stage", ["sampling", "quoting"]);
 
     // 查詢三節任務
     const { data: festivalTasks } = await supabase
       .from("care_tasks")
-      .select("*, brands(name)")
+      .select(`*, brands(name, ${channelSelect})`)
       .eq("task_type", "festival")
       .gte("due_date", today)
       .order("due_date", { ascending: true });
+
+    // 從 brand_channels 陣列轉成 { channel: value } map
+    const toContacts = (brandChannels: { channel: string; value: string }[] | undefined) => {
+      const map: Record<string, string> = {};
+      (brandChannels || []).forEach(({ channel, value }) => { if (value) map[channel] = value; });
+      return map;
+    };
 
     // 組合所有任務
     const tasks = [
@@ -51,6 +60,7 @@ export async function GET(request: NextRequest) {
           type: "reorder",
           title: `預估補貨日剩 ${Math.max(0, Math.ceil((new Date(rp.last_order_date).getTime() + rp.reorder_cycle_days * 24 * 60 * 60 * 1000 - Date.now()) / (24 * 60 * 60 * 1000)))} 天`,
           daysLeft: Math.max(0, Math.ceil((new Date(rp.last_order_date).getTime() + rp.reorder_cycle_days * 24 * 60 * 60 * 1000 - Date.now()) / (24 * 60 * 60 * 1000))),
+          contacts: toContacts(rp.brands?.brand_channels),
           done: false,
         })),
 
@@ -70,6 +80,7 @@ export async function GET(request: NextRequest) {
           type: "stalled",
           title: `${opp.stage === "sampling" ? "樣品" : "報價"}寄出已 ${Math.floor((Date.now() - new Date(opp.stage_entered_at).getTime()) / (1000 * 60 * 60 * 24))} 天，待追蹤`,
           daysLeft: Math.floor((Date.now() - new Date(opp.stage_entered_at).getTime()) / (1000 * 60 * 60 * 24)),
+          contacts: toContacts(opp.brands?.brand_channels),
           done: false,
         })),
 
@@ -79,6 +90,7 @@ export async function GET(request: NextRequest) {
         brand: task.brands?.name,
         type: "festival",
         title: task.title,
+        contacts: toContacts(task.brands?.brand_channels),
         done: task.done,
       })),
     ];

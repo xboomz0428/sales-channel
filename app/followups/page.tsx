@@ -24,6 +24,7 @@ interface Task {
   title: string;
   desc: string;
   channels: string[];
+  contacts: Record<string, string>;
 }
 
 
@@ -69,6 +70,62 @@ function GreetingBar({ taskCount }: { taskCount: number }) {
       </div>
     </div>
   );
+}
+
+// ── 聯絡按鈕 ─────────────────────────────────────────
+function lineHref(val: string) {
+  return val.startsWith("http") ? val : `https://line.me/ti/p/~${val}`;
+}
+function fbHref(val: string) {
+  return val.startsWith("http") ? val : `https://facebook.com/${val}`;
+}
+
+function ContactButtons({ channels, contacts }: { channels: string[]; contacts: Record<string, string> }) {
+  const btns: React.ReactNode[] = [];
+
+  if (channels.includes("line") && contacts.line) {
+    btns.push(
+      <a key="line" href={lineHref(contacts.line)} target="_blank" rel="noopener"
+        style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, textDecoration: "none", background: "#06C75518", color: "#06C755", fontSize: 13, fontWeight: 600 }}>
+        <span style={{ fontSize: 15 }}>💬</span> LINE
+      </a>
+    );
+  }
+  if (channels.includes("phone") && contacts.phone) {
+    btns.push(
+      <a key="phone" href={`tel:${contacts.phone}`}
+        style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, textDecoration: "none", background: `${C.primary}18`, color: C.primary, fontSize: 13, fontWeight: 600 }}>
+        <Icon n="phone" size={14} color={C.primary} /> 撥號
+      </a>
+    );
+  }
+  if (channels.includes("email") && contacts.email) {
+    btns.push(
+      <a key="email" href={`mailto:${contacts.email}`}
+        style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, textDecoration: "none", background: `${C.primary}18`, color: C.primary, fontSize: 13, fontWeight: 600 }}>
+        ✉️ Email
+      </a>
+    );
+  }
+  if (channels.includes("fb") && contacts.fb) {
+    btns.push(
+      <a key="fb" href={fbHref(contacts.fb)} target="_blank" rel="noopener"
+        style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, textDecoration: "none", background: "#1877F218", color: "#1877F2", fontSize: 13, fontWeight: 600 }}>
+        📘 FB
+      </a>
+    );
+  }
+  if (channels.includes("ig") && contacts.ig) {
+    btns.push(
+      <a key="ig" href={contacts.ig.startsWith("http") ? contacts.ig : `https://instagram.com/${contacts.ig}`} target="_blank" rel="noopener"
+        style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, textDecoration: "none", background: "#C1358418", color: "#C13584", fontSize: 13, fontWeight: 600 }}>
+        📷 IG
+      </a>
+    );
+  }
+
+  if (!btns.length) return null;
+  return <div style={{ display: "flex", gap: 8, paddingLeft: 47, flexWrap: "wrap" }}>{btns}</div>;
 }
 
 // ── 任務卡片 ─────────────────────────────────────────
@@ -152,46 +209,7 @@ function TaskCard({ task, onComplete }: { task: Task; onComplete: (id: Task["id"
 
         <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.55, marginBottom: 12, paddingLeft: 47 }}>{task.desc}</div>
 
-        {!done && (
-          <div style={{ display: "flex", gap: 8, paddingLeft: 47 }}>
-            {task.channels.includes("line") && (
-              <a
-                href="https://line.me"
-                target="_blank"
-                rel="noopener"
-                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, textDecoration: "none", background: "#06C75518", color: "#06C755", fontSize: 13, fontWeight: 600 }}
-              >
-                <span style={{ fontSize: 15 }}>💬</span> LINE
-              </a>
-            )}
-            {task.channels.includes("phone") && (
-              <a
-                href="tel:+886-2-2631-8499"
-                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, textDecoration: "none", background: `${C.primary}18`, color: C.primary, fontSize: 13, fontWeight: 600 }}
-              >
-                <Icon n="phone" size={14} color={C.primary} /> 撥號
-              </a>
-            )}
-            {task.channels.includes("email") && (
-              <a
-                href="mailto:service@heroherb.co"
-                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, textDecoration: "none", background: `${C.primary}18`, color: C.primary, fontSize: 13, fontWeight: 600 }}
-              >
-                ✉️ Email
-              </a>
-            )}
-            {task.channels.includes("fb") && (
-              <a
-                href="https://facebook.com"
-                target="_blank"
-                rel="noopener"
-                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, textDecoration: "none", background: "#1877F218", color: "#1877F2", fontSize: 13, fontWeight: 600 }}
-              >
-                📘 FB
-              </a>
-            )}
-          </div>
-        )}
+        {!done && <ContactButtons channels={task.channels} contacts={task.contacts} />}
       </div>
     </div>
   );
@@ -259,7 +277,8 @@ export default function FollowupsPage() {
                 brand: (t.brand as string) || "未命名",
                 title: (t.title as string) || "",
                 desc: (t.desc as string) || (t.daysLeft != null ? `剩 ${t.daysLeft} 天` : ""),
-                channels: Array.isArray(t.channels) ? (t.channels as string[]) : ["phone"],
+                channels: Array.isArray(t.channels) ? (t.channels as string[]) : Object.keys((t.contacts as Record<string, string>) || {}),
+                contacts: (t.contacts as Record<string, string>) || {},
               }))
           );
           setUsingApi(true);
