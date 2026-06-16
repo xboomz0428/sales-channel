@@ -97,3 +97,44 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+/**
+ * PATCH /api/opportunities
+ * 更新商機階段（含流失原因）
+ */
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const supabase = getSupabaseServerClient();
+
+    if (!body.id) {
+      return NextResponse.json(
+        { success: false, error: "缺少 id" },
+        { status: 400 }
+      );
+    }
+
+    const updates: Record<string, unknown> = {};
+    if (body.stage) { updates.stage = body.stage; updates.stage_entered_at = new Date().toISOString(); }
+    if (body.lost_reason !== undefined) updates.lost_reason = body.lost_reason;
+
+    const { error } = await supabase
+      .from("opportunities")
+      .update(updates)
+      .eq("id", body.id);
+
+    if (error) {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json({ success: true });
+  } catch {
+    return NextResponse.json(
+      { success: false, error: "更新失敗" },
+      { status: 500 }
+    );
+  }
+}

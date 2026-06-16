@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { C, STAGES, STAGE_CFG, downloadCSV, StatusKey } from "@/lib/design";
 import Icon from "@/components/Icon";
 import MobileTabBar from "@/components/MobileTabBar";
 
 interface Opp {
   id: string | number;
+  brand_id?: string;
   brand: string;
   product: string;
   stage: StatusKey;
@@ -14,6 +15,186 @@ interface Opp {
   prob: number;
   days: number;
   lost_reason?: string;
+}
+
+interface BrandOption {
+  id: string;
+  name: string;
+}
+
+// ── 流失登記對話框 ──────────────────────────────────────
+function LostReasonModal({ onConfirm, onCancel }: { onConfirm: (reason: string) => void; onCancel: () => void }) {
+  const [reason, setReason] = useState("");
+  const PRESETS = ["價格過高", "競品搶單", "需求改變", "無法配合交期", "其他"];
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ background: C.surface, borderRadius: 16, padding: 24, width: "100%", maxWidth: 360, boxShadow: "0 8px 32px rgba(0,0,0,.18)" }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 16 }}>登記流失原因</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+          {PRESETS.map((p) => (
+            <button key={p} onClick={() => setReason(p)} style={{ padding: "5px 12px", borderRadius: 999, border: `1px solid ${reason === p ? STAGE_CFG.lost.color : C.border}`, background: reason === p ? STAGE_CFG.lost.bg : "transparent", color: reason === p ? STAGE_CFG.lost.color : C.muted, fontSize: 12, cursor: "pointer", fontWeight: reason === p ? 600 : 400 }}>
+              {p}
+            </button>
+          ))}
+        </div>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="或自行輸入原因…"
+          rows={2}
+          style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, color: C.text, background: C.surf2, resize: "none", boxSizing: "border-box", outline: "none", fontFamily: "inherit" }}
+        />
+        <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+          <button onClick={onCancel} style={{ flex: 1, padding: "9px 0", borderRadius: 9, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontSize: 13, cursor: "pointer" }}>取消</button>
+          <button onClick={() => onConfirm(reason || "已流失")} style={{ flex: 2, padding: "9px 0", borderRadius: 9, border: "none", background: STAGE_CFG.lost.color, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>確認流失</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── 新增商機對話框 ──────────────────────────────────────
+function AddOppModal({ onClose, onCreated }: { onClose: () => void; onCreated: (opp: Opp) => void }) {
+  const [brands, setBrands] = useState<BrandOption[]>([]);
+  const [brandQuery, setBrandQuery] = useState("");
+  const [selectedBrand, setSelectedBrand] = useState<BrandOption | null>(null);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [product, setProduct] = useState("");
+  const [stage, setStage] = useState<StatusKey>("new");
+  const [est, setEst] = useState("");
+  const [prob, setProb] = useState("50");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const dropRef = useRef<HTMLDivElement>(null);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (selectedBrand) return;
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    if (!brandQuery.trim()) { setBrands([]); return; }
+    searchTimer.current = setTimeout(() => {
+      fetch(`/api/brands?search=${encodeURIComponent(brandQuery)}`)
+        .then((r) => r.json())
+        .then((res) => {
+          if (res.success && Array.isArray(res.data)) {
+            setBrands(res.data.slice(0, 8).map((b: Record<string, unknown>) => ({ id: b.id as string, name: b.name as string })));
+          }
+        })
+        .catch(() => {});
+    }, 250);
+  }, [brandQuery, selectedBrand]);
+
+  const filtered = brands;
+
+  const submit = async () => {
+    if (!selectedBrand) { setError("請選擇品牌"); return; }
+    setSubmitting(true);
+    setError("");
+    try {
+      const res = await fetch("/api/opportunities", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brand_id: selectedBrand.id,
+          product_line: product || null,
+          stage,
+          est_annual_value: est ? Number(est) * 10000 : 0,
+          probability: Number(prob),
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) { setError(json.error || "新增失敗"); return; }
+      onCreated({
+        id: json.data?.id || Date.now(),
+        brand_id: selectedBrand.id,
+        brand: selectedBrand.name,
+        product: product || "—",
+        stage,
+        est: est ? Number(est) * 10000 : 0,
+        prob: Number(prob),
+        days: 0,
+      });
+      onClose();
+    } catch {
+      setError("網路錯誤，請重試");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const activeStages = STAGES.filter((s) => s !== "won" && s !== "lost");
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ background: C.surface, borderRadius: 16, padding: 24, width: "100%", maxWidth: 400, boxShadow: "0 8px 32px rgba(0,0,0,.18)" }}>
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 20 }}>
+          <span style={{ fontSize: 16, fontWeight: 700, color: C.text, flex: 1 }}>新增商機</span>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 18, lineHeight: 1 }}>×</button>
+        </div>
+
+        {/* 品牌選擇 */}
+        <label style={{ fontSize: 12, color: C.muted, fontWeight: 600, display: "block", marginBottom: 5 }}>品牌 *</label>
+        <div style={{ position: "relative", marginBottom: 14 }} ref={dropRef}>
+          <input
+            value={selectedBrand ? selectedBrand.name : brandQuery}
+            onChange={(e) => { setBrandQuery(e.target.value); setSelectedBrand(null); setShowDropdown(true); }}
+            onFocus={() => setShowDropdown(true)}
+            onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+            placeholder="搜尋品牌名稱…"
+            style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, color: C.text, background: C.surf2, boxSizing: "border-box", outline: "none" }}
+          />
+          {showDropdown && filtered.length > 0 && (
+            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,.12)", zIndex: 10, maxHeight: 200, overflowY: "auto", marginTop: 2 }}>
+              {filtered.map((b) => (
+                <div key={b.id} onMouseDown={() => { setSelectedBrand(b); setBrandQuery(""); setShowDropdown(false); }} style={{ padding: "9px 12px", fontSize: 13, color: C.text, cursor: "pointer", borderBottom: `1px solid ${C.border}` }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = C.surf2)}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+                  {b.name}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 產品線 */}
+        <label style={{ fontSize: 12, color: C.muted, fontWeight: 600, display: "block", marginBottom: 5 }}>產品線</label>
+        <input value={product} onChange={(e) => setProduct(e.target.value)} placeholder="例：保健食品 OEM、彩妝代工…" style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, color: C.text, background: C.surf2, boxSizing: "border-box", outline: "none", marginBottom: 14 }} />
+
+        {/* 階段 */}
+        <label style={{ fontSize: 12, color: C.muted, fontWeight: 600, display: "block", marginBottom: 5 }}>階段</label>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+          {activeStages.map((s) => {
+            const cfg = STAGE_CFG[s];
+            const on = stage === s;
+            return (
+              <button key={s} onClick={() => setStage(s)} style={{ padding: "5px 12px", borderRadius: 999, border: `1px solid ${on ? cfg.color : C.border}`, background: on ? cfg.bg : "transparent", color: on ? cfg.color : C.muted, fontSize: 12, cursor: "pointer", fontWeight: on ? 700 : 400 }}>{cfg.label}</button>
+            );
+          })}
+        </div>
+
+        {/* 預估年營收 + 機率 */}
+        <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
+          <div style={{ flex: 1 }}>
+            <label style={{ fontSize: 12, color: C.muted, fontWeight: 600, display: "block", marginBottom: 5 }}>預估年營收（萬元）</label>
+            <input type="number" value={est} onChange={(e) => setEst(e.target.value)} placeholder="0" min="0" style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, color: C.text, background: C.surf2, boxSizing: "border-box", outline: "none" }} />
+          </div>
+          <div style={{ width: 90 }}>
+            <label style={{ fontSize: 12, color: C.muted, fontWeight: 600, display: "block", marginBottom: 5 }}>成交機率（%）</label>
+            <input type="number" value={prob} onChange={(e) => setProb(e.target.value)} min="0" max="100" style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, color: C.text, background: C.surf2, boxSizing: "border-box", outline: "none" }} />
+          </div>
+        </div>
+
+        {error && <div style={{ fontSize: 12, color: C.danger, marginBottom: 10 }}>{error}</div>}
+
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: "9px 0", borderRadius: 9, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontSize: 13, cursor: "pointer" }}>取消</button>
+          <button onClick={submit} disabled={submitting} style={{ flex: 2, padding: "9px 0", borderRadius: 9, border: "none", background: submitting ? C.border : C.primary, color: "#fff", fontSize: 13, fontWeight: 700, cursor: submitting ? "default" : "pointer" }}>
+            {submitting ? "新增中…" : "新增商機"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 
@@ -177,6 +358,8 @@ export default function OpportunitiesPage() {
   const [opps, setOpps] = useState<Opp[]>([]);
   const [loading, setLoading] = useState(true);
   const [usingApi, setUsingApi] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [lostPending, setLostPending] = useState<{ id: Opp["id"] } | null>(null);
 
   useEffect(() => {
     fetch("/api/opportunities")
@@ -207,24 +390,40 @@ export default function OpportunitiesPage() {
   }, []);
 
   const move = (id: Opp["id"], dir: number) => {
-    let nextStage: StatusKey | undefined;
+    const opp = opps.find((o) => o.id === id);
+    if (!opp) return;
+    const idx = STAGES.indexOf(opp.stage);
+    const nextStage = STAGES[idx + dir];
+    if (!nextStage) return;
+
+    if (nextStage === "lost") {
+      setLostPending({ id });
+      return;
+    }
+    applyMove(id, nextStage);
+  };
+
+  const applyMove = (id: Opp["id"], nextStage: StatusKey, lost_reason?: string) => {
     setOpps((prev) =>
       prev.map((o) => {
         if (o.id !== id) return o;
-        const idx = STAGES.indexOf(o.stage);
-        const next = STAGES[idx + dir];
-        if (!next) return o;
-        nextStage = next;
-        return { ...o, stage: next, days: 0 };
+        return { ...o, stage: nextStage, days: 0, ...(lost_reason ? { lost_reason } : {}) };
       })
     );
-    if (usingApi && nextStage) {
+    if (usingApi) {
       fetch("/api/opportunities", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, stage: nextStage }),
+        body: JSON.stringify({ id, stage: nextStage, ...(lost_reason ? { lost_reason } : {}) }),
       }).catch(() => {});
     }
+  };
+
+  const confirmLost = (reason: string) => {
+    if (lostPending) {
+      applyMove(lostPending.id, "lost", reason);
+    }
+    setLostPending(null);
   };
 
   const weighted = opps.filter((o) => !["won", "lost"].includes(o.stage)).reduce((s, o) => s + (o.est * o.prob) / 100, 0);
@@ -238,6 +437,19 @@ export default function OpportunitiesPage() {
 
   return (
     <>
+      {showAddModal && (
+        <AddOppModal
+          onClose={() => setShowAddModal(false)}
+          onCreated={(opp) => setOpps((prev) => [opp, ...prev])}
+        />
+      )}
+      {lostPending && (
+        <LostReasonModal
+          onConfirm={confirmLost}
+          onCancel={() => setLostPending(null)}
+        />
+      )}
+
       {/* Top bar */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, flexWrap: "wrap", rowGap: 8 }}>
         <h1 style={{ fontSize: 17, fontWeight: 600, color: C.text, margin: 0, whiteSpace: "nowrap" }}>商機進度看板</h1>
@@ -250,6 +462,14 @@ export default function OpportunitiesPage() {
             <span style={{ fontSize: 12, color: "#4A6B50" }}>已成交</span>
             <span style={{ fontSize: 14, fontWeight: 700, color: "#4A6B50", marginLeft: 8, fontVariantNumeric: "tabular-nums" }}>NT${(wonTotal / 10000).toFixed(0)}萬</span>
           </div>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="pressable"
+            style={{ padding: "6px 13px", borderRadius: 9, border: "none", background: C.primary, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", gap: 5 }}
+          >
+            <Icon n="plus" size={13} color="#fff" />
+            新增商機
+          </button>
           <button
             onClick={exportCSV}
             className="pressable"
