@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Fragment, ReactNode } from "react";
+import { useState, useEffect, useRef, Fragment, ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { C, STATUS, STAGE_ORDER, CHANNELS, CHANNEL_ORDER, INDUSTRIES, channelHref, StatusKey } from "@/lib/design";
 import Icon from "@/components/Icon";
@@ -810,6 +810,12 @@ function BrandDrawer({
   const [logsLoading, setLogsLoading] = useState(true);
   const [enriching, setEnriching] = useState<"channels" | "places" | null>(null);
   const [enrichMsg, setEnrichMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [enrichLines, setEnrichLines] = useState<{ ok?: boolean; text: string }[]>([]);
+  const logEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [enrichLines]);
 
   useEffect(() => {
     if (!b.id) return;
@@ -823,6 +829,7 @@ function BrandDrawer({
   const enrich = async (type: "channels" | "places") => {
     setEnriching(type);
     setEnrichMsg(null);
+    setEnrichLines([]);
     try {
       const endpoint = type === "channels" ? "/api/enrich/channels" : "/api/enrich/places";
       const res = await fetch(endpoint, {
@@ -830,19 +837,45 @@ function BrandDrawer({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ brand_id: b.id }),
       });
-      const json = await res.json();
-      if (json.success) {
-        const d = json.data;
-        const found = type === "channels"
-          ? `取得 ${(d.channels || []).join("、") || "無新管道"}`
-          : `已更新 Google Maps 資料`;
-        setEnrichMsg({ ok: true, text: found });
-        onEnriched?.(b.id);
-      } else {
-        setEnrichMsg({ ok: false, text: json.error || "採集失敗" });
+      if (!res.body) throw new Error("不支援串流");
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      let gotDone = false;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const parts = buf.split("\n");
+        buf = parts.pop() ?? "";
+        for (const line of parts) {
+          if (!line.trim()) continue;
+          try {
+            const msg = JSON.parse(line) as { type: string; ok?: boolean; text?: string; data?: Record<string, unknown> };
+            if (msg.type === "step") {
+              setEnrichLines((p) => [...p, { text: msg.text ?? "" }]);
+            } else if (msg.type === "store") {
+              setEnrichLines((p) => [...p, { ok: msg.ok, text: msg.text ?? "" }]);
+            } else if (msg.type === "done") {
+              gotDone = true;
+              const d = msg.data || {};
+              const summary = type === "channels"
+                ? `完成：${d.enriched ?? 0}/${d.total ?? 0} 個品牌取得管道資料`
+                : `完成：${d.updated ?? d.enriched ?? 0}/${d.total ?? 0} 間門市已更新`;
+              setEnrichMsg({ ok: true, text: summary });
+              onEnriched?.(b.id);
+            } else if (msg.type === "error") {
+              setEnrichMsg({ ok: false, text: msg.text ?? "採集失敗" });
+            }
+          } catch { /* 略過非 JSON 行 */ }
+        }
       }
-    } catch { setEnrichMsg({ ok: false, text: "網路錯誤" }); }
-    finally { setEnriching(null); }
+      if (!gotDone) onEnriched?.(b.id);
+    } catch (e) {
+      setEnrichMsg({ ok: false, text: e instanceof Error ? e.message : "網路錯誤" });
+    } finally {
+      setEnriching(null);
+    }
   };
 
   const LOG_CH: Record<string, string> = { visit: "📍", phone: "📞", line: "💬", email: "✉️", fb: "📘" };
@@ -967,7 +1000,7 @@ function BrandDrawer({
 
           {/* 採集工具 */}
           <DrawerSection label="採集工具">
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: (enrichLines.length > 0 || enrichMsg) ? 10 : 0 }}>
               <button onClick={() => enrich("channels")} disabled={!!enriching} className="pressable"
                 style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid ${C.primary}60`, background: C.p50, color: C.primary, fontSize: 12, fontWeight: 600, cursor: enriching ? "default" : "pointer", display: "flex", alignItems: "center", gap: 5 }}>
                 {enriching === "channels" ? <><span className="spin" style={{ display: "inline-block" }}>↻</span> 採集中…</> : "🔗 採集官網管道"}
@@ -977,10 +1010,40 @@ function BrandDrawer({
                 {enriching === "places" ? <><span className="spin" style={{ display: "inline-block" }}>↻</span> 更新中…</> : "🗺 更新 Google Maps"}
               </button>
             </div>
+
+            {/* 即時進度日誌 */}
+            {(enrichLines.length > 0 || enriching) && (
+              <div style={{
+                background: "#1A1E1B",
+                borderRadius: 10,
+                padding: "10px 12px",
+                maxHeight: 180,
+                overflowY: "auto",
+                fontFamily: "monospace",
+                marginBottom: enrichMsg ? 8 : 0,
+              }}>
+                {enrichLines.map((line, i) => (
+                  <div key={i} style={{
+                    fontSize: 11,
+                    lineHeight: 1.7,
+                    color: line.ok === true ? "#6DBA82" : line.ok === false ? "#E07B6A" : "#8FA8A3",
+                  }}>
+                    {line.text}
+                  </div>
+                ))}
+                {enriching && (
+                  <div style={{ fontSize: 11, color: "#8FA8A3", lineHeight: 1.7, display: "flex", alignItems: "center", gap: 5 }}>
+                    <span className="spin" style={{ display: "inline-block" }}>↻</span> 採集中…
+                  </div>
+                )}
+                <div ref={logEndRef} />
+              </div>
+            )}
+
             {enrichMsg && (
-              <div style={{ marginTop: 8, fontSize: 12, color: enrichMsg.ok ? C.success : C.danger, display: "flex", alignItems: "center", gap: 5 }}>
+              <div style={{ fontSize: 12, color: enrichMsg.ok ? C.success : C.danger, display: "flex", alignItems: "center", gap: 5 }}>
                 {enrichMsg.ok ? "✓" : "✕"} {enrichMsg.text}
-                <button onClick={() => setEnrichMsg(null)} style={{ border: "none", background: "none", cursor: "pointer", color: C.muted, marginLeft: "auto" }}>×</button>
+                <button onClick={() => { setEnrichMsg(null); setEnrichLines([]); }} style={{ border: "none", background: "none", cursor: "pointer", color: C.muted, marginLeft: "auto" }}>×</button>
               </div>
             )}
           </DrawerSection>

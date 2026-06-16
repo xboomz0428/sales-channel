@@ -1,15 +1,26 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 
 /**
  * POST /api/enrich/channels
- *   { brand_id }   → 補齊單一品牌的聯絡管道
- *   { all: true }  → 批次補齊（每次最多 10 個品牌）
+ * 補齊品牌聯絡管道 — 串流 NDJSON 進度回報
+ *
+ *   { brand_id }                → 單一品牌
+ *   { brand_ids: string[] }    → 指定多個品牌（最多 50）
+ *   { all: true, industry? }   → 批次（整個類別）
  *
  * 來源：
  *  1. stores（Places 採集結果）→ phone / website / map
  *  2. 抓取品牌官網 HTML → 解析 FB / IG / LINE / Email 連結
+ *
+ * NDJSON 事件格式（與 enrich/places 一致）：
+ *   { type: "step",  text: string }
+ *   { type: "store", ok: boolean, text: string }
+ *   { type: "done",  data: { total, enriched } }
+ *   { type: "error", text: string }
  */
+
+export const maxDuration = 300;
 
 type SupabaseServerClient = ReturnType<typeof getSupabaseServerClient>;
 
@@ -72,7 +83,11 @@ async function upsertChannel(
   }
 }
 
-async function enrichBrand(supabase: SupabaseServerClient, brandId: string, brandName: string) {
+async function enrichBrand(
+  supabase: SupabaseServerClient,
+  brandId: string,
+  brandName: string
+): Promise<string[]> {
   const { data: stores } = await supabase
     .from("stores")
     .select("phone, website, gmaps_url")
@@ -93,7 +108,6 @@ async function enrichBrand(supabase: SupabaseServerClient, brandId: string, bran
     added.push("map");
   }
   if (website) {
-    // 如果 website 本身就是社群連結（FB/IG/LINE），不當 website 存
     const isSocialUrl = LINK_PATTERNS.some(([, re]) => re.test(website));
     if (isSocialUrl) {
       for (const [ch, re] of LINK_PATTERNS) {
@@ -106,7 +120,6 @@ async function enrichBrand(supabase: SupabaseServerClient, brandId: string, bran
       await upsertChannel(supabase, brandId, "website", website);
       added.push("website");
 
-      // 抓官網 HTML 找社群連結
       const links = await fetchSiteLinks(website);
       for (const [ch, value] of Object.entries(links)) {
         await upsertChannel(supabase, brandId, ch, value, website);
@@ -115,7 +128,17 @@ async function enrichBrand(supabase: SupabaseServerClient, brandId: string, bran
     }
   }
 
-  return { brand: brandName, channels: [...new Set(added)] };
+  return [...new Set(added)];
+}
+
+function streamResponse() {
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const enc = new TextEncoder();
+  const emit = async (obj: Record<string, unknown>) =>
+    writer.write(enc.encode(JSON.stringify(obj) + "\n"));
+  const close = () => writer.close().catch(() => {});
+  return { readable, emit, close };
 }
 
 export async function POST(request: NextRequest) {
@@ -123,46 +146,80 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ success: false, error: "參數格式錯誤" }, { status: 400 });
+    return new Response(
+      JSON.stringify({ type: "error", text: "參數格式錯誤" }) + "\n",
+      { status: 400, headers: { "Content-Type": "application/x-ndjson; charset=utf-8" } }
+    );
   }
 
-  const supabase = getSupabaseServerClient();
+  const { readable, emit, close } = streamResponse();
 
-  try {
-    // 指定多個品牌
-    if (Array.isArray(body.brand_ids) && (body.brand_ids as string[]).length > 0) {
-      const ids = (body.brand_ids as string[]).slice(0, 50);
-      const { data: brands } = await supabase.from("brands").select("id, name").in("id", ids);
-      const results = [];
-      for (const b of brands || []) results.push(await enrichBrand(supabase, b.id, b.name));
-      const withChannels = results.filter((r) => r.channels.length > 0).length;
-      return NextResponse.json({ success: true, data: { total: results.length, enriched: withChannels, results } });
+  (async () => {
+    const supabase = getSupabaseServerClient();
+    try {
+      let brands: { id: string; name: string }[] = [];
+
+      if (body.brand_id) {
+        const { data: brand } = await supabase
+          .from("brands").select("id, name").eq("id", String(body.brand_id)).single();
+        if (!brand) {
+          await emit({ type: "error", text: "品牌不存在" });
+          return;
+        }
+        brands = [brand];
+      } else if (Array.isArray(body.brand_ids) && body.brand_ids.length > 0) {
+        const ids = (body.brand_ids as string[]).slice(0, 50);
+        const { data } = await supabase.from("brands").select("id, name").in("id", ids);
+        brands = data || [];
+      } else if (body.all) {
+        const industry = body.industry ? String(body.industry) : null;
+        let q = supabase.from("brands").select("id, name");
+        if (industry) q = q.ilike("industry", `%${industry}%`);
+        const { data } = await q;
+        brands = data || [];
+      } else {
+        await emit({ type: "error", text: "請提供 brand_id、brand_ids 或 all" });
+        return;
+      }
+
+      if (brands.length === 0) {
+        await emit({ type: "error", text: "找不到可採集的品牌" });
+        return;
+      }
+
+      await emit({ type: "step", text: `開始採集 ${brands.length} 個品牌的聯絡管道…` });
+
+      let enriched = 0;
+      for (let i = 0; i < brands.length; i++) {
+        const { id, name } = brands[i];
+        const prefix = brands.length > 1 ? `[${i + 1}/${brands.length}] ` : "";
+        try {
+          await emit({ type: "step", text: `${prefix}${name}：抓取官網與門市資料…` });
+          const channels = await enrichBrand(supabase, id, name);
+          if (channels.length > 0) {
+            enriched++;
+            await emit({ type: "store", ok: true, text: `${prefix}✓ ${name}：取得 ${channels.join("、")}` });
+          } else {
+            await emit({ type: "store", ok: false, text: `${prefix}— ${name}：無可新增的管道資料` });
+          }
+        } catch (e) {
+          await emit({ type: "store", ok: false, text: `${prefix}✕ ${name}：${e instanceof Error ? e.message : "失敗"}` });
+        }
+      }
+
+      await emit({ type: "done", data: { total: brands.length, enriched } });
+    } catch (e) {
+      await emit({ type: "error", text: e instanceof Error ? e.message : "採集失敗" });
+    } finally {
+      close();
     }
+  })();
 
-    if (body.brand_id) {
-      const { data: brand } = await supabase.from("brands").select("id, name").eq("id", body.brand_id).single();
-      if (!brand) return NextResponse.json({ success: false, error: "品牌不存在" }, { status: 404 });
-      const result = await enrichBrand(supabase, brand.id, brand.name);
-      return NextResponse.json({ success: true, data: result });
-    }
-
-    if (body.all) {
-      const industry = body.industry ? String(body.industry) : null;
-      let query = supabase.from("brands").select("id, name");
-      if (industry) query = query.ilike("industry", `%${industry}%`);
-      const { data: brands } = await query;
-      const results = [];
-      for (const b of brands || []) results.push(await enrichBrand(supabase, b.id, b.name));
-      const withChannels = results.filter((r) => r.channels.length > 0).length;
-      return NextResponse.json({
-        success: true,
-        data: { total: results.length, enriched: withChannels, results },
-      });
-    }
-
-    return NextResponse.json({ success: false, error: "請提供 brand_id、brand_ids 或 all" }, { status: 400 });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "補齊失敗";
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
-  }
+  return new Response(readable, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }
