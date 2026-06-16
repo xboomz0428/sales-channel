@@ -842,6 +842,7 @@ function BrandDrawer({
       const dec = new TextDecoder();
       let buf = "";
       let gotDone = false;
+      let hadError = false;
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -865,12 +866,13 @@ function BrandDrawer({
               setEnrichMsg({ ok: true, text: summary });
               onEnriched?.(b.id);
             } else if (msg.type === "error") {
+              hadError = true;
               setEnrichMsg({ ok: false, text: msg.text ?? "採集失敗" });
             }
           } catch { /* 略過非 JSON 行 */ }
         }
       }
-      if (!gotDone) onEnriched?.(b.id);
+      if (!gotDone && !hadError) onEnriched?.(b.id);
     } catch (e) {
       setEnrichMsg({ ok: false, text: e instanceof Error ? e.message : "網路錯誤" });
     } finally {

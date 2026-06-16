@@ -86,7 +86,9 @@ async function upsertChannel(
 async function enrichBrand(
   supabase: SupabaseServerClient,
   brandId: string,
-  brandName: string
+  brandName: string,
+  emit: (obj: Record<string, unknown>) => Promise<void>,
+  prefix: string
 ): Promise<string[]> {
   const { data: stores } = await supabase
     .from("stores")
@@ -120,12 +122,22 @@ async function enrichBrand(
       await upsertChannel(supabase, brandId, "website", website);
       added.push("website");
 
+      const domain = (() => { try { return new URL(website).hostname; } catch { return website.slice(0, 30); } })();
+      await emit({ type: "step", text: `${prefix}連線 ${domain}…` });
       const links = await fetchSiteLinks(website);
+      const found = Object.keys(links);
+      if (found.length) {
+        await emit({ type: "step", text: `${prefix}找到 ${found.join("、")}，寫入資料庫…` });
+      } else {
+        await emit({ type: "step", text: `${prefix}未在官網找到社群連結` });
+      }
       for (const [ch, value] of Object.entries(links)) {
         await upsertChannel(supabase, brandId, ch, value, website);
         added.push(ch);
       }
     }
+  } else if (!phone && !gmaps) {
+    await emit({ type: "step", text: `${prefix}此品牌無門市資料（請先執行 Google Maps 採集）` });
   }
 
   return [...new Set(added)];
@@ -194,8 +206,8 @@ export async function POST(request: NextRequest) {
         const { id, name } = brands[i];
         const prefix = brands.length > 1 ? `[${i + 1}/${brands.length}] ` : "";
         try {
-          await emit({ type: "step", text: `${prefix}${name}：抓取官網與門市資料…` });
-          const channels = await enrichBrand(supabase, id, name);
+          await emit({ type: "step", text: `${prefix}${name}：查詢門市資料…` });
+          const channels = await enrichBrand(supabase, id, name, emit, prefix);
           if (channels.length > 0) {
             enriched++;
             await emit({ type: "store", ok: true, text: `${prefix}✓ ${name}：取得 ${channels.join("、")}` });
