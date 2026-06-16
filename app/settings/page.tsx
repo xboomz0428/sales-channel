@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, ReactNode } from "react";
+import { useState, useEffect, useRef, ReactNode } from "react";
 import { C } from "@/lib/design";
 import Icon from "@/components/Icon";
 import MobileTabBar from "@/components/MobileTabBar";
@@ -38,6 +38,167 @@ function costNT(calls: number, apiType: string) {
   const free = apiType === "cse" ? 100 : 0;
   const billable = Math.max(0, calls - free);
   return ((billable / 1000) * (PRICING[apiType]?.unitCost ?? 0) * USD_TWD).toFixed(0);
+}
+
+// ── 外觀設定 ─────────────────────────────────────────
+function BackgroundSettings() {
+  const [src, setSrc] = useState<string | null>(null);
+  const [opacity, setOpacity] = useState(0.15);
+  const [error, setError] = useState("");
+  const [dragging, setDragging] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setSrc(localStorage.getItem("bg_image") ?? null);
+    setOpacity(parseFloat(localStorage.getItem("bg_opacity") ?? "0.15"));
+  }, []);
+
+  const applyImage = (file: File) => {
+    if (!file.type.startsWith("image/")) { setError("請選擇圖片檔案"); return; }
+    if (file.size > 10_000_000) { setError("圖片太大，請選擇 10MB 以下的圖片"); return; }
+    setError("");
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const url = e.target?.result as string;
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const MAX = 1920;
+        const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext("2d")!;
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const compressed = canvas.toDataURL("image/jpeg", 0.88);
+        try {
+          localStorage.setItem("bg_image", compressed);
+          setSrc(compressed);
+          window.dispatchEvent(new Event("bg-update"));
+        } catch {
+          setError("圖片過大，無法儲存（請選擇較小的圖片）");
+        }
+      };
+      img.src = url;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const updateOpacity = (v: number) => {
+    setOpacity(v);
+    localStorage.setItem("bg_opacity", String(v));
+    window.dispatchEvent(new Event("bg-update"));
+  };
+
+  const clear = () => {
+    localStorage.removeItem("bg_image");
+    localStorage.removeItem("bg_opacity");
+    setSrc(null);
+    setOpacity(0.15);
+    window.dispatchEvent(new Event("bg-update"));
+  };
+
+  return (
+    <Section title="外觀設定">
+      {/* 上傳區 */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) applyImage(f); }}
+        onClick={() => inputRef.current?.click()}
+        style={{
+          position: "relative",
+          borderRadius: 14,
+          border: `2px dashed ${dragging ? C.primary : C.border}`,
+          background: dragging ? C.p50 : src ? "transparent" : C.surf2,
+          cursor: "pointer",
+          overflow: "hidden",
+          marginBottom: 16,
+          transition: "border-color 150ms, background 150ms",
+          minHeight: 140,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {src ? (
+          <>
+            <img
+              src={src}
+              alt="背景預覽"
+              style={{ width: "100%", height: 180, objectFit: "cover", display: "block", opacity }}
+            />
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.35)" }}>
+              <div style={{ color: "white", fontSize: 13, fontWeight: 600, textAlign: "center" }}>
+                <div style={{ fontSize: 24, marginBottom: 4 }}>🖼</div>
+                點擊或拖曳更換圖片
+              </div>
+            </div>
+          </>
+        ) : (
+          <div style={{ textAlign: "center", padding: "28px 20px", color: C.muted }}>
+            <div style={{ fontSize: 36, marginBottom: 10 }}>🖼</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 4 }}>拖曳或點擊上傳背景圖片</div>
+            <div style={{ fontSize: 12 }}>支援 JPG、PNG、WebP（最大 10MB）</div>
+          </div>
+        )}
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: "none" }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) applyImage(f); e.target.value = ""; }}
+        />
+      </div>
+
+      {error && (
+        <div style={{ fontSize: 12, color: C.danger, marginBottom: 10 }}>{error}</div>
+      )}
+
+      {/* 透明度調整 */}
+      <div style={{ marginBottom: src ? 14 : 0 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>背景透明度</span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: C.primary, fontVariantNumeric: "tabular-nums", minWidth: 36, textAlign: "right" }}>
+            {Math.round(opacity * 100)}%
+          </span>
+        </div>
+        <input
+          type="range"
+          min={0.03}
+          max={1}
+          step={0.01}
+          value={opacity}
+          onChange={(e) => updateOpacity(parseFloat(e.target.value))}
+          style={{ width: "100%", accentColor: C.primary, cursor: "pointer" }}
+        />
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.muted, marginTop: 3 }}>
+          <span>輕柔（3%）</span>
+          <span>清晰（100%）</span>
+        </div>
+      </div>
+
+      {/* 移除按鈕 */}
+      {src && (
+        <button
+          onClick={clear}
+          style={{
+            width: "100%",
+            padding: "10px 0",
+            borderRadius: 10,
+            border: `1px solid ${C.border}`,
+            background: "transparent",
+            color: C.danger,
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: "pointer",
+            marginTop: 4,
+          }}
+        >
+          移除背景圖片
+        </button>
+      )}
+    </Section>
+  );
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -171,11 +332,14 @@ export default function SettingsPage() {
     <>
       {/* Top bar */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-        <h1 style={{ fontSize: 17, fontWeight: 600, color: C.text, margin: 0 }}>API 使用設定</h1>
-        <span style={{ fontSize: 13, color: C.muted }}>Google API 用量監控與提醒</span>
+        <h1 style={{ fontSize: 17, fontWeight: 600, color: C.text, margin: 0 }}>系統設定</h1>
+        <span style={{ fontSize: 13, color: C.muted }}>外觀 · API 用量監控</span>
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "20px", paddingBottom: 100, maxWidth: 780, margin: "0 auto", width: "100%" }}>
+        {/* 外觀設定：不需等 API loading，直接渲染 */}
+        <BackgroundSettings />
+
         {loading ? (
           <div style={{ textAlign: "center", padding: "80px 0", color: C.muted }}>
             <div className="spin" style={{ width: 28, height: 28, border: `3px solid ${C.border}`, borderTopColor: C.primary, borderRadius: "50%", margin: "0 auto 14px" }} />

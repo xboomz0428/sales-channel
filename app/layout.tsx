@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Noto_Sans_TC } from "next/font/google";
 import "./globals.css";
 import Sidebar from "@/components/Sidebar";
+import BackgroundImage from "@/components/BackgroundImage";
 
 const notoSans = Noto_Sans_TC({ subsets: ["latin"], weight: ["400", "500", "700"] });
 
@@ -18,6 +19,7 @@ export default function RootLayout({
   return (
     <html lang="zh-TW">
       <body className={notoSans.className}>
+        <BackgroundImage />
         <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
           <div className="d-only" style={{ display: "flex" }}>
             <Sidebar />
