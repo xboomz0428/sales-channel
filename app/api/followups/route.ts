@@ -124,24 +124,44 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    // 從任務 ID 判斷類型
-    const isCarTask = body.id.includes("_") === false || body.id.startsWith("festival_");
+    const id = body.id as string;
+    const today = new Date().toISOString().split("T")[0];
 
-    if (isCarTask) {
+    // festival_ 或無前綴 → care_tasks
+    if (!id.includes("_") || id.startsWith("festival_")) {
+      const realId = id.startsWith("festival_") ? id.slice("festival_".length) : id;
       const { data, error } = await supabase
         .from("care_tasks")
         .update({ done: body.done })
-        .eq("id", body.id)
+        .eq("id", realId)
         .select();
-
       if (error) throw error;
       return NextResponse.json({ success: true, data: data?.[0] });
     }
 
-    return NextResponse.json({
-      success: true,
-      message: "狀態已更新",
-    });
+    // reorder_ → 更新 care_plans.last_order_date，重設補貨週期計時
+    if (id.startsWith("reorder_")) {
+      const planId = id.slice("reorder_".length);
+      const { error } = await supabase
+        .from("care_plans")
+        .update({ last_order_date: today })
+        .eq("id", planId);
+      if (error) throw error;
+      return NextResponse.json({ success: true });
+    }
+
+    // stalled_ → 更新 opportunities.stage_entered_at，重設停滯計時
+    if (id.startsWith("stalled_")) {
+      const oppId = id.slice("stalled_".length);
+      const { error } = await supabase
+        .from("opportunities")
+        .update({ stage_entered_at: new Date().toISOString() })
+        .eq("id", oppId);
+      if (error) throw error;
+      return NextResponse.json({ success: true });
+    }
+
+    return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json(
       { success: false, error: "更新失敗" },
