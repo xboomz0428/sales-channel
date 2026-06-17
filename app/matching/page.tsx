@@ -160,8 +160,9 @@ function dbBrandToScrapeBrand(b: Record<string, unknown>): ScrapeBrand {
     line: links.line ? { status: "done", last: "已取得", result: { 連結: links.line } } : { status: "queued", last: null, result: null },
     fb: links.fb ? { status: "done", last: "已取得", result: { 連結: links.fb } } : { status: "queued", last: null, result: null },
     ig: links.ig ? { status: "done", last: "已取得", result: { 連結: links.ig } } : { status: "queued", last: null, result: null },
-    map: storeCount > 0
-      ? { status: "done", last: "Places", result: { 門市數: storeCount, ...(avgRating > 0 ? { 平均評分: `${avgRating.toFixed(1)} ★` } : {}), ...(gmapsUrl ? { 地圖: gmapsUrl } : {}) }, extra: reviews.length ? { reviews } : undefined }
+    // 只有真實有 place_id 的門市（storeRows 有資料）才算 done
+    map: storeRows.length > 0
+      ? { status: "done", last: "Places", result: { 門市數: storeRows.length, ...(avgRating > 0 ? { 平均評分: `${avgRating.toFixed(1)} ★` } : {}), ...(gmapsUrl ? { 地圖: gmapsUrl } : {}) }, extra: reviews.length ? { reviews } : undefined }
       : { status: "queued", last: null, result: null },
   };
 
@@ -1487,6 +1488,7 @@ export default function MatchingPage() {
     const reqKey = `${srcKey}:${brandId}`;
     if (inflight.current.has(reqKey)) return;
     inflight.current.add(reqKey);
+    let taskError: string | undefined;
     try {
       const url =
         srcKey === "gov" ? "/api/gov/lookup"
@@ -1497,13 +1499,42 @@ export default function MatchingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ brand_id: brandId }),
       });
-      // Places API 是串流，消耗完再繼續
-      if (srcKey === "map" && res.body) {
+      // gov 回傳 JSON；channels/map 回傳 NDJSON 串流，需消耗完畢才能確保 DB 寫入完成
+      if (srcKey === "gov") {
+        const json = await res.json();
+        if (!json.success) taskError = json.error || "比對失敗";
+      } else if (res.body) {
         const reader = res.body.getReader();
-        while (!(await reader.read()).done) {}
+        const decoder = new TextDecoder();
+        let buf = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split("\n");
+          buf = lines.pop() ?? "";
+          for (const line of lines) {
+            const t = line.trim();
+            if (!t) continue;
+            try {
+              const evt = JSON.parse(t);
+              if (evt.type === "error") taskError = evt.text;
+            } catch {}
+          }
+        }
       }
-    } catch {}
+    } catch (e) {
+      taskError = e instanceof Error ? e.message : "採集失敗";
+    }
     inflight.current.delete(reqKey);
+    if (taskError) {
+      setBrands((prev) =>
+        prev.map((b) => (b.id !== brandId ? b : {
+          ...b,
+          tasks: { ...b.tasks, [srcKey]: { ...b.tasks[srcKey], status: "error" as TaskStatusKey, error: taskError } },
+        }))
+      );
+    }
     loadBrands();
   };
 

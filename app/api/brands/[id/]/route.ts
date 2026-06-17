@@ -3,7 +3,7 @@ import { getSupabaseServerClient } from "@/lib/supabase-server";
 
 /**
  * GET /api/brands/:id
- * 取得品牌詳情（含聯絡窗口、聯繫紀錄、聯絡管道）
+ * 取得品牌詳情（含聯絡窗口、聯繫紀錄、聯絡管道、門市）
  */
 export async function GET(
   request: NextRequest,
@@ -19,6 +19,7 @@ export async function GET(
       { data: contacts },
       { data: outreach },
       { data: channels },
+      { data: stores },
     ] = await Promise.all([
       supabase.from("brands").select("*").eq("id", id).single(),
       supabase.from("contacts").select("*").eq("brand_id", id),
@@ -28,6 +29,10 @@ export async function GET(
         .eq("brand_id", id)
         .order("created_at", { ascending: false }),
       supabase.from("brand_channels").select("*").eq("brand_id", id),
+      supabase
+        .from("stores")
+        .select("id, city, gmaps_url, phone, website, address")
+        .eq("brand_id", id),
     ]);
 
     if (brandError) {
@@ -44,6 +49,7 @@ export async function GET(
         contacts: contacts || [],
         outreach: outreach || [],
         channels: channels || [],
+        stores: stores || [],
       },
     });
   } catch (error) {

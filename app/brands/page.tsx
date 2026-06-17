@@ -23,6 +23,7 @@ interface BrandDetail {
   setup_date?: string;
   company_address?: string;
   industry_code?: string;
+  gmaps_url?: string;
   est_annual?: number;
   probability?: number;
   stage_days?: number;
@@ -166,9 +167,20 @@ function Col1({ brand, channelLinks }: { brand: BrandDetail; channelLinks: Recor
         {brand.capital != null && <IRow label="資本額" value={`NT$${brand.capital.toLocaleString()}`} />}
         {brand.setup_date && <IRow label="成立時間" value={fmtRocDate(brand.setup_date)} />}
         {brand.company_address && <IRow label="登記地址" value={brand.company_address} />}
-        <IRow label="行業代號" value={brand.industry_code || "—"} />
+        {brand.gmaps_url && (
+          <IRow
+            label="地圖連結"
+            value={
+              <a href={brand.gmaps_url} target="_blank" rel="noopener noreferrer"
+                style={{ color: C.primary, fontWeight: 600, textDecoration: "none" }}>
+                ↗ Google 地圖
+              </a>
+            }
+          />
+        )}
+        {brand.industry_code && <IRow label="行業代號" value={brand.industry_code} />}
         <IRow label="分店數" value={`${brand.stores} 間`} />
-        <IRow label="城市" value={brand.cities} />
+        {brand.cities !== "—" && <IRow label="城市" value={brand.cities} />}
       </Sec>
 
       <Sec title="聯絡管道">
@@ -548,7 +560,23 @@ export default function BrandDetailPage() {
               capital: b.capital ?? prev.capital,
               setup_date: b.setup_date || prev.setup_date,
               company_address: b.company_address || prev.company_address,
+              industry_code: b.industry_code || prev.industry_code,
+              pitch: b.pitch || prev.pitch,
               score: b.priority_score ?? prev.score,
+            }));
+          }
+          // 從門市資料補齊 cities 與 gmaps_url
+          if (Array.isArray(result.data.stores)) {
+            type StoreRow = { city?: string | null; gmaps_url?: string | null };
+            const storeList = result.data.stores as StoreRow[];
+            const citiesList = [...new Set(
+              storeList.map((s) => (s.city || "").replace(/[市縣]$/, "")).filter(Boolean)
+            )];
+            const gmapsUrl = storeList.find((s) => s.gmaps_url)?.gmaps_url;
+            setBrand((prev) => ({
+              ...prev,
+              cities: citiesList.length ? citiesList.slice(0, 3).join("/") : prev.cities,
+              gmaps_url: gmapsUrl || prev.gmaps_url,
             }));
           }
           if (Array.isArray(cs)) {
