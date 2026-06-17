@@ -1279,7 +1279,7 @@ function WebsiteScraperPanel({ onClose, onDone, industries }: { onClose: () => v
   return (
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(46,69,53,.4)", backdropFilter: "blur(2px)" }} />
-      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 510, width: "94vw", maxWidth: 520, maxHeight: "86vh", background: C.surface, borderRadius: 20, boxShadow: "0 24px 64px rgba(21,20,26,.22)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 510, width: "96vw", maxWidth: mode === "brand" ? 800 : 520, maxHeight: "88vh", background: C.surface, borderRadius: 20, boxShadow: "0 24px 64px rgba(21,20,26,.22)", display: "flex", flexDirection: "column", overflow: "hidden", transition: "max-width 200ms" }}>
         <div style={{ padding: "18px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>🌐 官網爬蟲</div>
@@ -1327,35 +1327,41 @@ function WebsiteScraperPanel({ onClose, onDone, industries }: { onClose: () => v
           {/* 指定品牌 */}
           {mode === "brand" && (
             <div style={{ marginBottom: 18 }}>
-              <input
-                placeholder="搜尋品牌名稱或類別…"
-                value={brandSearch}
-                onChange={(e) => setBrandSearch(e.target.value)}
-                style={{ width: "100%", padding: "9px 13px", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surf2, fontSize: 13, color: C.text, outline: "none", boxSizing: "border-box", marginBottom: 10 }}
-              />
-              {selectedIds.size > 0 && (
-                <div style={{ fontSize: 12, color: C.primary, fontWeight: 600, marginBottom: 8 }}>
-                  已選 {selectedIds.size} 個品牌
-                  <button onClick={() => setSelectedIds(new Set())} style={{ marginLeft: 8, fontSize: 11, color: C.muted, background: "none", border: "none", cursor: "pointer" }}>全部清除</button>
-                </div>
-              )}
-              <div style={{ maxHeight: 200, overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
+                <input
+                  placeholder="搜尋品牌名稱或類別…"
+                  value={brandSearch}
+                  onChange={(e) => setBrandSearch(e.target.value)}
+                  style={{ flex: 1, padding: "9px 13px", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surf2, fontSize: 13, color: C.text, outline: "none", boxSizing: "border-box" }}
+                />
+                {selectedIds.size > 0 && (
+                  <span style={{ fontSize: 12, color: C.primary, fontWeight: 600, whiteSpace: "nowrap" }}>
+                    已選 {selectedIds.size}
+                    <button onClick={() => setSelectedIds(new Set())} style={{ marginLeft: 4, fontSize: 11, color: C.muted, background: "none", border: "none", cursor: "pointer" }}>清除</button>
+                  </span>
+                )}
+              </div>
+              <div style={{ maxHeight: 320, overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 10, padding: 8 }}>
                 {filteredBrands.length === 0 ? (
                   <div style={{ padding: "20px", textAlign: "center", color: C.muted, fontSize: 13 }}>
                     {allBrands.length === 0 ? "載入中…" : "找不到符合的品牌"}
                   </div>
-                ) : filteredBrands.map((b) => (
-                  <div key={b.id} onClick={() => toggleBrand(b.id)}
-                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", cursor: "pointer", background: selectedIds.has(b.id) ? C.p50 : "transparent", borderBottom: `1px solid ${C.border}`, transition: "background 120ms" }}>
-                    <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${selectedIds.has(b.id) ? C.primary : C.border}`, background: selectedIds.has(b.id) ? C.primary : "transparent", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      {selectedIds.has(b.id) && <span style={{ color: "white", fontSize: 10, lineHeight: 1 }}>✓</span>}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: selectedIds.has(b.id) ? 600 : 400, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.name}</div>
-                      {b.industry && <div style={{ fontSize: 11, color: C.muted }}>{b.industry}</div>}
-                    </div>
+                ) : (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+                    {filteredBrands.map((b) => (
+                      <div key={b.id} onClick={() => toggleBrand(b.id)}
+                        style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", cursor: "pointer", background: selectedIds.has(b.id) ? C.p50 : C.surf2, borderRadius: 8, border: `1px solid ${selectedIds.has(b.id) ? C.primary : "transparent"}`, transition: "all 120ms", minWidth: 0 }}>
+                        <div style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${selectedIds.has(b.id) ? C.primary : C.border}`, background: selectedIds.has(b.id) ? C.primary : "transparent", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          {selectedIds.has(b.id) && <span style={{ color: "white", fontSize: 8, lineHeight: 1 }}>✓</span>}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: selectedIds.has(b.id) ? 600 : 400, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.name}</div>
+                          {b.industry && <div style={{ fontSize: 10, color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.industry}</div>}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             </div>
           )}

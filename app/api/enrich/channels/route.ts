@@ -172,39 +172,49 @@ async function enrichBrand(
   emit: (obj: Record<string, unknown>) => Promise<void>,
   prefix: string
 ): Promise<string[]> {
-  const { data: stores } = await supabase
-    .from("stores")
-    .select("phone, website, gmaps_url, name")
-    .eq("brand_id", brandId)
-    .limit(5);
+  // 載入門市資料 + 現有管道（判斷缺失）
+  const [{ data: stores }, { data: existingChannels }] = await Promise.all([
+    supabase.from("stores").select("phone, website, gmaps_url, name").eq("brand_id", brandId).limit(5),
+    supabase.from("brand_channels").select("channel, value").eq("brand_id", brandId),
+  ]);
 
-  const added: string[] = [];
+  const have = new Set((existingChannels || []).map((c) => c.channel));
+  const added: string[] = [...have];
   const phone = stores?.find((s) => s.phone)?.phone;
   const website = stores?.find((s) => s.website)?.website;
   const gmaps = stores?.find((s) => s.gmaps_url)?.gmaps_url;
   const storeName = stores?.find((s) => s.name)?.name || brandName;
 
-  if (phone) {
+  // 目標管道（不含 map，map 由 enrich/places 處理）
+  const TARGET_CHANNELS = ["phone", "email", "line", "fb", "ig"];
+  const isMissing = (ch: string) => !have.has(ch);
+  const anyMissing = TARGET_CHANNELS.some(isMissing);
+
+  // ── 1. 門市基礎資料 ─────────────────────────────────────────────────────
+  if (phone && isMissing("phone")) {
     await upsertChannel(supabase, brandId, "phone", phone);
-    added.push("phone");
+    added.push("phone"); have.add("phone");
   }
-  if (gmaps) {
+  if (gmaps && isMissing("map")) {
     await upsertChannel(supabase, brandId, "map", gmaps);
-    added.push("map");
+    added.push("map"); have.add("map");
   }
-  if (website) {
+
+  // ── 2. 官網爬取（有缺失管道時一律重爬）──────────────────────────────────
+  if (website && anyMissing) {
     const isSocialUrl = LINK_PATTERNS.some(([, re]) => re.test(website));
     if (isSocialUrl) {
       for (const [ch, re] of LINK_PATTERNS) {
-        if (re.test(website)) {
+        if (re.test(website) && isMissing(ch)) {
           await upsertChannel(supabase, brandId, ch, website, website);
-          added.push(ch);
+          added.push(ch); have.add(ch);
         }
       }
     } else {
-      await upsertChannel(supabase, brandId, "website", website);
-      added.push("website");
-
+      if (isMissing("website")) {
+        await upsertChannel(supabase, brandId, "website", website);
+        added.push("website"); have.add("website");
+      }
       const domain = (() => { try { return new URL(website).hostname; } catch { return website.slice(0, 30); } })();
       await emit({ type: "step", text: `${prefix}連線 ${domain}…` });
       const links = await fetchSiteLinks(website);
@@ -215,25 +225,52 @@ async function enrichBrand(
         await emit({ type: "step", text: `${prefix}未在官網找到社群連結` });
       }
       for (const [ch, value] of Object.entries(links)) {
-        await upsertChannel(supabase, brandId, ch, value, website);
-        added.push(ch);
+        if (isMissing(ch)) {
+          await upsertChannel(supabase, brandId, ch, value, website);
+          added.push(ch); have.add(ch);
+        }
       }
     }
-  } else if (!phone && !gmaps) {
+  } else if (!website && !phone && !gmaps) {
     await emit({ type: "step", text: `${prefix}此品牌無門市資料（請先執行 Google Maps 採集）` });
   }
 
-  // ── Facebook 補充採集 ──────────────────────────────────────────────────────
-  // 如果仍缺 email / line / ig / phone，嘗試從 Facebook 粉專補齊
-  const have = new Set(added);
-  const missing = ["email", "line", "ig", "phone"].filter((ch) => !have.has(ch));
-  if (missing.length > 0) {
-    // 已從官網取得 FB URL？
-    const { data: existFb } = await supabase
-      .from("brand_channels").select("value").eq("brand_id", brandId).eq("channel", "fb").maybeSingle();
-    let fbUrl: string | null = existFb?.value || null;
+  // ── 3. Google CSE 搜尋品牌聯絡資訊 ────────────────────────────────────
+  const stillMissing1 = TARGET_CHANNELS.filter((ch) => !have.has(ch));
+  if (stillMissing1.length > 0) {
+    const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+    const cseId = process.env.GOOGLE_CSE_ID;
+    if (apiKey && cseId) {
+      // 搜尋品牌聯絡資訊（非限定 FB）
+      await emit({ type: "step", text: `${prefix}Google 搜尋「${storeName}」聯絡資訊…` });
+      try {
+        const q = encodeURIComponent(`"${storeName.slice(0, 15)}" 電話 email LINE`);
+        const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cseId}&q=${q}&num=5&hl=zh-TW&gl=tw`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+        logApiUsage("cse", 1);
+        if (res.ok) {
+          const data = (await res.json()) as { items?: { snippet?: string }[] };
+          const text = (data.items || []).map((i) => i.snippet || "").join(" ");
+          if (!have.has("phone")) {
+            const pm = text.match(/0[2-8]-?\d{3,4}-?\d{4}|09\d{2}-?\d{3}-?\d{3}/);
+            if (pm) { await upsertChannel(supabase, brandId, "phone", pm[0], "google_cse"); added.push("phone"); have.add("phone"); }
+          }
+          if (!have.has("email")) {
+            const em = text.match(/([A-Za-z0-9_.+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})/);
+            if (em && !/noreply|no-reply/i.test(em[1])) { await upsertChannel(supabase, brandId, "email", em[1], "google_cse"); added.push("email"); have.add("email"); }
+          }
+          const cseFound = added.filter((ch) => !existingChannels?.some((e) => e.channel === ch));
+          if (cseFound.length > 0) await emit({ type: "step", text: `${prefix}Google 搜尋找到 ${cseFound.join("、")}` });
+        }
+      } catch { /* CSE 搜尋失敗 → 略過 */ }
+    }
+  }
 
-    // 沒有 FB → 用 Google CSE 搜尋
+  // ── 4. Facebook 粉專搜尋 + 頁面抓取 ─────────────────────────────────────
+  const stillMissing2 = TARGET_CHANNELS.filter((ch) => !have.has(ch));
+  if (stillMissing2.length > 0) {
+    let fbUrl: string | null = (existingChannels || []).find((c) => c.channel === "fb")?.value || null;
+
     if (!fbUrl) {
       const apiKey = process.env.GOOGLE_PLACES_API_KEY;
       const cseId = process.env.GOOGLE_CSE_ID;
@@ -241,12 +278,10 @@ async function enrichBrand(
         await emit({ type: "step", text: `${prefix}搜尋 Facebook 粉專「${storeName}」…` });
         const cseResult = await findFacebookPage(storeName, apiKey, cseId);
         fbUrl = cseResult.fbUrl;
-        // CSE snippets 可能含聯絡資訊
         for (const [ch, value] of Object.entries(cseResult.snippetLinks)) {
           if (!have.has(ch)) {
             await upsertChannel(supabase, brandId, ch, value, "google_cse_fb");
-            added.push(ch);
-            have.add(ch);
+            added.push(ch); have.add(ch);
           }
         }
       }
@@ -255,12 +290,10 @@ async function enrichBrand(
     if (fbUrl) {
       if (!have.has("fb")) {
         await upsertChannel(supabase, brandId, "fb", fbUrl);
-        added.push("fb");
-        have.add("fb");
+        added.push("fb"); have.add("fb");
       }
-      // 抓取 FB 頁面內的聯絡資訊
-      const stillMissing = ["email", "line", "ig", "phone"].filter((ch) => !have.has(ch));
-      if (stillMissing.length > 0) {
+      const stillMissing3 = TARGET_CHANNELS.filter((ch) => !have.has(ch));
+      if (stillMissing3.length > 0) {
         await emit({ type: "step", text: `${prefix}從 Facebook 頁面抓取聯絡資訊…` });
         const fbLinks = await scrapeFacebookPage(fbUrl);
         const fbFound = Object.entries(fbLinks).filter(([ch]) => !have.has(ch));
@@ -268,8 +301,7 @@ async function enrichBrand(
           await emit({ type: "step", text: `${prefix}從 FB 找到 ${fbFound.map(([ch]) => ch).join("、")}` });
           for (const [ch, value] of fbFound) {
             await upsertChannel(supabase, brandId, ch, value, fbUrl);
-            added.push(ch);
-            have.add(ch);
+            added.push(ch); have.add(ch);
           }
         } else {
           await emit({ type: "step", text: `${prefix}FB 頁面未找到額外管道` });
@@ -278,7 +310,9 @@ async function enrichBrand(
     }
   }
 
-  return [...new Set(added)];
+  // 回傳本次新增的管道（排除原本就有的）
+  const existSet = new Set((existingChannels || []).map((c) => c.channel));
+  return [...new Set(added)].filter((ch) => !existSet.has(ch));
 }
 
 function streamResponse() {
