@@ -41,10 +41,18 @@ export async function GET() {
     const govBrandIds = new Set((govRecords || []).map((r: any) => r.brand_id as string));
     const lineIds = new Set((brandChannels || []).filter((c: any) => c.channel === "line").map((c: any) => c.brand_id as string));
     const emailIds = new Set((brandChannels || []).filter((c: any) => c.channel === "email").map((c: any) => c.brand_id as string));
+    const phoneIds = new Set((brandChannels || []).filter((c: any) => c.channel === "phone").map((c: any) => c.brand_id as string));
+    const fbIds = new Set((brandChannels || []).filter((c: any) => c.channel === "fb").map((c: any) => c.brand_id as string));
+    const igIds = new Set((brandChannels || []).filter((c: any) => c.channel === "ig").map((c: any) => c.brand_id as string));
+    const webIds = new Set((brandChannels || []).filter((c: any) => c.channel === "website").map((c: any) => c.brand_id as string));
     const completeness = [
-      { label: "統編比對率", pct: totalLeads ? Math.round((govBrandIds.size / totalLeads) * 100) : 0, color: "#8FAAA4" },
-      { label: "LINE 覆蓋率", pct: totalLeads ? Math.round((lineIds.size / totalLeads) * 100) : 0, color: "#D9B68C" },
-      { label: "Email 覆蓋率", pct: totalLeads ? Math.round((emailIds.size / totalLeads) * 100) : 0, color: "#B5CAC5" },
+      { label: "統編比對率", pct: totalLeads ? Math.round((govBrandIds.size / totalLeads) * 100) : 0, count: govBrandIds.size, total: totalLeads, color: "#8FAAA4" },
+      { label: "LINE", pct: totalLeads ? Math.round((lineIds.size / totalLeads) * 100) : 0, count: lineIds.size, total: totalLeads, color: "#D9B68C" },
+      { label: "Email", pct: totalLeads ? Math.round((emailIds.size / totalLeads) * 100) : 0, count: emailIds.size, total: totalLeads, color: "#B5CAC5" },
+      { label: "電話", pct: totalLeads ? Math.round((phoneIds.size / totalLeads) * 100) : 0, count: phoneIds.size, total: totalLeads, color: "#5E8880" },
+      { label: "FB", pct: totalLeads ? Math.round((fbIds.size / totalLeads) * 100) : 0, count: fbIds.size, total: totalLeads, color: "#1877F2" },
+      { label: "IG", pct: totalLeads ? Math.round((igIds.size / totalLeads) * 100) : 0, count: igIds.size, total: totalLeads, color: "#C13584" },
+      { label: "官網", pct: totalLeads ? Math.round((webIds.size / totalLeads) * 100) : 0, count: webIds.size, total: totalLeads, color: "#5B7C99" },
     ];
     const missingLine = totalLeads - lineIds.size;
 

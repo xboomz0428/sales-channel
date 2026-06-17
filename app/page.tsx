@@ -36,7 +36,7 @@ function normalizeCity(city: string) {
 interface PinData { brand: string; industry: string; city: string; }
 interface NeglectedItem { brand: string; tier: string; days: number | null; }
 interface PipelineItem { stage: string; stageKey: string; n: number; value: number; weighted: number; }
-interface CompletenessItem { label: string; pct: number; color: string; }
+interface CompletenessItem { label: string; pct: number; count: number; total: number; color: string; }
 
 interface DashData {
   stats: {
@@ -231,18 +231,21 @@ function BarChart({ data }: { data: { label: string; n: number }[] }) {
 }
 
 // ── 甜甜圈圖 ─────────────────────────────────────────
-function DonutChart({ pct, color, label, size = 96 }: { pct: number; color: string; label: string; size?: number }) {
-  const r = 36, cx = size / 2, cy = size / 2;
+function DonutChart({ pct, color, label, count, total, size = 86 }: { pct: number; color: string; label: string; count?: number; total?: number; size?: number }) {
+  const r = 32, cx = size / 2, cy = size / 2;
   const circ = 2 * Math.PI * r;
   const dash = (pct / 100) * circ;
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
       <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke={C.surf2} strokeWidth={10} />
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth={10} strokeDasharray={`${dash} ${circ}`} strokeLinecap="round" style={{ transition: "stroke-dasharray 1000ms cubic-bezier(.2,.8,.2,1)" }} />
-        <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle" fontSize={15} fontWeight="700" fill={C.text} fontFamily="inherit" style={{ transform: "rotate(90deg)", transformOrigin: `${cx}px ${cy}px` }}>{pct}%</text>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={C.surf2} strokeWidth={8} />
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth={8} strokeDasharray={`${dash} ${circ}`} strokeLinecap="round" style={{ transition: "stroke-dasharray 1000ms cubic-bezier(.2,.8,.2,1)" }} />
+        <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle" fontSize={14} fontWeight="700" fill={C.text} fontFamily="inherit" style={{ transform: "rotate(90deg)", transformOrigin: `${cx}px ${cy}px` }}>{pct}%</text>
       </svg>
-      <div style={{ fontSize: 12, color: C.muted, textAlign: "center" }}>{label}</div>
+      <div style={{ fontSize: 12, fontWeight: 600, color: C.text, textAlign: "center" }}>{label}</div>
+      {count != null && total != null && (
+        <div style={{ fontSize: 11, color: C.muted, textAlign: "center" }}>{count} / {total}</div>
+      )}
     </div>
   );
 }
@@ -445,9 +448,9 @@ export default function Dashboard() {
             {loading
               ? <div style={{ fontSize: 13, color: C.muted }}>載入中…</div>
               : <>
-                  <div style={{ display: "flex", justifyContent: "space-around", marginBottom: 16 }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-around", gap: 12, marginBottom: 16 }}>
                     {(data?.completeness ?? []).map((d, i) => (
-                      <DonutChart key={i} pct={d.pct} color={d.color} label={d.label} />
+                      <DonutChart key={i} pct={d.pct} color={d.color} label={d.label} count={d.count} total={d.total} />
                     ))}
                   </div>
                   <div style={{ padding: "10px 14px", background: C.surf2, borderRadius: 10 }}>
