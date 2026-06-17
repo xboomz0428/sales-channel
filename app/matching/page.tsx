@@ -35,6 +35,7 @@ interface ScrapeTask {
   last: string | null;
   result: Record<string, string | number> | null;
   error?: string;
+  progress?: string;
   extra?: { reviews?: ReviewEntry[] };
 }
 
@@ -335,6 +336,12 @@ function TaskRow({ srcKey, task, onRun }: { srcKey: string; task: ScrapeTask; on
           </button>
         )}
       </div>
+
+      {running && task.progress && (
+        <div style={{ padding: "7px 10px", borderRadius: 8, background: C.p50, fontSize: 12, color: C.primary, display: "flex", alignItems: "center", gap: 6 }}>
+          <span className="spin" style={{ fontSize: 10 }}>↻</span> {task.progress}
+        </div>
+      )}
 
       {task.error && <div style={{ padding: "7px 10px", borderRadius: 8, background: C.dangerBg, fontSize: 12, color: C.danger }}>✕ {task.error}</div>}
 
@@ -1165,7 +1172,7 @@ function PlacesRefreshPanel({ onClose, onDone }: { onClose: () => void; onDone?:
 // ── 官網爬蟲面板 ─────────────────────────────────────
 type ScrapeMode = "limit" | "industry" | "brand";
 
-function WebsiteScraperPanel({ onClose, onDone }: { onClose: () => void; onDone?: () => void }) {
+function WebsiteScraperPanel({ onClose, onDone, industries }: { onClose: () => void; onDone?: () => void; industries: string[] }) {
   const [mode, setMode] = useState<ScrapeMode>("limit");
   const [limit, setLimit] = useState(0); // 0 = 全部
   const [industry, setIndustry] = useState("");
@@ -1258,7 +1265,7 @@ function WebsiteScraperPanel({ onClose, onDone }: { onClose: () => void; onDone?
     setRunning(false);
   };
 
-  const INDUSTRIES_LIST = ["養生館", "越式洗髮", "宮廟", "長照", "禮儀"];
+  const INDUSTRIES_LIST = industries.length > 0 ? industries : INDUSTRIES;
 
   const ModeBtn = ({ m, label }: { m: ScrapeMode; label: string }) => (
     <button
@@ -1507,6 +1514,14 @@ export default function MatchingPage() {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buf = "";
+        const updateProgress = (text: string) => {
+          setBrands((prev) =>
+            prev.map((b) => (b.id !== brandId ? b : {
+              ...b,
+              tasks: { ...b.tasks, [srcKey]: { ...b.tasks[srcKey], progress: text } },
+            }))
+          );
+        };
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -1519,6 +1534,8 @@ export default function MatchingPage() {
             try {
               const evt = JSON.parse(t);
               if (evt.type === "error") taskError = evt.text;
+              else if (evt.type === "step" && evt.text) updateProgress(evt.text);
+              else if (evt.type === "store" && evt.text) updateProgress(evt.text);
             } catch {}
           }
         }
@@ -1531,7 +1548,14 @@ export default function MatchingPage() {
       setBrands((prev) =>
         prev.map((b) => (b.id !== brandId ? b : {
           ...b,
-          tasks: { ...b.tasks, [srcKey]: { ...b.tasks[srcKey], status: "error" as TaskStatusKey, error: taskError } },
+          tasks: { ...b.tasks, [srcKey]: { ...b.tasks[srcKey], status: "error" as TaskStatusKey, error: taskError, progress: undefined } },
+        }))
+      );
+    } else {
+      setBrands((prev) =>
+        prev.map((b) => (b.id !== brandId ? b : {
+          ...b,
+          tasks: { ...b.tasks, [srcKey]: { ...b.tasks[srcKey], progress: undefined } },
         }))
       );
     }
@@ -1592,6 +1616,8 @@ export default function MatchingPage() {
         .catch(() => setBulkMsg({ ok: false, text: "網路錯誤，差異確認未儲存" }));
     }
   };
+
+  const availableIndustries = [...new Set(brands.map((b) => b.industry).filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-TW"));
 
   const visibleBrands = brands.filter((b) => {
     if (filterIndustry && b.industry !== filterIndustry) return false;
@@ -1700,9 +1726,8 @@ export default function MatchingPage() {
         >
           全部（{brands.length}）
         </button>
-        {INDUSTRIES.map((ind) => {
+        {availableIndustries.map((ind) => {
           const cnt = brands.filter((b) => b.industry === ind).length;
-          if (cnt === 0) return null;
           const active = filterIndustry === ind;
           return (
             <button
@@ -1806,7 +1831,7 @@ export default function MatchingPage() {
       </div>
 
       {jobPanelOpen && <PlacesJobPanel onClose={() => setJobPanelOpen(false)} onDone={loadBrands} />}
-      {websitePanelOpen && <WebsiteScraperPanel onClose={() => setWebsitePanelOpen(false)} onDone={loadBrands} />}
+      {websitePanelOpen && <WebsiteScraperPanel onClose={() => setWebsitePanelOpen(false)} onDone={loadBrands} industries={availableIndustries} />}
       {placesRefreshOpen && <PlacesRefreshPanel onClose={() => setPlacesRefreshOpen(false)} onDone={loadBrands} />}
     </>
   );

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, Fragment, ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { C, STATUS, STAGE_ORDER, CHANNELS, CHANNEL_ORDER, INDUSTRIES, channelHref, StatusKey } from "@/lib/design";
+import { C, STATUS, STAGE_ORDER, CHANNELS, CHANNEL_ORDER, channelHref, StatusKey } from "@/lib/design";
 import Icon from "@/components/Icon";
 import MobileTabBar from "@/components/MobileTabBar";
 
@@ -343,12 +343,14 @@ function FilterBar({
   onAdd,
   onRemove,
   onOpenDrawer,
+  availableIndustries,
   availableCities,
 }: {
   filters: Filters;
   onAdd: (k: keyof Filters, v: string | boolean) => void;
   onRemove: (k: keyof Filters) => void;
   onOpenDrawer: () => void;
+  availableIndustries: string[];
   availableCities: string[];
 }) {
   const chips = Object.entries(filters).filter(([, v]) => v !== undefined && v !== null && v !== "") as [keyof Filters, string | boolean][];
@@ -451,8 +453,8 @@ function FilterBar({
       </div>
 
       {/* 桌機：類別快速篩選 */}
-      <div className="d-only" style={{ display: "flex", gap: 4, marginLeft: 8, paddingLeft: 8, borderLeft: `1px solid ${C.border}` }}>
-        {INDUSTRIES.map((ind) => (
+      <div className="d-only" style={{ display: "flex", gap: 4, marginLeft: 8, paddingLeft: 8, borderLeft: `1px solid ${C.border}`, flexWrap: "wrap" }}>
+        {availableIndustries.map((ind) => (
           <button
             key={ind}
             onClick={() => filters.industry === ind ? onRemove("industry") : onAdd("industry", ind)}
@@ -1233,11 +1235,13 @@ function FilterDrawer({
   filters,
   onApply,
   onClose,
+  availableIndustries,
   availableCities,
 }: {
   filters: Filters;
   onApply: (f: Filters) => void;
   onClose: () => void;
+  availableIndustries: string[];
   availableCities: string[];
 }) {
   const [local, setLocal] = useState<Filters>({ ...filters });
@@ -1348,7 +1352,7 @@ function FilterDrawer({
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.4, color: C.muted, marginBottom: 10 }}>產業類別</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {INDUSTRIES.map((opt) => (
+            {availableIndustries.map((opt) => (
               <Pill key={opt} k="industry" v={opt} label={opt} />
             ))}
           </div>
@@ -1455,9 +1459,9 @@ function analyzeBrands(brands: BrandVM[]): string {
 }
 
 // ── 新增品牌 Modal ────────────────────────────────────
-function AddBrandModal({ onClose, onAdded }: { onClose: () => void; onAdded: (b: BrandVM) => void }) {
+function AddBrandModal({ onClose, onAdded, industries }: { onClose: () => void; onAdded: (b: BrandVM) => void; industries: string[] }) {
   const [name, setName] = useState("");
-  const [industry, setIndustry] = useState(INDUSTRIES[0]);
+  const [industry, setIndustry] = useState("");
   const [ownerName, setOwnerName] = useState("");
   const [taxId, setTaxId] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -1508,8 +1512,8 @@ function AddBrandModal({ onClose, onAdded }: { onClose: () => void; onAdded: (b:
 
         <label style={{ fontSize: 12, color: C.muted, fontWeight: 600, display: "block", marginBottom: 5 }}>產業類別 *</label>
         <select value={industry} onChange={(e) => setIndustry(e.target.value)} style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: `1px solid ${C.border}`, fontSize: 14, color: C.text, background: C.surf2, boxSizing: "border-box", outline: "none", marginBottom: 14 }}>
-          {INDUSTRIES.map((ind) => <option key={ind} value={ind}>{ind}</option>)}
-          <option value="其他">其他</option>
+          <option value="" disabled>選擇類別</option>
+          {industries.map((ind) => <option key={ind} value={ind}>{ind}</option>)}
         </select>
 
         <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
@@ -1749,6 +1753,7 @@ export default function LeadsPage() {
       return n;
     });
 
+  const availableIndustries = [...new Set(brands.map((b) => b.industry).filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-TW"));
   const availableCities = [...new Set(brands.flatMap((b) => b.citiesList))].sort((a, b) => a.localeCompare(b, "zh-TW"));
 
   const visible = brands.filter((b) => {
@@ -1869,7 +1874,7 @@ export default function LeadsPage() {
       </div>
 
       {/* Filter bar */}
-      <FilterBar filters={filters} onAdd={addFilter} onRemove={removeFilter} onOpenDrawer={() => setFilterOpen(true)} availableCities={availableCities} />
+      <FilterBar filters={filters} onAdd={addFilter} onRemove={removeFilter} onOpenDrawer={() => setFilterOpen(true)} availableIndustries={availableIndustries} availableCities={availableCities} />
 
       {/* 類別採集列 */}
       {filters.industry && (
@@ -1995,12 +2000,13 @@ export default function LeadsPage() {
         <AddBrandModal
           onClose={() => setAddBrandOpen(false)}
           onAdded={(b) => { setBrands((prev) => [b, ...prev]); setSelected(b); }}
+          industries={availableIndustries}
         />
       )}
 
       {recorder && <QuickRecord brand={recorder} onClose={() => setRecorder(null)} />}
 
-      {filterOpen && <FilterDrawer filters={filters} onApply={(f) => setFilters(f)} onClose={() => setFilterOpen(false)} availableCities={availableCities} />}
+      {filterOpen && <FilterDrawer filters={filters} onApply={(f) => setFilters(f)} onClose={() => setFilterOpen(false)} availableIndustries={availableIndustries} availableCities={availableCities} />}
 
       {importOpen && (
         <ImportModal
