@@ -823,7 +823,28 @@ const JOB_STATUS: Record<string, { label: string; color: string; bg: string }> =
   error: { label: "失敗", color: C.danger, bg: C.dangerBg },
 };
 
-const CITY_OPTIONS = ["台北市", "新北市", "桃園市", "台中市", "台南市", "高雄市"];
+const CITY_DISTRICTS: Record<string, string[]> = {
+  "台北市": ["中正區", "大同區", "中山區", "松山區", "大安區", "萬華區", "信義區", "士林區", "北投區", "內湖區", "南港區", "文山區"],
+  "新北市": ["板橋區", "三重區", "中和區", "永和區", "新莊區", "新店區", "土城區", "蘆洲區", "汐止區", "樹林區", "林口區", "淡水區", "三峽區", "鶯歌區", "五股區", "泰山區", "瑞芳區"],
+  "桃園市": ["桃園區", "中壢區", "平鎮區", "八德區", "楊梅區", "蘆竹區", "龜山區", "龍潭區", "大溪區", "大園區"],
+  "台中市": ["中區", "東區", "南區", "西區", "北區", "北屯區", "西屯區", "南屯區", "太平區", "大里區", "霧峰區", "烏日區", "豐原區", "后里區", "潭子區", "大雅區", "神岡區", "沙鹿區", "龍井區", "梧棲區", "清水區"],
+  "台南市": ["中西區", "東區", "南區", "北區", "安平區", "安南區", "永康區", "歸仁區", "新化區", "左鎮區", "仁德區", "關廟區", "新營區", "鹽水區"],
+  "高雄市": ["新興區", "前金區", "苓雅區", "鹽埕區", "鼓山區", "旗津區", "前鎮區", "三民區", "楠梓區", "小港區", "左營區", "仁武區", "鳳山區", "大寮區", "林園區", "岡山區", "路竹區", "橋頭區"],
+  "基隆市": [],
+  "新竹市": ["東區", "北區", "香山區"],
+  "新竹縣": ["竹北市", "竹東鎮", "新豐鄉", "湖口鄉"],
+  "苗栗縣": ["苗栗市", "頭份市", "竹南鎮"],
+  "彰化縣": ["彰化市", "員林市", "鹿港鎮", "和美鎮"],
+  "南投縣": ["南投市", "埔里鎮", "草屯鎮"],
+  "雲林縣": ["斗六市", "虎尾鎮", "斗南鎮"],
+  "嘉義市": [],
+  "嘉義縣": ["太保市", "朴子市", "民雄鄉"],
+  "屏東縣": ["屏東市", "潮州鎮", "東港鎮"],
+  "宜蘭縣": ["宜蘭市", "羅東鎮", "頭城鎮"],
+  "花蓮縣": ["花蓮市", "吉安鄉"],
+  "台東縣": [],
+};
+const CITY_OPTIONS = Object.keys(CITY_DISTRICTS);
 const KEYWORD_SUGGEST = ["養生館", "越式洗髮", "宮廟", "長照中心", "禮儀公司", "SPA"];
 
 function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () => void }) {
@@ -964,18 +985,52 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
           </div>
 
           {/* 城市 */}
-          <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>城市</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
-            {CITY_OPTIONS.map((c) => (
-              <button
-                key={c}
-                onClick={() => setCity(c)}
-                style={{ padding: "6px 14px", borderRadius: 999, fontSize: 13, fontWeight: city === c ? 700 : 400, border: `1px solid ${city === c ? C.primary : C.border}`, background: city === c ? C.p50 : "transparent", color: city === c ? C.primary : C.text, cursor: "pointer" }}
-              >
-                {c}
-              </button>
-            ))}
+          <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>縣市</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+            {CITY_OPTIONS.map((c) => {
+              const isSelected = city === c || city.startsWith(c.replace(/[市縣]$/, ""));
+              return (
+                <button
+                  key={c}
+                  onClick={() => setCity(c)}
+                  style={{ padding: "6px 14px", borderRadius: 999, fontSize: 13, fontWeight: isSelected ? 700 : 400, border: `1px solid ${isSelected ? C.primary : C.border}`, background: isSelected ? C.p50 : "transparent", color: isSelected ? C.primary : C.text, cursor: "pointer" }}
+                >
+                  {c}
+                </button>
+              );
+            })}
           </div>
+          {/* 地區（行政區） */}
+          {(() => {
+            const selectedCity = CITY_OPTIONS.find((c) => city === c || city.startsWith(c.replace(/[市縣]$/, "")));
+            const districts = selectedCity ? CITY_DISTRICTS[selectedCity] : [];
+            if (!districts || districts.length === 0) return null;
+            const currentDistrict = city !== selectedCity ? city : "";
+            return (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 16 }}>
+                <button
+                  onClick={() => setCity(selectedCity!)}
+                  style={{ padding: "4px 10px", borderRadius: 999, fontSize: 11, fontWeight: !currentDistrict ? 700 : 400, border: `1px solid ${!currentDistrict ? C.primary : C.border}`, background: !currentDistrict ? C.p50 : "transparent", color: !currentDistrict ? C.primary : C.muted, cursor: "pointer" }}
+                >
+                  全{selectedCity}
+                </button>
+                {districts.map((d) => {
+                  const val = `${selectedCity!.replace(/[市縣]$/, "")}${d}`;
+                  const active = city === val;
+                  return (
+                    <button
+                      key={d}
+                      onClick={() => setCity(val)}
+                      style={{ padding: "4px 10px", borderRadius: 999, fontSize: 11, fontWeight: active ? 700 : 400, border: `1px solid ${active ? C.primary : C.border}`, background: active ? C.p50 : "transparent", color: active ? C.primary : C.muted, cursor: "pointer" }}
+                    >
+                      {d}
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })()}
+          {!CITY_DISTRICTS[city]?.length && !CITY_OPTIONS.some((c) => city.startsWith(c.replace(/[市縣]$/, "")) && c !== city) && <div style={{ marginBottom: 16 }} />}
 
           {/* 頁數 / 費用預估 */}
           <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>採集量（每頁 20 筆，Text Search 約 $0.032/次）</div>

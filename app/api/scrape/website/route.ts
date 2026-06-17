@@ -253,25 +253,9 @@ export async function POST(request: NextRequest) {
           candidateIds = [...new Set((rows ?? []).map((r) => r.brand_id).filter(Boolean))];
         }
 
-        // 排除已有 ≥ 2 筆管道資料的品牌
-        const { data: enrichedRows } = await sb
-          .from("brand_channels")
-          .select("brand_id")
-          .in("brand_id", candidateIds);
-        const enrichedCounts: Record<string, number> = {};
-        for (const r of enrichedRows ?? []) {
-          enrichedCounts[r.brand_id] = (enrichedCounts[r.brand_id] ?? 0) + 1;
-        }
-        const allUnenrichedIds = candidateIds.filter((id) => (enrichedCounts[id] ?? 0) < 2);
-        const unenrichedIds = rawLimit > 0 ? allUnenrichedIds.slice(0, rawLimit) : allUnenrichedIds;
-
-        const skippedAlready = candidateIds.length - allUnenrichedIds.length;
-        if (skippedAlready > 0) {
-          await emit({ type: "step", text: `略過 ${skippedAlready} 個品牌（已有管道資料），剩餘 ${unenrichedIds.length} 個待爬取` });
-        }
-
-        if (unenrichedIds.length) {
-          const { data } = await sb.from("brands").select("id,name").in("id", unenrichedIds);
+        const targetIds = rawLimit > 0 ? candidateIds.slice(0, rawLimit) : candidateIds;
+        if (targetIds.length) {
+          const { data } = await sb.from("brands").select("id,name").in("id", targetIds);
           brands = data ?? [];
         }
       }
@@ -288,6 +272,13 @@ export async function POST(request: NextRequest) {
       for (let i = 0; i < brands.length; i++) {
         const brand = brands[i];
         const prefix = `[${i + 1}/${brands.length}]`;
+
+        // 載入此品牌已有的管道，只補缺失的
+        const { data: existCh } = await sb
+          .from("brand_channels")
+          .select("channel")
+          .eq("brand_id", brand.id);
+        const haveChannels = new Set((existCh ?? []).map((c) => c.channel));
 
         const { data: stores } = await sb
           .from("stores")
@@ -308,7 +299,6 @@ export async function POST(request: NextRequest) {
         const merged: Record<string, string> = {};
 
         for (const url of websites) {
-          // 官網本身就是社群連結 → 直接記錄
           if (/facebook\.com/i.test(url))          { merged.fb       ??= url; continue; }
           if (/instagram\.com/i.test(url))          { merged.ig       ??= url; continue; }
           if (/line\.me|lin\.ee|page\.line\.me/i.test(url)) { merged.line ??= url; continue; }
@@ -325,7 +315,6 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // 找不到電話 → 試聯絡頁 fallback（只對第一個 website 嘗試）
         if (!merged.phone && websites[0] && !/facebook|instagram|line|linktr/i.test(websites[0])) {
           const fallbackPhone = await findPhoneFromContactPage(websites[0]);
           if (fallbackPhone) {
@@ -334,22 +323,35 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        // 過濾掉已有的管道，只寫入新發現的
+        const newChannels: Record<string, string> = {};
+        for (const [ch, value] of Object.entries(merged)) {
+          if (!haveChannels.has(ch)) newChannels[ch] = value;
+        }
+
         if (Object.keys(merged).length === 0) {
           await emit({ type: "store", ok: false, text: `${prefix} ${brand.name}：找不到任何聯絡管道` });
           skipped++;
           continue;
         }
 
-        for (const [ch, value] of Object.entries(merged)) {
+        if (Object.keys(newChannels).length === 0) {
+          await emit({ type: "store", ok: false, text: `${prefix} ${brand.name}：管道已齊全（${[...haveChannels].join("、")}）` });
+          skipped++;
+          continue;
+        }
+
+        for (const [ch, value] of Object.entries(newChannels)) {
           await upsertChannel(sb, brand.id, ch, value, websites[0]);
         }
 
         enriched++;
-        totalCh += Object.keys(merged).length;
+        totalCh += Object.keys(newChannels).length;
         await emit({
           type: "store",
           ok: true,
-          text: `${prefix} ✓ ${brand.name}：找到 ${Object.keys(merged).join("、")}`,
+          text: `${prefix} ✓ ${brand.name}：新增 ${Object.keys(newChannels).join("、")}` +
+            (haveChannels.size > 0 ? `（已有 ${[...haveChannels].join("、")}）` : ""),
         });
       }
 
