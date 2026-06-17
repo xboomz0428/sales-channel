@@ -151,7 +151,55 @@ async function googleCseFind(
   }
 }
 
-// ── Step 0C：twincn.com（台灣公司網）直接查詢 ──────────────────────────────────
+// ── Step 0C-1：mygov.tw（統編快搜）直接查詢 ────────────────────────────────────
+// 回傳完整 HTML 表格：公司名稱、統一編號、設立日期、營業地址、資本額、行業、登記人
+async function searchMygov(
+  brandName: string
+): Promise<GcisCompany | null> {
+  try {
+    const q = encodeURIComponent(brandName.slice(0, 20));
+    const res = await fetch(`https://mygov.tw/search?q=${q}`, {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+
+    // 解析搜尋結果表格第一列 <tr><td>...</td>...</tr>
+    const rowMatch = html.match(/<tbody>\s*<tr>([\s\S]*?)<\/tr>/);
+    if (!rowMatch) return null;
+    const cells = [...rowMatch[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map(
+      (m) => m[1].replace(/<[^>]*>/g, "").trim()
+    );
+    // 欄位順序：公司名稱、統一編號、設立日期、營業地址、資本額、行業、登記人
+    if (cells.length < 5 || !cells[1]?.match(/^\d{8}$/)) return null;
+
+    const setupRaw = (cells[2] || "").replace(/-/g, "");
+    // mygov 日期格式 YYYYMMDD → 轉民國 YYYMMDD
+    let rocDate: string | undefined;
+    if (/^\d{8}$/.test(setupRaw)) {
+      const y = parseInt(setupRaw.slice(0, 4)) - 1911;
+      rocDate = `${y}${setupRaw.slice(4)}`;
+    }
+
+    const capitalStr = (cells[4] || "").replace(/[,，\s]/g, "");
+    const capital = parseInt(capitalStr) || undefined;
+    const owner = cells[6] && cells[6] !== "無" ? cells[6] : undefined;
+
+    return {
+      Business_Accounting_NO: cells[1],
+      Company_Name: cells[0] || brandName,
+      Company_Location: cells[3] || undefined,
+      Capital_Stock_Amount: capital,
+      Company_Setup_Date: rocDate,
+      Responsible_Name: owner,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ── Step 0C-2：twincn.com（台灣公司網）直接查詢 ──────────────────────────────────
 // 1) Lq.aspx?q=品牌名 → 從搜尋結果取得統編（item.aspx?no=XXXXXXXX）
 // 2) item.aspx?no=統編 → 從 meta tags 取得公司名、地址、稅籍狀態
 async function searchTwincn(
@@ -254,29 +302,34 @@ async function matchBrand(
     }
   }
 
-  // ── Step 0C：twincn.com（台灣公司網）──────────────────
+  // ── Step 0C：mygov.tw + twincn.com ──────────────────
   if (candidates.length === 0) {
-    const twincnResult = await searchTwincn(brand.name);
-    if (twincnResult?.taxId) {
-      // 先試 GCIS（公司登記）
-      const taxCands = await searchByTaxId(twincnResult.taxId);
-      if (taxCands.length > 0) {
-        candidates = taxCands;
-        resolvedTaxId = twincnResult.taxId;
-        source = "twincn";
-      } else {
-        // GCIS 查不到 → 可能是商號/行號，直接用 twincn meta 資料建立候選
-        candidates = [{
-          Business_Accounting_NO: twincnResult.taxId,
-          Company_Name: twincnResult.companyName || brand.name,
-          Company_Location: twincnResult.address || undefined,
-        }];
-        resolvedTaxId = twincnResult.taxId;
-        source = "twincn";
+    // 0C-1: mygov.tw（回傳完整欄位：統編、地址、資本額、設立日期、負責人）
+    const mygovResult = await searchMygov(brand.name);
+    if (mygovResult) {
+      candidates = [mygovResult];
+      resolvedTaxId = mygovResult.Business_Accounting_NO;
+      source = "mygov";
+    }
+    // 0C-2: twincn.com（mygov 查不到時才用）
+    if (candidates.length === 0) {
+      const twincnResult = await searchTwincn(brand.name);
+      if (twincnResult?.taxId) {
+        const taxCands = await searchByTaxId(twincnResult.taxId);
+        if (taxCands.length > 0) {
+          candidates = taxCands;
+          resolvedTaxId = twincnResult.taxId;
+          source = "twincn";
+        } else {
+          candidates = [{
+            Business_Accounting_NO: twincnResult.taxId,
+            Company_Name: twincnResult.companyName || brand.name,
+            Company_Location: twincnResult.address || undefined,
+          }];
+          resolvedTaxId = twincnResult.taxId;
+          source = "twincn";
+        }
       }
-    } else if (twincnResult?.companyName) {
-      candidates = await searchByName(twincnResult.companyName.slice(0, 8));
-      if (candidates.length > 0) source = "twincn";
     }
   }
 
