@@ -9,10 +9,8 @@ export async function GET() {
       { data: allBrands },
       { data: opportunities },
       { data: aCarePlans },
-      { data: brandChannels },
-      { data: govRecords },
     ] = await Promise.all([
-      supabase.from("brands").select("id, name, status, industry"),
+      supabase.from("brands").select("id, name, status, industry, tax_id, brand_channels(channel)"),
       supabase.from("opportunities").select("stage, est_annual_value, probability"),
       supabase
         .from("care_plans")
@@ -20,8 +18,6 @@ export async function GET() {
         .eq("tier", "A")
         .order("last_contact_date", { ascending: true })
         .limit(5),
-      supabase.from("brand_channels").select("brand_id, channel"),
-      supabase.from("gov_records").select("brand_id"),
     ]);
 
     const totalLeads = allBrands?.length || 0;
@@ -37,22 +33,33 @@ export async function GET() {
       industryMap[ind] = (industryMap[ind] || 0) + 1;
     }
 
-    // 資料完整度
-    const govBrandIds = new Set((govRecords || []).map((r: any) => r.brand_id as string));
-    const lineIds = new Set((brandChannels || []).filter((c: any) => c.channel === "line").map((c: any) => c.brand_id as string));
-    const emailIds = new Set((brandChannels || []).filter((c: any) => c.channel === "email").map((c: any) => c.brand_id as string));
-    const phoneIds = new Set((brandChannels || []).filter((c: any) => c.channel === "phone").map((c: any) => c.brand_id as string));
-    const fbIds = new Set((brandChannels || []).filter((c: any) => c.channel === "fb").map((c: any) => c.brand_id as string));
-    const igIds = new Set((brandChannels || []).filter((c: any) => c.channel === "ig").map((c: any) => c.brand_id as string));
-    const webIds = new Set((brandChannels || []).filter((c: any) => c.channel === "website").map((c: any) => c.brand_id as string));
+    // 資料完整度 — 從 nested brand_channels 計算，避免 Supabase 1000 筆限制
+    const taxIdBrands = (allBrands || []).filter((b: any) => b.tax_id).length;
+    const countByChannel = (ch: string) => (allBrands || []).filter((b: any) =>
+      ((b.brand_channels || []) as { channel: string }[]).some((c) => c.channel === ch)
+    ).length;
+    const lineCount = (allBrands || []).filter((b: any) =>
+      ((b.brand_channels || []) as { channel: string }[]).some((c) => c.channel === "line" || c.channel === "line_id")
+    ).length;
+    const phoneIds = { size: countByChannel("phone") };
+    const emailIds = { size: countByChannel("email") };
+    const fbIds = { size: countByChannel("fb") };
+    const igIds = { size: countByChannel("ig") };
+    const webIds = { size: countByChannel("website") };
+    const mapIds = { size: countByChannel("map") };
+    const lineIds = { size: lineCount };
+    const mkItem = (label: string, count: number, color: string) => ({
+      label, pct: totalLeads ? Math.round((count / totalLeads) * 100) : 0, count, total: totalLeads, color,
+    });
     const completeness = [
-      { label: "統編比對率", pct: totalLeads ? Math.round((govBrandIds.size / totalLeads) * 100) : 0, count: govBrandIds.size, total: totalLeads, color: "#8FAAA4" },
-      { label: "LINE", pct: totalLeads ? Math.round((lineIds.size / totalLeads) * 100) : 0, count: lineIds.size, total: totalLeads, color: "#D9B68C" },
-      { label: "Email", pct: totalLeads ? Math.round((emailIds.size / totalLeads) * 100) : 0, count: emailIds.size, total: totalLeads, color: "#B5CAC5" },
-      { label: "電話", pct: totalLeads ? Math.round((phoneIds.size / totalLeads) * 100) : 0, count: phoneIds.size, total: totalLeads, color: "#5E8880" },
-      { label: "FB", pct: totalLeads ? Math.round((fbIds.size / totalLeads) * 100) : 0, count: fbIds.size, total: totalLeads, color: "#1877F2" },
-      { label: "IG", pct: totalLeads ? Math.round((igIds.size / totalLeads) * 100) : 0, count: igIds.size, total: totalLeads, color: "#C13584" },
-      { label: "官網", pct: totalLeads ? Math.round((webIds.size / totalLeads) * 100) : 0, count: webIds.size, total: totalLeads, color: "#5B7C99" },
+      mkItem("統編", taxIdBrands, "#8FAAA4"),
+      mkItem("電話", phoneIds.size, "#5E8880"),
+      mkItem("LINE", lineIds.size, "#06C755"),
+      mkItem("FB", fbIds.size, "#1877F2"),
+      mkItem("IG", igIds.size, "#C13584"),
+      mkItem("Email", emailIds.size, "#D9B68C"),
+      mkItem("官網", webIds.size, "#5B7C99"),
+      mkItem("地圖", mapIds.size, "#D97706"),
     ];
     const missingLine = totalLeads - lineIds.size;
 
