@@ -1805,41 +1805,45 @@ export default function MatchingPage() {
       {/* 工商 / 管道 / 縣市篩選欄 */}
       {(() => {
         const availableCities = [...new Set(brands.flatMap((b) => b.cities))].sort((a, z) => a.localeCompare(z, "zh-TW"));
-        const availableChannels = CHANNEL_ORDER.filter((ch) => brands.some((b) => b.channels.includes(ch)));
+        const govCount = brands.filter((b) => b.tax_id).length;
+        const chCounts: Record<string, number> = {};
+        for (const ch of [...CHANNEL_ORDER, "email"]) {
+          chCounts[ch] = brands.filter((b) => b.channels.includes(ch) || (ch === "line" && b.channels.includes("line_id"))).length;
+        }
         const hasAnyExtra = filterGov !== null || filterChannel !== null || filterCity !== null;
         return (
           <div style={{ display: "flex", gap: 6, padding: "7px 20px", background: C.surf2, borderBottom: `1px solid ${C.border}`, flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
             {/* 工商登記 */}
             <span style={{ fontSize: 11, color: C.muted, fontWeight: 700, letterSpacing: 0.6 }}>工商：</span>
-            {([true, false] as const).map((v) => (
-              <button
-                key={String(v)}
-                onClick={() => setFilterGov(filterGov === v ? null : v)}
-                style={{ padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: filterGov === v ? 700 : 400, border: `1px solid ${filterGov === v ? "#7B6E99" : C.border}`, background: filterGov === v ? "#EAE5F0" : "transparent", color: filterGov === v ? "#7B6E99" : C.muted, cursor: "pointer" }}
-              >
-                {v ? "有登記" : "缺登記"}
-              </button>
-            ))}
+            {([true, false] as const).map((v) => {
+              const cnt = v ? govCount : brands.length - govCount;
+              return (
+                <button
+                  key={String(v)}
+                  onClick={() => setFilterGov(filterGov === v ? null : v)}
+                  style={{ padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: filterGov === v ? 700 : 400, border: `1px solid ${filterGov === v ? "#7B6E99" : C.border}`, background: filterGov === v ? "#EAE5F0" : "transparent", color: filterGov === v ? "#7B6E99" : C.muted, cursor: "pointer" }}
+                >
+                  {v ? "有登記" : "缺登記"}（{cnt}）
+                </button>
+              );
+            })}
 
             {/* 管道 */}
-            {availableChannels.length > 0 && (
-              <>
-                <span style={{ fontSize: 11, color: C.muted, fontWeight: 700, letterSpacing: 0.6, marginLeft: 8, paddingLeft: 8, borderLeft: `1px solid ${C.border}` }}>管道：</span>
-                {availableChannels.map((ch) => {
-                  const cfg = CHANNELS[ch];
-                  if (!cfg) return null;
-                  return (
-                    <button
-                      key={ch}
-                      onClick={() => setFilterChannel(filterChannel === ch ? null : ch)}
-                      style={{ padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: filterChannel === ch ? 700 : 400, border: `1px solid ${filterChannel === ch ? cfg.bg : C.border}`, background: filterChannel === ch ? cfg.bg : "transparent", color: filterChannel === ch ? "white" : C.muted, cursor: "pointer" }}
-                    >
-                      {cfg.label}
-                    </button>
-                  );
-                })}
-              </>
-            )}
+            <span style={{ fontSize: 11, color: C.muted, fontWeight: 700, letterSpacing: 0.6, marginLeft: 8, paddingLeft: 8, borderLeft: `1px solid ${C.border}` }}>管道：</span>
+            {[...CHANNEL_ORDER, "email"].map((ch) => {
+              const cfg = CHANNELS[ch];
+              if (!cfg) return null;
+              const cnt = chCounts[ch] || 0;
+              return (
+                <button
+                  key={ch}
+                  onClick={() => setFilterChannel(filterChannel === ch ? null : ch)}
+                  style={{ padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: filterChannel === ch ? 700 : 400, border: `1px solid ${filterChannel === ch ? cfg.bg : C.border}`, background: filterChannel === ch ? cfg.bg : "transparent", color: filterChannel === ch ? "white" : C.muted, cursor: "pointer" }}
+                >
+                  {cfg.label}（{cnt}）
+                </button>
+              );
+            })}
 
             {/* 縣市 */}
             {availableCities.length > 0 && (

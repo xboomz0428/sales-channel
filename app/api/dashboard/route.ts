@@ -10,7 +10,7 @@ export async function GET() {
       { data: opportunities },
       { data: aCarePlans },
     ] = await Promise.all([
-      supabase.from("brands").select("id, name, status, industry, tax_id, brand_channels(channel)"),
+      supabase.from("brands").select("id, name, status, industry, tax_id, registered_name, brand_channels(channel)"),
       supabase.from("opportunities").select("stage, est_annual_value, probability"),
       supabase
         .from("care_plans")
@@ -34,7 +34,7 @@ export async function GET() {
     }
 
     // 資料完整度 — 從 nested brand_channels 計算，避免 Supabase 1000 筆限制
-    const taxIdBrands = (allBrands || []).filter((b: any) => b.tax_id).length;
+    const taxIdBrands = (allBrands || []).filter((b: any) => b.tax_id || (b as any).registered_name).length;
     const countByChannel = (ch: string) => (allBrands || []).filter((b: any) =>
       ((b.brand_channels || []) as { channel: string }[]).some((c) => c.channel === ch)
     ).length;
@@ -52,7 +52,7 @@ export async function GET() {
       label, pct: totalLeads ? Math.round((count / totalLeads) * 100) : 0, count, total: totalLeads, color,
     });
     const completeness = [
-      mkItem("統編", taxIdBrands, "#8FAAA4"),
+      mkItem("工商登記", taxIdBrands, "#8FAAA4"),
       mkItem("電話", phoneIds.size, "#5E8880"),
       mkItem("LINE", lineIds.size, "#06C755"),
       mkItem("FB", fbIds.size, "#1877F2"),

@@ -345,6 +345,7 @@ function FilterBar({
   onOpenDrawer,
   availableIndustries,
   availableCities,
+  channelCounts,
 }: {
   filters: Filters;
   onAdd: (k: keyof Filters, v: string | boolean) => void;
@@ -352,6 +353,7 @@ function FilterBar({
   onOpenDrawer: () => void;
   availableIndustries: string[];
   availableCities: string[];
+  channelCounts: Record<string, number>;
 }) {
   const chips = Object.entries(filters).filter(([, v]) => v !== undefined && v !== null && v !== "") as [keyof Filters, string | boolean][];
   return (
@@ -525,11 +527,12 @@ function FilterBar({
       </div>
 
       {/* 桌機：管道篩選 */}
-      <div className="d-only" style={{ display: "flex", gap: 4, marginLeft: 8, paddingLeft: 8, borderLeft: `1px solid ${C.border}`, alignItems: "center" }}>
+      <div className="d-only" style={{ display: "flex", gap: 4, marginLeft: 8, paddingLeft: 8, borderLeft: `1px solid ${C.border}`, alignItems: "center", flexWrap: "wrap" }}>
         <span style={{ fontSize: 11, color: C.muted, whiteSpace: "nowrap" }}>管道：</span>
-        {CHANNEL_ORDER.map((ch) => {
+        {[...CHANNEL_ORDER, "email"].map((ch) => {
           const cfg = CHANNELS[ch];
           if (!cfg) return null;
+          const cnt = channelCounts[ch] || 0;
           return (
             <button
               key={ch}
@@ -546,7 +549,7 @@ function FilterBar({
                 transition: "all 130ms",
               }}
             >
-              {cfg.abbr}
+              {cfg.abbr}({cnt})
             </button>
           );
         })}
@@ -1237,12 +1240,14 @@ function FilterDrawer({
   onClose,
   availableIndustries,
   availableCities,
+  channelCounts,
 }: {
   filters: Filters;
   onApply: (f: Filters) => void;
   onClose: () => void;
   availableIndustries: string[];
   availableCities: string[];
+  channelCounts: Record<string, number>;
 }) {
   const [local, setLocal] = useState<Filters>({ ...filters });
   const toggle = (k: keyof Filters, v: string) => setLocal((prev) => ({ ...prev, [k]: prev[k] === v ? undefined : v }));
@@ -1323,9 +1328,10 @@ function FilterDrawer({
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.4, color: C.muted, marginBottom: 10 }}>聯絡管道</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {CHANNEL_ORDER.map((ch) => {
+            {[...CHANNEL_ORDER, "email"].map((ch) => {
               const cfg = CHANNELS[ch];
               if (!cfg) return null;
+              const cnt = channelCounts[ch] || 0;
               return (
                 <button
                   key={ch}
@@ -1342,7 +1348,7 @@ function FilterDrawer({
                     transition: "all 130ms",
                   }}
                 >
-                  {cfg.label}
+                  {cfg.label}({cnt})
                 </button>
               );
             })}
@@ -1755,6 +1761,10 @@ export default function LeadsPage() {
 
   const availableIndustries = [...new Set(brands.map((b) => b.industry).filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-TW"));
   const availableCities = [...new Set(brands.flatMap((b) => b.citiesList))].sort((a, b) => a.localeCompare(b, "zh-TW"));
+  const channelCounts: Record<string, number> = {};
+  for (const ch of [...CHANNEL_ORDER, "email"]) {
+    channelCounts[ch] = brands.filter((b) => b.channels.includes(ch) || (ch === "line" && b.channels.includes("line_id"))).length;
+  }
 
   const visible = brands.filter((b) => {
     if (search && !b.name.includes(search) && !b.industry.includes(search)) return false;
@@ -1874,7 +1884,7 @@ export default function LeadsPage() {
       </div>
 
       {/* Filter bar */}
-      <FilterBar filters={filters} onAdd={addFilter} onRemove={removeFilter} onOpenDrawer={() => setFilterOpen(true)} availableIndustries={availableIndustries} availableCities={availableCities} />
+      <FilterBar filters={filters} onAdd={addFilter} onRemove={removeFilter} onOpenDrawer={() => setFilterOpen(true)} availableIndustries={availableIndustries} availableCities={availableCities} channelCounts={channelCounts} />
 
       {/* 類別採集列 */}
       {filters.industry && (
@@ -2006,7 +2016,7 @@ export default function LeadsPage() {
 
       {recorder && <QuickRecord brand={recorder} onClose={() => setRecorder(null)} />}
 
-      {filterOpen && <FilterDrawer filters={filters} onApply={(f) => setFilters(f)} onClose={() => setFilterOpen(false)} availableIndustries={availableIndustries} availableCities={availableCities} />}
+      {filterOpen && <FilterDrawer filters={filters} onApply={(f) => setFilters(f)} onClose={() => setFilterOpen(false)} availableIndustries={availableIndustries} availableCities={availableCities} channelCounts={channelCounts} />}
 
       {importOpen && (
         <ImportModal
