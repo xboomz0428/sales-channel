@@ -143,19 +143,17 @@ function Col1({ brand, channelLinks, onEditReg, onAddChannel, onEditChannel, onD
   );
 
   const brandCard = (
-    <div style={{ background: C.sidebar, borderRadius: 16, padding: "18px 18px 16px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-        <div style={{ width: 50, height: 50, borderRadius: 14, background: "rgba(255,255,255,.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <span style={{ fontSize: 20, fontWeight: 700, color: "white" }}>{brand.name[0]}</span>
-        </div>
-        <div>
-          <div style={{ fontWeight: 700, fontSize: 15, color: "white", lineHeight: 1.3 }}>{brand.name}</div>
-          <div style={{ fontSize: 13, color: "rgba(255,255,255,.6)", marginTop: 2 }}>
-            {brand.industry} · {brand.stores}間 · {brand.cities}
-          </div>
+    <div style={{ background: C.sidebar, borderRadius: 16, padding: "16px 22px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+      <div style={{ width: 48, height: 48, borderRadius: 14, background: "rgba(255,255,255,.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <span style={{ fontSize: 20, fontWeight: 700, color: "white" }}>{brand.name[0]}</span>
+      </div>
+      <div style={{ flex: 1, minWidth: 120 }}>
+        <div style={{ fontWeight: 700, fontSize: 16, color: "white", lineHeight: 1.3 }}>{brand.name}</div>
+        <div style={{ fontSize: 13, color: "rgba(255,255,255,.6)", marginTop: 2 }}>
+          {brand.industry} · {brand.stores}間 · {brand.cities}
         </div>
       </div>
-      <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 12 }}>
+      <div style={{ display: "flex", gap: 7, alignItems: "center" }}>
         <Badge status={brand.status} />
         <span style={{ padding: "4px 11px", borderRadius: 999, background: "rgba(255,255,255,.15)", color: "white", fontSize: 12, fontWeight: 600 }}>
           評分 {brand.score}
@@ -165,14 +163,14 @@ function Col1({ brand, channelLinks, onEditReg, onAddChannel, onEditChannel, onD
         <a
           href={phoneVal ? `tel:${phoneVal.replace(/[^+\d]/g, "")}` : "tel:+886"}
           className="pressable"
-          style={{ flex: 1, padding: 9, borderRadius: 10, background: "rgba(255,255,255,.12)", color: "white", textDecoration: "none", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}
+          style={{ padding: "8px 18px", borderRadius: 10, background: "rgba(255,255,255,.12)", color: "white", textDecoration: "none", fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}
         >
           <Icon n="phone" size={13} color="white" />
           {phoneVal || "撥號"}
         </a>
         {lineVal && (
           <a href={channelHref("line", lineVal)} target="_blank" rel="noopener" className="pressable"
-            style={{ flex: 1, padding: 9, borderRadius: 10, background: "#06C75530", color: "#9FFFCA", textDecoration: "none", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+            style={{ padding: "8px 18px", borderRadius: 10, background: "#06C75530", color: "#9FFFCA", textDecoration: "none", fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
             💬 LINE
           </a>
         )}
@@ -182,23 +180,44 @@ function Col1({ brand, channelLinks, onEditReg, onAddChannel, onEditChannel, onD
 
   const regSection = (
     <Sec title="工商登記" action={editBtn}>
-      {brand.registered_name && <IRow label="公司名稱" value={brand.registered_name} />}
-      <IRow label="統一編號" value={brand.tax_id || "—"} mono />
-      <IRow label="負責人" value={brand.owner || "—"} />
-      {phoneVal && <IRow label="電話" value={phoneVal} />}
-      {brand.capital != null && <IRow label="資本額" value={`NT$${brand.capital.toLocaleString()}`} />}
-      {brand.setup_date && <IRow label="成立時間" value={fmtRocDate(brand.setup_date)} />}
-      {brand.company_address && <IRow label="登記地址" value={brand.company_address} />}
-      {brand.store_addresses && brand.store_addresses
-        .filter((a) => !isSameAddress(a, brand.company_address))
-        .slice(0, 2)
-        .map((addr, i) => <IRow key={i} label={i === 0 ? "門市地址" : ""} value={addr} />)}
-      {brand.gmaps_url && (
-        <IRow label="地圖連結" value={
-          <a href={brand.gmaps_url} target="_blank" rel="noopener noreferrer" style={{ color: C.primary, fontWeight: 600, textDecoration: "none" }}>↗ Google 地圖</a>
-        } />
-      )}
-      {brand.industry_code && <IRow label="行業代號" value={brand.industry_code} />}
+      <div className="d-only" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "4px 32px" }}>
+        {brand.registered_name && <IRow label="公司名稱" value={brand.registered_name} />}
+        <IRow label="統一編號" value={brand.tax_id || "—"} mono />
+        <IRow label="負責人" value={brand.owner || "—"} />
+        {phoneVal && <IRow label="電話" value={phoneVal} />}
+        {brand.capital != null && <IRow label="資本額" value={`NT$${brand.capital.toLocaleString()}`} />}
+        {brand.setup_date && <IRow label="成立時間" value={fmtRocDate(brand.setup_date)} />}
+        {brand.company_address && <IRow label="登記地址" value={brand.company_address} />}
+        {brand.store_addresses && brand.store_addresses
+          .filter((a) => !isSameAddress(a, brand.company_address))
+          .slice(0, 2)
+          .map((addr, i) => <IRow key={i} label={i === 0 ? "門市地址" : ""} value={addr} />)}
+        {brand.gmaps_url && (
+          <IRow label="地圖連結" value={
+            <a href={brand.gmaps_url} target="_blank" rel="noopener noreferrer" style={{ color: C.primary, fontWeight: 600, textDecoration: "none" }}>↗ Google 地圖</a>
+          } />
+        )}
+        {brand.industry_code && <IRow label="行業代號" value={brand.industry_code} />}
+      </div>
+      <div className="m-only">
+        {brand.registered_name && <IRow label="公司名稱" value={brand.registered_name} />}
+        <IRow label="統一編號" value={brand.tax_id || "—"} mono />
+        <IRow label="負責人" value={brand.owner || "—"} />
+        {phoneVal && <IRow label="電話" value={phoneVal} />}
+        {brand.capital != null && <IRow label="資本額" value={`NT$${brand.capital.toLocaleString()}`} />}
+        {brand.setup_date && <IRow label="成立時間" value={fmtRocDate(brand.setup_date)} />}
+        {brand.company_address && <IRow label="登記地址" value={brand.company_address} />}
+        {brand.store_addresses && brand.store_addresses
+          .filter((a) => !isSameAddress(a, brand.company_address))
+          .slice(0, 2)
+          .map((addr, i) => <IRow key={i} label={i === 0 ? "門市地址" : ""} value={addr} />)}
+        {brand.gmaps_url && (
+          <IRow label="地圖連結" value={
+            <a href={brand.gmaps_url} target="_blank" rel="noopener noreferrer" style={{ color: C.primary, fontWeight: 600, textDecoration: "none" }}>↗ Google 地圖</a>
+          } />
+        )}
+        {brand.industry_code && <IRow label="行業代號" value={brand.industry_code} />}
+      </div>
     </Sec>
   );
 
@@ -207,7 +226,7 @@ function Col1({ brand, channelLinks, onEditReg, onAddChannel, onEditChannel, onD
       {allChannels.length === 0 ? (
         <div style={{ fontSize: 13, color: C.muted }}>尚未採集聯絡管道</div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           {allChannels.map((ch) => {
             const cfg = CHANNELS[ch] || { label: ch, bg: "#aaa", abbr: ch.slice(0, 3).toUpperCase() };
             const value = channelLinks[ch];
@@ -244,17 +263,11 @@ function Col1({ brand, channelLinks, onEditReg, onAddChannel, onEditChannel, onD
 
   return (
     <>
-      {/* 桌機：橫式三欄 */}
-      <div className="d-only" style={{ display: "flex", gap: 16, alignItems: "stretch" }}>
-        <div style={{ width: 240, flexShrink: 0, display: "flex", flexDirection: "column" }}>
-          {brandCard}
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {regSection}
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {channelSection}
-        </div>
+      {/* 桌機：三張滿版卡片上中下 */}
+      <div className="d-only" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {brandCard}
+        {regSection}
+        {channelSection}
       </div>
       {/* 手機：垂直堆疊 */}
       <div className="m-only">
