@@ -131,129 +131,138 @@ function Col1({ brand, channelLinks, onEditReg, onAddChannel, onEditChannel, onD
       )
     : brand.channels;
 
-  return (
-    <div>
-      <div style={{ background: C.sidebar, borderRadius: 16, padding: "18px 18px 16px", marginBottom: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-          <div style={{ width: 50, height: 50, borderRadius: 14, background: "rgba(255,255,255,.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <span style={{ fontSize: 20, fontWeight: 700, color: "white" }}>{brand.name[0]}</span>
-          </div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 15, color: "white", lineHeight: 1.3 }}>{brand.name}</div>
-            <div style={{ fontSize: 13, color: "rgba(255,255,255,.6)", marginTop: 2 }}>
-              {brand.industry} · {brand.stores}間 · {brand.cities}
-            </div>
-          </div>
+  const editBtn = (
+    <button onClick={onEditReg} className="pressable" style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", cursor: "pointer", fontSize: 11, color: C.primary, fontWeight: 600 }}>
+      <Icon n="edit" size={11} color={C.primary} />編輯
+    </button>
+  );
+  const addChBtn = (
+    <button onClick={onAddChannel} className="pressable" style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", cursor: "pointer", fontSize: 11, color: C.primary, fontWeight: 600 }}>
+      <Icon n="plus" size={11} color={C.primary} />新增
+    </button>
+  );
+
+  const brandCard = (
+    <div style={{ background: C.sidebar, borderRadius: 16, padding: "18px 18px 16px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+        <div style={{ width: 50, height: 50, borderRadius: 14, background: "rgba(255,255,255,.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <span style={{ fontSize: 20, fontWeight: 700, color: "white" }}>{brand.name[0]}</span>
         </div>
-        <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-          <Badge status={brand.status} />
-          <span style={{ padding: "4px 11px", borderRadius: 999, background: "rgba(255,255,255,.15)", color: "white", fontSize: 12, fontWeight: 600 }}>
-            評分 {brand.score}
-          </span>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 15, color: "white", lineHeight: 1.3 }}>{brand.name}</div>
+          <div style={{ fontSize: 13, color: "rgba(255,255,255,.6)", marginTop: 2 }}>
+            {brand.industry} · {brand.stores}間 · {brand.cities}
+          </div>
         </div>
       </div>
-
-      <div className="d-only" style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+      <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 12 }}>
+        <Badge status={brand.status} />
+        <span style={{ padding: "4px 11px", borderRadius: 999, background: "rgba(255,255,255,.15)", color: "white", fontSize: 12, fontWeight: 600 }}>
+          評分 {brand.score}
+        </span>
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
         <a
           href={phoneVal ? `tel:${phoneVal.replace(/[^+\d]/g, "")}` : "tel:+886"}
           className="pressable"
-          style={{ flex: 1, padding: 11, borderRadius: 12, background: C.surf2, color: C.text, textDecoration: "none", fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+          style={{ flex: 1, padding: 9, borderRadius: 10, background: "rgba(255,255,255,.12)", color: "white", textDecoration: "none", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}
         >
-          <Icon n="phone" size={14} color={C.primary} />
+          <Icon n="phone" size={13} color="white" />
           {phoneVal || "撥號"}
         </a>
         {lineVal && (
-          <a
-            href={channelHref("line", lineVal)}
-            target="_blank"
-            rel="noopener"
-            className="pressable"
-            style={{ flex: 1, padding: 11, borderRadius: 12, background: "#06C75515", color: "#06C755", textDecoration: "none", fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-          >
+          <a href={channelHref("line", lineVal)} target="_blank" rel="noopener" className="pressable"
+            style={{ flex: 1, padding: 9, borderRadius: 10, background: "#06C75530", color: "#9FFFCA", textDecoration: "none", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
             💬 LINE
           </a>
         )}
       </div>
-
-      <Sec title="工商登記" action={
-        <button onClick={onEditReg} className="pressable" style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", cursor: "pointer", fontSize: 11, color: C.primary, fontWeight: 600 }}>
-          <Icon n="edit" size={11} color={C.primary} />編輯
-        </button>
-      }>
-        {brand.registered_name && <IRow label="公司名稱" value={brand.registered_name} />}
-        <IRow label="統一編號" value={brand.tax_id || "—"} mono />
-        <IRow label="負責人" value={brand.owner || "—"} />
-        {phoneVal && <IRow label="電話" value={phoneVal} />}
-        {brand.capital != null && <IRow label="資本額" value={`NT$${brand.capital.toLocaleString()}`} />}
-        {brand.setup_date && <IRow label="成立時間" value={fmtRocDate(brand.setup_date)} />}
-        {brand.company_address && <IRow label="登記地址" value={brand.company_address} />}
-        {brand.industry_code && <IRow label="行業代號" value={brand.industry_code} />}
-      </Sec>
-
-      <Sec title="門市概況">
-        <IRow label="分店數" value={`${brand.stores} 間`} />
-        {brand.cities !== "—" && <IRow label="城市" value={brand.cities} />}
-        {brand.store_addresses && brand.store_addresses
-          .filter((a) => !isSameAddress(a, brand.company_address))
-          .slice(0, 3)
-          .map((addr, i) => <IRow key={i} label={i === 0 ? "門市地址" : ""} value={addr} />)}
-        {brand.gmaps_url && (
-          <IRow
-            label="地圖連結"
-            value={
-              <a href={brand.gmaps_url} target="_blank" rel="noopener noreferrer"
-                style={{ color: C.primary, fontWeight: 600, textDecoration: "none" }}>
-                ↗ Google 地圖
-              </a>
-            }
-          />
-        )}
-      </Sec>
-
-      <Sec title="聯絡管道" action={
-        <button onClick={onAddChannel} className="pressable" style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", cursor: "pointer", fontSize: 11, color: C.primary, fontWeight: 600 }}>
-          <Icon n="plus" size={11} color={C.primary} />新增
-        </button>
-      }>
-        {allChannels.length === 0 ? (
-          <div style={{ fontSize: 13, color: C.muted }}>尚未採集聯絡管道</div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {allChannels.map((ch) => {
-              const cfg = CHANNELS[ch] || { label: ch, bg: "#aaa", abbr: ch.slice(0, 3).toUpperCase() };
-              const value = channelLinks[ch];
-              const href = value ? channelHref(ch, value) : null;
-              const displayVal = value
-                ? ch === "email" ? value
-                  : ch === "phone" ? value
-                  : value.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "").slice(0, 40)
-                : null;
-              return (
-                <div key={ch} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 9, background: C.surf2, border: `1px solid ${C.border}` }}>
-                  <div style={{ width: 22, height: 22, borderRadius: 5, background: cfg.bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    <span style={{ color: "white", fontSize: 8, fontWeight: 700 }}>{cfg.abbr}</span>
-                  </div>
-                  <span style={{ fontSize: 13, color: C.text, fontWeight: 600, minWidth: 36 }}>{cfg.label}</span>
-                  {displayVal && (
-                    <span style={{ fontSize: 12, color: C.muted, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {href ? <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: C.muted, textDecoration: "none" }}>{displayVal} ↗</a> : displayVal}
-                    </span>
-                  )}
-                  <button onClick={() => onEditChannel(ch, value || "")} style={{ border: "none", background: "none", cursor: "pointer", color: C.muted, fontSize: 12, padding: "2px 4px", flexShrink: 0 }} title="編輯">✏️</button>
-                  <button onClick={() => onDeleteChannel(ch)} style={{ border: "none", background: "none", cursor: "pointer", color: C.danger, fontSize: 12, padding: "2px 4px", flexShrink: 0 }} title="刪除">🗑</button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Sec>
-
-      {brand.pitch && (
-        <Sec title="建議切入點">
-          <p style={{ fontSize: 13, color: C.muted, lineHeight: 1.7, margin: 0 }}>{brand.pitch}</p>
-        </Sec>
-      )}
     </div>
+  );
+
+  const regSection = (
+    <Sec title="工商登記" action={editBtn}>
+      {brand.registered_name && <IRow label="公司名稱" value={brand.registered_name} />}
+      <IRow label="統一編號" value={brand.tax_id || "—"} mono />
+      <IRow label="負責人" value={brand.owner || "—"} />
+      {phoneVal && <IRow label="電話" value={phoneVal} />}
+      {brand.capital != null && <IRow label="資本額" value={`NT$${brand.capital.toLocaleString()}`} />}
+      {brand.setup_date && <IRow label="成立時間" value={fmtRocDate(brand.setup_date)} />}
+      {brand.company_address && <IRow label="登記地址" value={brand.company_address} />}
+      {brand.store_addresses && brand.store_addresses
+        .filter((a) => !isSameAddress(a, brand.company_address))
+        .slice(0, 2)
+        .map((addr, i) => <IRow key={i} label={i === 0 ? "門市地址" : ""} value={addr} />)}
+      {brand.gmaps_url && (
+        <IRow label="地圖連結" value={
+          <a href={brand.gmaps_url} target="_blank" rel="noopener noreferrer" style={{ color: C.primary, fontWeight: 600, textDecoration: "none" }}>↗ Google 地圖</a>
+        } />
+      )}
+      {brand.industry_code && <IRow label="行業代號" value={brand.industry_code} />}
+    </Sec>
+  );
+
+  const channelSection = (
+    <Sec title="聯絡管道" action={addChBtn}>
+      {allChannels.length === 0 ? (
+        <div style={{ fontSize: 13, color: C.muted }}>尚未採集聯絡管道</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {allChannels.map((ch) => {
+            const cfg = CHANNELS[ch] || { label: ch, bg: "#aaa", abbr: ch.slice(0, 3).toUpperCase() };
+            const value = channelLinks[ch];
+            const href = value ? channelHref(ch, value) : null;
+            const displayVal = value
+              ? ch === "email" ? value : ch === "phone" ? value
+              : value.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "").slice(0, 40)
+              : null;
+            return (
+              <div key={ch} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 9, background: C.surf2, border: `1px solid ${C.border}` }}>
+                <div style={{ width: 22, height: 22, borderRadius: 5, background: cfg.bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <span style={{ color: "white", fontSize: 8, fontWeight: 700 }}>{cfg.abbr}</span>
+                </div>
+                <span style={{ fontSize: 13, color: C.text, fontWeight: 600, minWidth: 36 }}>{cfg.label}</span>
+                {displayVal && (
+                  <span style={{ fontSize: 12, color: C.muted, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {href ? <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: C.muted, textDecoration: "none" }}>{displayVal} ↗</a> : displayVal}
+                  </span>
+                )}
+                <button onClick={() => onEditChannel(ch, value || "")} style={{ border: "none", background: "none", cursor: "pointer", color: C.muted, fontSize: 12, padding: "2px 4px", flexShrink: 0 }} title="編輯">✏️</button>
+                <button onClick={() => onDeleteChannel(ch)} style={{ border: "none", background: "none", cursor: "pointer", color: C.danger, fontSize: 12, padding: "2px 4px", flexShrink: 0 }} title="刪除">🗑</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {brand.pitch && (
+        <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 9, background: C.p50, fontSize: 12, color: C.primary, lineHeight: 1.6 }}>
+          <strong>切入點：</strong>{brand.pitch}
+        </div>
+      )}
+    </Sec>
+  );
+
+  return (
+    <>
+      {/* 桌機：橫式三欄 */}
+      <div className="d-only" style={{ display: "flex", gap: 16, alignItems: "stretch" }}>
+        <div style={{ width: 240, flexShrink: 0, display: "flex", flexDirection: "column" }}>
+          {brandCard}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {regSection}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {channelSection}
+        </div>
+      </div>
+      {/* 手機：垂直堆疊 */}
+      <div className="m-only">
+        <div style={{ marginBottom: 14 }}>{brandCard}</div>
+        {regSection}
+        {channelSection}
+      </div>
+    </>
   );
 }
 
@@ -983,17 +992,23 @@ export default function BrandDetailPage() {
 
       {/* Main content */}
       <div style={{ flex: 1, overflowY: "auto", padding: 20, paddingBottom: 80 }}>
-        <div className="d-only" style={{ display: "flex", gap: 20, alignItems: "flex-start", maxWidth: 1100 }}>
-          <div style={{ width: 280, flexShrink: 0 }}>
+        {/* Desktop: 橫式滿版 */}
+        <div className="d-only">
+          {/* 上方：品牌 + 工商登記 + 管道 橫排 */}
+          <div style={{ display: "flex", gap: 16, alignItems: "flex-start", marginBottom: 16 }}>
             <Col1 brand={brand} channelLinks={channelLinks} onEditReg={() => setRegModalOpen(true)} onAddChannel={() => setChannelModal("add")} onEditChannel={(ch, val) => setChannelModal({ channel: ch, value: val })} onDeleteChannel={handleDeleteChannel} />
           </div>
-          <div style={{ width: 280, flexShrink: 0 }}>
-            <Col2 brand={brand} contacts={contacts} onAdd={() => setContactModal({ mode: "add" })} onEdit={(c) => setContactModal({ mode: "edit", contact: c })} onDelete={handleDeleteContact} />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <Col3 brand={brand} logs={logs} onAddLog={addLog} />
+          {/* 下方：聯絡窗口/商機 + 跟進/紀錄 兩張卡片 */}
+          <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <Col2 brand={brand} contacts={contacts} onAdd={() => setContactModal({ mode: "add" })} onEdit={(c) => setContactModal({ mode: "edit", contact: c })} onDelete={handleDeleteContact} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <Col3 brand={brand} logs={logs} onAddLog={addLog} />
+            </div>
           </div>
         </div>
+        {/* Mobile: 分頁 */}
         <div className="m-only">
           {tab === "info" && <Col1 brand={brand} channelLinks={channelLinks} onEditReg={() => setRegModalOpen(true)} onAddChannel={() => setChannelModal("add")} onEditChannel={(ch, val) => setChannelModal({ channel: ch, value: val })} onDeleteChannel={handleDeleteChannel} />}
           {tab === "contacts" && <Col2 brand={brand} contacts={contacts} onAdd={() => setContactModal({ mode: "add" })} onEdit={(c) => setContactModal({ mode: "edit", contact: c })} onDelete={handleDeleteContact} />}
