@@ -114,7 +114,14 @@ function isSameAddress(a?: string, b?: string): boolean {
 }
 
 // ── 第一欄：基本資料 ─────────────────────────────────
-function Col1({ brand, channelLinks }: { brand: BrandDetail; channelLinks: Record<string, string> }) {
+function Col1({ brand, channelLinks, onEditReg, onAddChannel, onEditChannel, onDeleteChannel }: {
+  brand: BrandDetail;
+  channelLinks: Record<string, string>;
+  onEditReg: () => void;
+  onAddChannel: () => void;
+  onEditChannel: (ch: string, val: string) => void;
+  onDeleteChannel: (ch: string) => void;
+}) {
   const phoneVal = channelLinks.phone;
   const lineVal = channelLinks.line;
 
@@ -168,7 +175,11 @@ function Col1({ brand, channelLinks }: { brand: BrandDetail; channelLinks: Recor
         )}
       </div>
 
-      <Sec title="工商登記">
+      <Sec title="工商登記" action={
+        <button onClick={onEditReg} className="pressable" style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", cursor: "pointer", fontSize: 11, color: C.primary, fontWeight: 600 }}>
+          <Icon n="edit" size={11} color={C.primary} />編輯
+        </button>
+      }>
         {brand.registered_name && <IRow label="公司名稱" value={brand.registered_name} />}
         <IRow label="統一編號" value={brand.tax_id || "—"} mono />
         <IRow label="負責人" value={brand.owner || "—"} />
@@ -199,7 +210,11 @@ function Col1({ brand, channelLinks }: { brand: BrandDetail; channelLinks: Recor
         )}
       </Sec>
 
-      <Sec title="聯絡管道">
+      <Sec title="聯絡管道" action={
+        <button onClick={onAddChannel} className="pressable" style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", cursor: "pointer", fontSize: 11, color: C.primary, fontWeight: 600 }}>
+          <Icon n="plus" size={11} color={C.primary} />新增
+        </button>
+      }>
         {allChannels.length === 0 ? (
           <div style={{ fontSize: 13, color: C.muted }}>尚未採集聯絡管道</div>
         ) : (
@@ -213,22 +228,20 @@ function Col1({ brand, channelLinks }: { brand: BrandDetail; channelLinks: Recor
                   : ch === "phone" ? value
                   : value.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "").slice(0, 40)
                 : null;
-              const chip = (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 9, background: C.surf2, border: `1px solid ${C.border}` }}>
+              return (
+                <div key={ch} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 9, background: C.surf2, border: `1px solid ${C.border}` }}>
                   <div style={{ width: 22, height: 22, borderRadius: 5, background: cfg.bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <span style={{ color: "white", fontSize: 8, fontWeight: 700 }}>{cfg.abbr}</span>
                   </div>
                   <span style={{ fontSize: 13, color: C.text, fontWeight: 600, minWidth: 36 }}>{cfg.label}</span>
                   {displayVal && (
-                    <span style={{ fontSize: 12, color: C.muted, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayVal}</span>
+                    <span style={{ fontSize: 12, color: C.muted, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {href ? <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: C.muted, textDecoration: "none" }}>{displayVal} ↗</a> : displayVal}
+                    </span>
                   )}
-                  {href && <span style={{ fontSize: 11, color: C.primary, fontWeight: 700, flexShrink: 0 }}>↗</span>}
+                  <button onClick={() => onEditChannel(ch, value || "")} style={{ border: "none", background: "none", cursor: "pointer", color: C.muted, fontSize: 12, padding: "2px 4px", flexShrink: 0 }} title="編輯">✏️</button>
+                  <button onClick={() => onDeleteChannel(ch)} style={{ border: "none", background: "none", cursor: "pointer", color: C.danger, fontSize: 12, padding: "2px 4px", flexShrink: 0 }} title="刪除">🗑</button>
                 </div>
-              );
-              return href ? (
-                <a key={ch} href={href} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>{chip}</a>
-              ) : (
-                <div key={ch}>{chip}</div>
               );
             })}
           </div>
@@ -241,6 +254,200 @@ function Col1({ brand, channelLinks }: { brand: BrandDetail; channelLinks: Recor
         </Sec>
       )}
     </div>
+  );
+}
+
+// ── 工商登記 編輯 Modal ──────────────────────────────
+function EditRegistrationModal({
+  brandId,
+  initial,
+  onClose,
+  onSaved,
+}: {
+  brandId: string;
+  initial: Partial<BrandDetail>;
+  onClose: () => void;
+  onSaved: (patch: Partial<BrandDetail>) => void;
+}) {
+  const [form, setForm] = useState({
+    registered_name: initial.registered_name || "",
+    tax_id: initial.tax_id || "",
+    owner: initial.owner || "",
+    capital: initial.capital != null ? String(initial.capital) : "",
+    setup_date: initial.setup_date || "",
+    company_address: initial.company_address || "",
+    industry_code: initial.industry_code || "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const set = (k: keyof typeof form, v: string) => setForm((p) => ({ ...p, [k]: v }));
+  const inputStyle = { width: "100%", padding: "9px 12px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surf2, fontSize: 14, color: C.text, outline: "none", boxSizing: "border-box" as const };
+
+  const save = async () => {
+    setSaving(true); setErr(null);
+    try {
+      const patch: Record<string, unknown> = {};
+      if (form.registered_name) patch.registered_name = form.registered_name;
+      if (form.tax_id) patch.tax_id = form.tax_id;
+      if (form.owner) patch.owner_name = form.owner;
+      if (form.capital) patch.capital = Number(form.capital) || 0;
+      if (form.setup_date) patch.setup_date = form.setup_date;
+      if (form.company_address) patch.company_address = form.company_address;
+      if (form.industry_code) patch.industry_code = form.industry_code;
+      const res = await fetch(`/api/brands/${brandId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const json = await res.json();
+      if (!json.success) { setErr(json.error || "儲存失敗"); setSaving(false); return; }
+      onSaved({
+        registered_name: form.registered_name || undefined,
+        tax_id: form.tax_id || undefined,
+        owner: form.owner || undefined,
+        capital: form.capital ? Number(form.capital) : undefined,
+        setup_date: form.setup_date || undefined,
+        company_address: form.company_address || undefined,
+        industry_code: form.industry_code || undefined,
+      });
+      onClose();
+    } catch { setErr("網路錯誤"); }
+    setSaving(false);
+  };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 600, background: "rgba(0,0,0,.3)" }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 610, width: "92vw", maxWidth: 440, maxHeight: "86vh", overflowY: "auto", background: C.surface, borderRadius: 18, boxShadow: "0 20px 60px rgba(0,0,0,.18)", padding: "22px 22px 18px" }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 18 }}>編輯工商登記</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>公司名稱</div>
+            <input value={form.registered_name} onChange={(e) => set("registered_name", e.target.value)} placeholder="XX有限公司" style={inputStyle} />
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>統一編號</div>
+              <input value={form.tax_id} onChange={(e) => set("tax_id", e.target.value)} placeholder="12345678" maxLength={8} style={inputStyle} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>負責人</div>
+              <input value={form.owner} onChange={(e) => set("owner", e.target.value)} placeholder="王大明" style={inputStyle} />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>資本額</div>
+              <input value={form.capital} onChange={(e) => set("capital", e.target.value)} placeholder="1000000" type="number" style={inputStyle} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>行業代號</div>
+              <input value={form.industry_code} onChange={(e) => set("industry_code", e.target.value)} placeholder="J610" style={inputStyle} />
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>成立時間（民國，如 1051018）</div>
+            <input value={form.setup_date} onChange={(e) => set("setup_date", e.target.value)} placeholder="1051018" style={inputStyle} />
+          </div>
+          <div>
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>登記地址</div>
+            <input value={form.company_address} onChange={(e) => set("company_address", e.target.value)} placeholder="台北市大安區..." style={inputStyle} />
+          </div>
+        </div>
+        {err && <div style={{ marginTop: 10, padding: "7px 10px", borderRadius: 8, background: C.dangerBg, color: C.danger, fontSize: 13 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+          <button onClick={save} disabled={saving} style={{ flex: 1, padding: 10, borderRadius: 10, border: "none", background: C.primary, color: "white", fontSize: 14, fontWeight: 700, cursor: saving ? "default" : "pointer" }}>
+            {saving ? "儲存中…" : "儲存"}
+          </button>
+          <button onClick={onClose} style={{ padding: "10px 16px", borderRadius: 10, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontSize: 14, cursor: "pointer" }}>取消</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── 聯絡管道 編輯 Modal ──────────────────────────────
+const CHANNEL_TYPES = [
+  { key: "phone", label: "電話", placeholder: "02-1234-5678" },
+  { key: "email", label: "Email", placeholder: "info@example.com" },
+  { key: "line", label: "LINE", placeholder: "https://line.me/... 或 @id" },
+  { key: "fb", label: "Facebook", placeholder: "https://facebook.com/..." },
+  { key: "ig", label: "Instagram", placeholder: "https://instagram.com/..." },
+  { key: "website", label: "官網", placeholder: "https://..." },
+  { key: "map", label: "地圖", placeholder: "https://maps.google.com/..." },
+];
+
+function EditChannelModal({
+  brandId,
+  initial,
+  onClose,
+  onSaved,
+}: {
+  brandId: string;
+  initial?: { channel: string; value: string };
+  onClose: () => void;
+  onSaved: (ch: string, val: string) => void;
+}) {
+  const [channel, setChannel] = useState(initial?.channel || "phone");
+  const [value, setValue] = useState(initial?.value || "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const inputStyle = { width: "100%", padding: "9px 12px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surf2, fontSize: 14, color: C.text, outline: "none", boxSizing: "border-box" as const };
+
+  const save = async () => {
+    if (!value.trim()) { setErr("請輸入內容"); return; }
+    setSaving(true); setErr(null);
+    try {
+      const res = await fetch(`/api/brands/${brandId}/channels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel, value: value.trim() }),
+      });
+      const json = await res.json();
+      if (!json.success) { setErr(json.error || "儲存失敗"); setSaving(false); return; }
+      onSaved(channel, value.trim());
+      onClose();
+    } catch { setErr("網路錯誤"); }
+    setSaving(false);
+  };
+
+  const placeholder = CHANNEL_TYPES.find((t) => t.key === channel)?.placeholder || "";
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 600, background: "rgba(0,0,0,.3)" }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 610, width: "92vw", maxWidth: 400, background: C.surface, borderRadius: 18, boxShadow: "0 20px 60px rgba(0,0,0,.18)", padding: "22px 22px 18px" }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 18 }}>{initial ? "編輯管道" : "新增管道"}</div>
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>管道類型</div>
+          {initial ? (
+            <div style={{ padding: "9px 12px", borderRadius: 9, background: C.surf2, fontSize: 14, color: C.text }}>
+              {CHANNEL_TYPES.find((t) => t.key === channel)?.label || channel}
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {CHANNEL_TYPES.map((t) => (
+                <button key={t.key} onClick={() => setChannel(t.key)}
+                  style={{ padding: "6px 14px", borderRadius: 999, fontSize: 13, fontWeight: channel === t.key ? 700 : 400, border: `1px solid ${channel === t.key ? C.primary : C.border}`, background: channel === t.key ? C.p50 : "transparent", color: channel === t.key ? C.primary : C.muted, cursor: "pointer" }}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>內容</div>
+          <input value={value} onChange={(e) => setValue(e.target.value)} placeholder={placeholder} autoFocus style={inputStyle} />
+        </div>
+        {err && <div style={{ marginBottom: 10, padding: "7px 10px", borderRadius: 8, background: C.dangerBg, color: C.danger, fontSize: 13 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={save} disabled={saving} style={{ flex: 1, padding: 10, borderRadius: 10, border: "none", background: C.primary, color: "white", fontSize: 14, fontWeight: 700, cursor: saving ? "default" : "pointer" }}>
+            {saving ? "儲存中…" : "儲存"}
+          </button>
+          <button onClick={onClose} style={{ padding: "10px 16px", borderRadius: 10, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontSize: 14, cursor: "pointer" }}>取消</button>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -539,6 +746,8 @@ export default function BrandDetailPage() {
   const [channelLinks, setChannelLinks] = useState<Record<string, string>>({});
   const [tab, setTab] = useState<"info" | "contacts" | "logs">("info");
   const [contactModal, setContactModal] = useState<{ mode: "add" | "edit"; contact?: ContactItem } | null>(null);
+  const [regModalOpen, setRegModalOpen] = useState(false);
+  const [channelModal, setChannelModal] = useState<{ channel: string; value: string } | "add" | null>(null);
 
   // 從名單總覽帶入選取的品牌；若有 API id 則載入完整資料
   useEffect(() => {
@@ -664,6 +873,28 @@ export default function BrandDetailPage() {
     }
   };
 
+  const handleRegSaved = (patch: Partial<BrandDetail>) => {
+    setBrand((prev) => ({ ...prev, ...patch }));
+  };
+
+  const handleChannelSaved = (ch: string, val: string) => {
+    setChannelLinks((prev) => ({ ...prev, [ch]: val }));
+    setBrand((prev) => ({ ...prev, channels: [...new Set([...prev.channels, ch])] }));
+  };
+
+  const handleDeleteChannel = async (ch: string) => {
+    if (!confirm(`確定刪除「${CHANNELS[ch]?.label || ch}」管道？`)) return;
+    setChannelLinks((prev) => { const n = { ...prev }; delete n[ch]; return n; });
+    setBrand((prev) => ({ ...prev, channels: prev.channels.filter((c) => c !== ch) }));
+    if (brand.id && typeof brand.id === "string") {
+      await fetch(`/api/brands/${brand.id}/channels`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel: ch }),
+      }).catch(() => {});
+    }
+  };
+
   const exportContactsCSV = () => {
     const hdrs = ["姓名", "職稱", "角色", "手機", "備註"];
     const rows = contacts.map((c) => [c.name, c.title || "", c.role, c.mobile || "", c.note || ""]);
@@ -754,7 +985,7 @@ export default function BrandDetailPage() {
       <div style={{ flex: 1, overflowY: "auto", padding: 20, paddingBottom: 80 }}>
         <div className="d-only" style={{ display: "flex", gap: 20, alignItems: "flex-start", maxWidth: 1100 }}>
           <div style={{ width: 280, flexShrink: 0 }}>
-            <Col1 brand={brand} channelLinks={channelLinks} />
+            <Col1 brand={brand} channelLinks={channelLinks} onEditReg={() => setRegModalOpen(true)} onAddChannel={() => setChannelModal("add")} onEditChannel={(ch, val) => setChannelModal({ channel: ch, value: val })} onDeleteChannel={handleDeleteChannel} />
           </div>
           <div style={{ width: 280, flexShrink: 0 }}>
             <Col2 brand={brand} contacts={contacts} onAdd={() => setContactModal({ mode: "add" })} onEdit={(c) => setContactModal({ mode: "edit", contact: c })} onDelete={handleDeleteContact} />
@@ -764,7 +995,7 @@ export default function BrandDetailPage() {
           </div>
         </div>
         <div className="m-only">
-          {tab === "info" && <Col1 brand={brand} channelLinks={channelLinks} />}
+          {tab === "info" && <Col1 brand={brand} channelLinks={channelLinks} onEditReg={() => setRegModalOpen(true)} onAddChannel={() => setChannelModal("add")} onEditChannel={(ch, val) => setChannelModal({ channel: ch, value: val })} onDeleteChannel={handleDeleteChannel} />}
           {tab === "contacts" && <Col2 brand={brand} contacts={contacts} onAdd={() => setContactModal({ mode: "add" })} onEdit={(c) => setContactModal({ mode: "edit", contact: c })} onDelete={handleDeleteContact} />}
           {tab === "logs" && <Col3 brand={brand} logs={logs} onAddLog={addLog} />}
         </div>
@@ -776,6 +1007,24 @@ export default function BrandDetailPage() {
           initial={contactModal.mode === "edit" ? contactModal.contact : undefined}
           onClose={() => setContactModal(null)}
           onSaved={handleContactSaved}
+        />
+      )}
+
+      {regModalOpen && brand.id && typeof brand.id === "string" && (
+        <EditRegistrationModal
+          brandId={brand.id}
+          initial={brand}
+          onClose={() => setRegModalOpen(false)}
+          onSaved={handleRegSaved}
+        />
+      )}
+
+      {channelModal && brand.id && typeof brand.id === "string" && (
+        <EditChannelModal
+          brandId={brand.id}
+          initial={channelModal !== "add" ? channelModal : undefined}
+          onClose={() => setChannelModal(null)}
+          onSaved={handleChannelSaved}
         />
       )}
       <MobileTabBar />

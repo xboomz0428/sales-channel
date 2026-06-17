@@ -71,7 +71,11 @@ export async function PATCH(request: NextRequest, { params }: any) {
     const body = await request.json();
 
     const allowed: Record<string, unknown> = {};
-    for (const key of ["status", "name", "industry", "store_count", "priority_score", "owner_name", "tax_id"]) {
+    for (const key of [
+      "status", "name", "industry", "store_count", "priority_score",
+      "owner_name", "tax_id", "registered_name", "capital",
+      "setup_date", "company_address", "industry_code", "pitch",
+    ]) {
       if (body[key] !== undefined) allowed[key] = body[key];
     }
 
