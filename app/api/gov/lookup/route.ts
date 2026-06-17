@@ -151,6 +151,64 @@ async function googleCseFind(
   }
 }
 
+// ── Step 0C：twincn.com（台灣公司網）透過 Google CSE 搜尋 ─────────────────────
+// twincn.com 使用 JavaScript 渲染，無法直接爬取，改用 Google CSE 搜尋其索引頁面
+// 頁面標題/摘要通常含統編、公司名、負責人、地址等
+async function searchTwincn(
+  brandName: string,
+  apiKey: string,
+  cseId: string
+): Promise<{ taxId?: string; companyName?: string; owner?: string; address?: string } | null> {
+  try {
+    const q = encodeURIComponent(`site:twincn.com "${brandName.slice(0, 12)}"`);
+    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cseId}&q=${q}&num=3&hl=zh-TW&gl=tw`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    logApiUsage("cse", 1);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { error?: unknown; items?: { title?: string; snippet?: string; link?: string }[] };
+    if (data.error || !data.items?.length) return null;
+
+    const result: { taxId?: string; companyName?: string; owner?: string; address?: string } = {};
+
+    for (const item of data.items) {
+      const text = `${item.title || ""} ${item.snippet || ""}`;
+
+      // 從 URL 提取統編（twincn.com/item.aspx?no=XXXXXXXX）
+      if (!result.taxId) {
+        const urlMatch = (item.link || "").match(/no=(\d{8})/);
+        if (urlMatch) result.taxId = urlMatch[1];
+      }
+      // 從摘要/標題提取統編
+      if (!result.taxId) {
+        const taxMatch = text.match(/統[一]?編號?[：:\s]{0,3}(\d{8})/);
+        if (taxMatch?.[1]) result.taxId = taxMatch[1];
+        // twincn 頁面標題格式常是 "公司名 - 統編XXXXXXXX"
+        const titleTax = text.match(/(\d{8})/);
+        if (titleTax && !result.taxId) result.taxId = titleTax[1];
+      }
+      // 公司名
+      if (!result.companyName) {
+        const nameMatch = text.match(/([一-鿿]{2,15}(?:股份)?有限公司)/);
+        if (nameMatch) result.companyName = nameMatch[1];
+      }
+      // 負責人
+      if (!result.owner) {
+        const ownerMatch = text.match(/負責人[：:\s]{0,3}([一-鿿]{2,4})/);
+        if (ownerMatch) result.owner = ownerMatch[1];
+      }
+      // 地址
+      if (!result.address) {
+        const addrMatch = text.match(/([一-鿿]{1,3}[市縣][一-鿿]{1,4}[區鄉鎮市][^\s,，。]{2,30})/);
+        if (addrMatch) result.address = addrMatch[1];
+      }
+    }
+
+    return result.taxId || result.companyName ? result : null;
+  } catch {
+    return null;
+  }
+}
+
 // 從 stores/brand_channels 提取第一個網站 URL
 function extractWebsite(b: {
   stores?: { website?: string | null }[];
@@ -199,6 +257,22 @@ async function matchBrand(
       }
     } else if (cseResult?.companyName) {
       candidates = await searchByName(cseResult.companyName.slice(0, 8));
+    }
+  }
+
+  // ── Step 0C：twincn.com（台灣公司網）──────────────────
+  if (candidates.length === 0 && googleApiKey && cseId) {
+    const twincnResult = await searchTwincn(brand.name, googleApiKey, cseId);
+    if (twincnResult?.taxId) {
+      const taxCands = await searchByTaxId(twincnResult.taxId);
+      if (taxCands.length > 0) {
+        candidates = taxCands;
+        resolvedTaxId = twincnResult.taxId;
+        source = "twincn";
+      }
+    } else if (twincnResult?.companyName) {
+      candidates = await searchByName(twincnResult.companyName.slice(0, 8));
+      if (candidates.length > 0) source = "twincn";
     }
   }
 
