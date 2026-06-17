@@ -153,11 +153,9 @@ async function googleCseFind(
 
 // ── Step 0C-1：mygov.tw（統編快搜）直接查詢 ────────────────────────────────────
 // 回傳完整 HTML 表格：公司名稱、統一編號、設立日期、營業地址、資本額、行業、登記人
-async function searchMygov(
-  brandName: string
-): Promise<GcisCompany | null> {
+async function fetchMygovSearch(query: string): Promise<GcisCompany | null> {
   try {
-    const q = encodeURIComponent(brandName.slice(0, 20));
+    const q = encodeURIComponent(query);
     const res = await fetch(`https://mygov.tw/search?q=${q}`, {
       headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
       signal: AbortSignal.timeout(8000),
@@ -188,7 +186,7 @@ async function searchMygov(
 
     return {
       Business_Accounting_NO: cells[1],
-      Company_Name: cells[0] || brandName,
+      Company_Name: cells[0] || query,
       Company_Location: cells[3] || undefined,
       Capital_Stock_Amount: capital,
       Company_Setup_Date: rocDate,
@@ -197,6 +195,23 @@ async function searchMygov(
   } catch {
     return null;
   }
+}
+
+// 漸進式 mygov 搜尋：全名 → 前10字 → 前7字 → 前5字 → 去通路詞
+async function searchMygov(brandName: string): Promise<GcisCompany | null> {
+  const rawName = brandName.split(/[｜|│]/)[0].trim();
+  const tries: string[] = [rawName];
+  if (rawName.length > 10) tries.push(rawName.slice(0, 10));
+  if (rawName.length > 7) tries.push(rawName.slice(0, 7));
+  if (rawName.length > 5) tries.push(rawName.slice(0, 5));
+  const stripped = rawName.replace(VENUE_RE, "").trim();
+  if (stripped.length >= 2 && stripped !== rawName && !tries.includes(stripped)) tries.push(stripped);
+
+  for (const q of tries) {
+    const result = await fetchMygovSearch(q);
+    if (result) return result;
+  }
+  return null;
 }
 
 // ── Step 0C-2：twincn.com（台灣公司網）直接查詢 ──────────────────────────────────
@@ -274,7 +289,38 @@ async function matchBrand(
     candidates = await searchByTaxId(resolvedTaxId);
   }
 
-  // ── Step 0A：爬官網找統一編號 ─────────────────────────
+  // ── Step 1：mygov.tw（統編快搜，漸進式名稱搜尋）────────
+  if (candidates.length === 0) {
+    const mygovResult = await searchMygov(brand.name);
+    if (mygovResult) {
+      candidates = [mygovResult];
+      resolvedTaxId = mygovResult.Business_Accounting_NO;
+      source = "mygov";
+    }
+  }
+
+  // ── Step 2：twincn.com ─────────────────────────────
+  if (candidates.length === 0) {
+    const twincnResult = await searchTwincn(brand.name);
+    if (twincnResult?.taxId) {
+      const taxCands = await searchByTaxId(twincnResult.taxId);
+      if (taxCands.length > 0) {
+        candidates = taxCands;
+        resolvedTaxId = twincnResult.taxId;
+        source = "twincn";
+      } else {
+        candidates = [{
+          Business_Accounting_NO: twincnResult.taxId,
+          Company_Name: twincnResult.companyName || brand.name,
+          Company_Location: twincnResult.address || undefined,
+        }];
+        resolvedTaxId = twincnResult.taxId;
+        source = "twincn";
+      }
+    }
+  }
+
+  // ── Step 3：爬官網找統一編號 ──────────────────────────
   if (!resolvedTaxId && brand.website && candidates.length === 0) {
     const found = await findTaxIdOnWebsite(brand.website);
     if (found) {
@@ -286,7 +332,7 @@ async function matchBrand(
     }
   }
 
-  // ── Step 0B：Google CSE ──────────────────────────────
+  // ── Step 4：Google CSE ──────────────────────────────
   const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
   const cseId = process.env.GOOGLE_CSE_ID;
   if (candidates.length === 0 && googleApiKey && cseId) {
@@ -302,38 +348,7 @@ async function matchBrand(
     }
   }
 
-  // ── Step 0C：mygov.tw + twincn.com ──────────────────
-  if (candidates.length === 0) {
-    // 0C-1: mygov.tw（回傳完整欄位：統編、地址、資本額、設立日期、負責人）
-    const mygovResult = await searchMygov(brand.name);
-    if (mygovResult) {
-      candidates = [mygovResult];
-      resolvedTaxId = mygovResult.Business_Accounting_NO;
-      source = "mygov";
-    }
-    // 0C-2: twincn.com（mygov 查不到時才用）
-    if (candidates.length === 0) {
-      const twincnResult = await searchTwincn(brand.name);
-      if (twincnResult?.taxId) {
-        const taxCands = await searchByTaxId(twincnResult.taxId);
-        if (taxCands.length > 0) {
-          candidates = taxCands;
-          resolvedTaxId = twincnResult.taxId;
-          source = "twincn";
-        } else {
-          candidates = [{
-            Business_Accounting_NO: twincnResult.taxId,
-            Company_Name: twincnResult.companyName || brand.name,
-            Company_Location: twincnResult.address || undefined,
-          }];
-          resolvedTaxId = twincnResult.taxId;
-          source = "twincn";
-        }
-      }
-    }
-  }
-
-  // ── Step A：漸進式 GCIS 名稱搜尋 ─────────────────────
+  // ── Step 5：漸進式 GCIS 名稱搜尋 ─────────────────────
   if (candidates.length === 0) {
     const rawName = (brand.brand_key || brand.name).split(/[｜|│]/)[0].trim();
 

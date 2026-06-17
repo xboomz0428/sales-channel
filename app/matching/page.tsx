@@ -644,7 +644,7 @@ function DetailPanel({
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
               <span style={{ fontSize: 12, color: C.muted }}>點擊「採集」對單一來源執行資料抓取</span>
               <button
-                onClick={() => Object.keys(brand.tasks).forEach((k) => onRunTask(brand.id, k))}
+                onClick={() => Object.keys(brand.tasks).filter((k) => k !== "map").forEach((k) => onRunTask(brand.id, k))}
                 className="pressable"
                 style={{ padding: "6px 14px", borderRadius: 9, border: "none", background: C.primary, color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}
               >
