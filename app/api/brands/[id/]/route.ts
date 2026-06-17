@@ -31,7 +31,7 @@ export async function GET(
       supabase.from("brand_channels").select("*").eq("brand_id", id),
       supabase
         .from("stores")
-        .select("id, city, gmaps_url, phone, website, address")
+        .select("id, name, city, gmaps_url, phone, website, address")
         .eq("brand_id", id),
     ]);
 

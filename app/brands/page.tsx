@@ -24,6 +24,7 @@ interface BrandDetail {
   company_address?: string;
   industry_code?: string;
   gmaps_url?: string;
+  store_addresses?: string[];
   est_annual?: number;
   probability?: number;
   stage_days?: number;
@@ -105,6 +106,13 @@ function IRow({ label, value, mono }: { label: string; value: ReactNode; mono?: 
   );
 }
 
+function isSameAddress(a?: string, b?: string): boolean {
+  if (!a || !b) return false;
+  const norm = (s: string) => s.replace(/[台臺]/g, "台").replace(/[\s　]/g, "").replace(/[之\-－—–]/g, "");
+  const na = norm(a), nb = norm(b);
+  return na.includes(nb) || nb.includes(na);
+}
+
 // ── 第一欄：基本資料 ─────────────────────────────────
 function Col1({ brand, channelLinks }: { brand: BrandDetail; channelLinks: Record<string, string> }) {
   const phoneVal = channelLinks.phone;
@@ -160,13 +168,24 @@ function Col1({ brand, channelLinks }: { brand: BrandDetail; channelLinks: Recor
         )}
       </div>
 
-      <Sec title="基本資料">
+      <Sec title="工商登記">
+        {brand.registered_name && <IRow label="公司名稱" value={brand.registered_name} />}
         <IRow label="統一編號" value={brand.tax_id || "—"} mono />
-        {brand.registered_name && <IRow label="登記名稱" value={brand.registered_name} />}
         <IRow label="負責人" value={brand.owner || "—"} />
+        {phoneVal && <IRow label="電話" value={phoneVal} />}
         {brand.capital != null && <IRow label="資本額" value={`NT$${brand.capital.toLocaleString()}`} />}
         {brand.setup_date && <IRow label="成立時間" value={fmtRocDate(brand.setup_date)} />}
         {brand.company_address && <IRow label="登記地址" value={brand.company_address} />}
+        {brand.industry_code && <IRow label="行業代號" value={brand.industry_code} />}
+      </Sec>
+
+      <Sec title="門市概況">
+        <IRow label="分店數" value={`${brand.stores} 間`} />
+        {brand.cities !== "—" && <IRow label="城市" value={brand.cities} />}
+        {brand.store_addresses && brand.store_addresses
+          .filter((a) => !isSameAddress(a, brand.company_address))
+          .slice(0, 3)
+          .map((addr, i) => <IRow key={i} label={i === 0 ? "門市地址" : ""} value={addr} />)}
         {brand.gmaps_url && (
           <IRow
             label="地圖連結"
@@ -178,9 +197,6 @@ function Col1({ brand, channelLinks }: { brand: BrandDetail; channelLinks: Recor
             }
           />
         )}
-        {brand.industry_code && <IRow label="行業代號" value={brand.industry_code} />}
-        <IRow label="分店數" value={`${brand.stores} 間`} />
-        {brand.cities !== "—" && <IRow label="城市" value={brand.cities} />}
       </Sec>
 
       <Sec title="聯絡管道">
@@ -565,18 +581,20 @@ export default function BrandDetailPage() {
               score: b.priority_score ?? prev.score,
             }));
           }
-          // 從門市資料補齊 cities 與 gmaps_url
+          // 從門市資料補齊 cities、gmaps_url、store_addresses
           if (Array.isArray(result.data.stores)) {
-            type StoreRow = { city?: string | null; gmaps_url?: string | null };
+            type StoreRow = { city?: string | null; gmaps_url?: string | null; address?: string | null };
             const storeList = result.data.stores as StoreRow[];
             const citiesList = [...new Set(
               storeList.map((s) => (s.city || "").replace(/[市縣]$/, "")).filter(Boolean)
             )];
             const gmapsUrl = storeList.find((s) => s.gmaps_url)?.gmaps_url;
+            const storeAddresses = [...new Set(storeList.map((s) => s.address).filter(Boolean))] as string[];
             setBrand((prev) => ({
               ...prev,
               cities: citiesList.length ? citiesList.slice(0, 3).join("/") : prev.cities,
               gmaps_url: gmapsUrl || prev.gmaps_url,
+              store_addresses: storeAddresses.length ? storeAddresses : prev.store_addresses,
             }));
           }
           if (Array.isArray(cs)) {

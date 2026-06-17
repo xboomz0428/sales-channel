@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
+import { logApiUsage } from "@/lib/api-usage";
 
 /**
  * POST /api/enrich/channels
@@ -83,6 +84,87 @@ async function upsertChannel(
   }
 }
 
+// ── Facebook 粉專搜尋（Google CSE）──────────────────────────────────────────
+const FB_JUNK_PATH = /^(sharer|share|dialog|plugins|help|policies|login|photo|video|events|groups|pages|permalink|profile|messages|watch|gaming|marketplace)/i;
+
+async function findFacebookPage(
+  brandName: string,
+  apiKey: string,
+  cseId: string
+): Promise<{ fbUrl: string | null; snippetLinks: Record<string, string> }> {
+  const links: Record<string, string> = {};
+  let fbUrl: string | null = null;
+  try {
+    const q = encodeURIComponent(`"${brandName.slice(0, 15)}" site:facebook.com`);
+    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cseId}&q=${q}&num=3&hl=zh-TW&gl=tw`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    logApiUsage("cse", 1);
+    if (!res.ok) return { fbUrl, snippetLinks: links };
+    const data = (await res.json()) as { error?: unknown; items?: { link?: string; title?: string; snippet?: string }[] };
+    if (data.error) return { fbUrl, snippetLinks: links };
+
+    for (const item of data.items || []) {
+      const link = item.link || "";
+      if (!fbUrl) {
+        const pm = link.match(/facebook\.com\/([\w.]+)/);
+        if (pm && !FB_JUNK_PATH.test(pm[1])) fbUrl = link.replace(/\/$/, "");
+      }
+      const text = `${item.title || ""} ${item.snippet || ""}`;
+      if (!links.phone) {
+        const pm = text.match(/0[2-8]-?\d{3,4}-?\d{4}|09\d{2}-?\d{3}-?\d{3}/);
+        if (pm) links.phone = pm[0];
+      }
+      if (!links.email) {
+        const em = text.match(/([A-Za-z0-9_.+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})/);
+        if (em && !/facebook|fbcdn|noreply/i.test(em[1])) links.email = em[1];
+      }
+    }
+  } catch { /* CSE 搜尋失敗 → 略過 */ }
+  return { fbUrl, snippetLinks: links };
+}
+
+// ── Facebook 頁面抓取聯絡資訊 ──────────────────────────────────────────────
+const FB_EMAIL_JUNK = /facebook|fbcdn|meta\.com|noreply|no-reply|oculus|sentry|whatsapp|facebookmail/i;
+
+async function scrapeFacebookPage(fbUrl: string): Promise<Record<string, string>> {
+  const found: Record<string, string> = {};
+  try {
+    const res = await fetch(fbUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.7",
+      },
+      signal: AbortSignal.timeout(10000),
+      redirect: "follow",
+    });
+    if (!res.ok) return found;
+    const html = (await res.text()).slice(0, 800_000);
+
+    // phone: tel: href
+    for (const m of html.matchAll(/href=["']tel:([+0-9\-\s()]+)["']/gi)) {
+      const phone = m[1].replace(/[\s\-()]/g, "").replace(/^\+?886/, "0");
+      if (/^0[2-9]/.test(phone)) { found.phone = phone; break; }
+    }
+    // email
+    for (const m of html.matchAll(/([A-Za-z0-9_.+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})/gi)) {
+      if (!FB_EMAIL_JUNK.test(m[1]) && !/\.(png|jpg|gif|svg|webp|ico)$/i.test(m[1])) {
+        found.email = m[1]; break;
+      }
+    }
+    // Instagram
+    for (const m of html.matchAll(/instagram\.com\/([\w.\-]{1,30})/gi)) {
+      if (!/^(p|explore|accounts|stories|reels|tv|a|static)$/i.test(m[1])) {
+        found.ig = `https://instagram.com/${m[1]}`; break;
+      }
+    }
+    // LINE
+    const lineMatch = html.match(/https?:\/\/(?:line\.me\/(?:R\/)?(?:ti\/p\/|ti\/g2\/)[@%\w\-.]+|lin\.ee\/[A-Za-z0-9]+|page\.line\.me\/[A-Za-z0-9_.\-]+)/i);
+    if (lineMatch) found.line = lineMatch[0];
+  } catch { /* FB 頁面讀取失敗 → 略過 */ }
+  return found;
+}
+
 async function enrichBrand(
   supabase: SupabaseServerClient,
   brandId: string,
@@ -92,7 +174,7 @@ async function enrichBrand(
 ): Promise<string[]> {
   const { data: stores } = await supabase
     .from("stores")
-    .select("phone, website, gmaps_url")
+    .select("phone, website, gmaps_url, name")
     .eq("brand_id", brandId)
     .limit(5);
 
@@ -100,6 +182,7 @@ async function enrichBrand(
   const phone = stores?.find((s) => s.phone)?.phone;
   const website = stores?.find((s) => s.website)?.website;
   const gmaps = stores?.find((s) => s.gmaps_url)?.gmaps_url;
+  const storeName = stores?.find((s) => s.name)?.name || brandName;
 
   if (phone) {
     await upsertChannel(supabase, brandId, "phone", phone);
@@ -138,6 +221,61 @@ async function enrichBrand(
     }
   } else if (!phone && !gmaps) {
     await emit({ type: "step", text: `${prefix}此品牌無門市資料（請先執行 Google Maps 採集）` });
+  }
+
+  // ── Facebook 補充採集 ──────────────────────────────────────────────────────
+  // 如果仍缺 email / line / ig / phone，嘗試從 Facebook 粉專補齊
+  const have = new Set(added);
+  const missing = ["email", "line", "ig", "phone"].filter((ch) => !have.has(ch));
+  if (missing.length > 0) {
+    // 已從官網取得 FB URL？
+    const { data: existFb } = await supabase
+      .from("brand_channels").select("value").eq("brand_id", brandId).eq("channel", "fb").maybeSingle();
+    let fbUrl: string | null = existFb?.value || null;
+
+    // 沒有 FB → 用 Google CSE 搜尋
+    if (!fbUrl) {
+      const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+      const cseId = process.env.GOOGLE_CSE_ID;
+      if (apiKey && cseId) {
+        await emit({ type: "step", text: `${prefix}搜尋 Facebook 粉專「${storeName}」…` });
+        const cseResult = await findFacebookPage(storeName, apiKey, cseId);
+        fbUrl = cseResult.fbUrl;
+        // CSE snippets 可能含聯絡資訊
+        for (const [ch, value] of Object.entries(cseResult.snippetLinks)) {
+          if (!have.has(ch)) {
+            await upsertChannel(supabase, brandId, ch, value, "google_cse_fb");
+            added.push(ch);
+            have.add(ch);
+          }
+        }
+      }
+    }
+
+    if (fbUrl) {
+      if (!have.has("fb")) {
+        await upsertChannel(supabase, brandId, "fb", fbUrl);
+        added.push("fb");
+        have.add("fb");
+      }
+      // 抓取 FB 頁面內的聯絡資訊
+      const stillMissing = ["email", "line", "ig", "phone"].filter((ch) => !have.has(ch));
+      if (stillMissing.length > 0) {
+        await emit({ type: "step", text: `${prefix}從 Facebook 頁面抓取聯絡資訊…` });
+        const fbLinks = await scrapeFacebookPage(fbUrl);
+        const fbFound = Object.entries(fbLinks).filter(([ch]) => !have.has(ch));
+        if (fbFound.length > 0) {
+          await emit({ type: "step", text: `${prefix}從 FB 找到 ${fbFound.map(([ch]) => ch).join("、")}` });
+          for (const [ch, value] of fbFound) {
+            await upsertChannel(supabase, brandId, ch, value, fbUrl);
+            added.push(ch);
+            have.add(ch);
+          }
+        } else {
+          await emit({ type: "step", text: `${prefix}FB 頁面未找到額外管道` });
+        }
+      }
+    }
   }
 
   return [...new Set(added)];
