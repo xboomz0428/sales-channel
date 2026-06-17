@@ -12,7 +12,7 @@ export async function GET() {
       { data: brandChannels },
       { data: govRecords },
     ] = await Promise.all([
-      supabase.from("brands").select("id, name, status, industry, city"),
+      supabase.from("brands").select("id, name, status, industry"),
       supabase.from("opportunities").select("stage, est_annual_value, probability"),
       supabase
         .from("care_plans")
@@ -85,10 +85,8 @@ export async function GET() {
         weighted: pipelineMap[s].weighted,
       }));
 
-    // 地圖 pins
-    const pins = (allBrands || [])
-      .filter((b: any) => b.city && b.industry)
-      .map((b: any) => ({ brand: b.name as string, industry: b.industry as string, city: b.city as string }));
+    // 地圖 pins（品牌表無 city 欄位，從 stores 取）
+    const pins: { brand: string; industry: string; city: string }[] = [];
 
     // 產業分佈
     const industries = Object.entries(industryMap)
