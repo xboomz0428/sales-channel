@@ -122,33 +122,39 @@ async function findTaxIdOnWebsite(website: string): Promise<string | null> {
 }
 
 // ── Step 0B：Google CSE 找公司名/統編 ────────────────────────────────────────
-async function googleCseFind(
-  brandName: string,
+async function googleCseFindOne(
+  q: string,
   apiKey: string,
   cseId: string
 ): Promise<{ taxId?: string; companyName?: string } | null> {
   try {
-    const q = encodeURIComponent(`"${brandName.slice(0, 10)}" 統一編號 公司登記`);
-    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cseId}&q=${q}&num=5&hl=zh-TW&gl=tw`;
+    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cseId}&q=${encodeURIComponent(`"${q}" 統一編號 公司登記`)}&num=5&hl=zh-TW&gl=tw`;
     const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
     logApiUsage("cse", 1);
     if (!res.ok) return null;
     const data = (await res.json()) as { error?: unknown; items?: { title?: unknown; snippet?: unknown }[] };
     if (data.error) return null;
-    const text = (data.items || [])
-      .map((i) => `${i.title || ""} ${i.snippet || ""}`)
-      .join(" ");
-
+    const text = (data.items || []).map((i) => `${i.title || ""} ${i.snippet || ""}`).join(" ");
     const taxMatch = text.match(/統[一]?編號?[：:\s]{0,3}(\d{8})/);
     if (taxMatch?.[1]) return { taxId: taxMatch[1] };
-
     const nameMatch = text.match(/[一-鿿]{2,15}(?:股份)?有限公司/);
     if (nameMatch?.[0]) return { companyName: nameMatch[0] };
-
     return null;
   } catch {
     return null;
   }
+}
+
+async function googleCseFind(
+  brandName: string,
+  apiKey: string,
+  cseId: string
+): Promise<{ taxId?: string; companyName?: string; query?: string } | null> {
+  for (const q of getNameVariants(brandName)) {
+    const result = await googleCseFindOne(q, apiKey, cseId);
+    if (result) return { ...result, query: q };
+  }
+  return null;
 }
 
 // ── Step 0C-1：mygov.tw（統編快搜）直接查詢 ────────────────────────────────────
@@ -197,17 +203,22 @@ async function fetchMygovSearch(query: string): Promise<GcisCompany | null> {
   }
 }
 
-// 漸進式 mygov 搜尋：全名 → 前10字 → 前7字 → 前5字 → 去通路詞
-async function searchMygov(brandName: string): Promise<GcisCompany | null> {
-  const rawName = brandName.split(/[｜|│]/)[0].trim();
-  const tries: string[] = [rawName];
-  if (rawName.length > 10) tries.push(rawName.slice(0, 10));
-  if (rawName.length > 7) tries.push(rawName.slice(0, 7));
-  if (rawName.length > 5) tries.push(rawName.slice(0, 5));
-  const stripped = rawName.replace(VENUE_RE, "").trim();
-  if (stripped.length >= 2 && stripped !== rawName && !tries.includes(stripped)) tries.push(stripped);
+// 共用：從品牌名產生漸進搜尋變體（全名 → 前10字 → 前7字 → 前5字 → 去通路詞）
+function getNameVariants(brandName: string): string[] {
+  const raw = brandName.split(/[｜|│]/)[0].trim();
+  const seen = new Set<string>();
+  const push = (s: string) => { if (s.length >= 2 && !seen.has(s)) { seen.add(s); result.push(s); } };
+  const result: string[] = [];
+  push(raw);
+  if (raw.length > 10) push(raw.slice(0, 10));
+  if (raw.length > 7) push(raw.slice(0, 7));
+  if (raw.length > 5) push(raw.slice(0, 5));
+  push(raw.replace(VENUE_RE, "").trim());
+  return result;
+}
 
-  for (const q of tries) {
+async function searchMygov(brandName: string): Promise<GcisCompany | null> {
+  for (const q of getNameVariants(brandName)) {
     const result = await fetchMygovSearch(q);
     if (result) return result;
   }
@@ -217,14 +228,12 @@ async function searchMygov(brandName: string): Promise<GcisCompany | null> {
 // ── Step 0C-2：twincn.com（台灣公司網）直接查詢 ──────────────────────────────────
 // 1) Lq.aspx?q=品牌名 → 從搜尋結果取得統編（item.aspx?no=XXXXXXXX）
 // 2) item.aspx?no=統編 → 從 meta tags 取得公司名、地址、稅籍狀態
-async function searchTwincn(
-  brandName: string
+async function fetchTwincnSearch(
+  q: string,
+  ua: string
 ): Promise<{ taxId?: string; companyName?: string; address?: string } | null> {
-  const ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
   try {
-    // Step 1: 搜尋品牌名，取得統編
-    const q = encodeURIComponent(brandName.slice(0, 20));
-    const searchRes = await fetch(`https://twincn.com/Lq.aspx?q=${q}`, {
+    const searchRes = await fetch(`https://twincn.com/Lq.aspx?q=${encodeURIComponent(q)}`, {
       headers: { "User-Agent": ua },
       signal: AbortSignal.timeout(8000),
       redirect: "follow",
@@ -232,12 +241,10 @@ async function searchTwincn(
     if (!searchRes.ok) return null;
     const searchHtml = await searchRes.text();
 
-    // 從搜尋結果擷取 item.aspx?no=XXXXXXXX
     const noMatches = [...searchHtml.matchAll(/item\.aspx\?no=(\d{8})/g)];
     if (noMatches.length === 0) return null;
     const taxId = noMatches[0][1];
 
-    // Step 2: 查詳情頁 meta tags
     const detailRes = await fetch(`https://twincn.com/item.aspx?no=${taxId}`, {
       headers: { "User-Agent": ua },
       signal: AbortSignal.timeout(8000),
@@ -246,24 +253,30 @@ async function searchTwincn(
     if (!detailRes.ok) return { taxId };
     const detailHtml = await detailRes.text();
 
-    // 解析 meta content: "公司名,統編:XXXXXXXX,公司所在地:地址"
     const metaMatch = detailHtml.match(/content="([^"]*統編[^"]*)"/);
     const result: { taxId: string; companyName?: string; address?: string } = { taxId };
-
     if (metaMatch?.[1]) {
       const meta = metaMatch[1];
-      // 公司名在逗號之前
       const nameMatch = meta.match(/^([^,，]+)/);
       if (nameMatch) result.companyName = nameMatch[1].trim();
-      // 地址
       const addrMatch = meta.match(/所在地[：:]([^,，"]+)/);
       if (addrMatch) result.address = addrMatch[1].trim();
     }
-
     return result;
   } catch {
     return null;
   }
+}
+
+async function searchTwincn(
+  brandName: string
+): Promise<{ taxId?: string; companyName?: string; address?: string } | null> {
+  const ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+  for (const q of getNameVariants(brandName)) {
+    const result = await fetchTwincnSearch(q, ua);
+    if (result) return result;
+  }
+  return null;
 }
 
 // 從 stores/brand_channels 提取第一個網站 URL
@@ -276,31 +289,41 @@ function extractWebsite(b: {
   return ch || st || null;
 }
 
+type EmitStep = (text: string) => void;
+
 async function matchBrand(
   supabase: SupabaseServerClient,
-  brand: { id: string; name: string; brand_key?: string | null; tax_id?: string | null; website?: string | null }
+  brand: { id: string; name: string; brand_key?: string | null; tax_id?: string | null; website?: string | null },
+  emit?: EmitStep
 ) {
+  const step = (text: string) => emit?.(text);
   let source = "gcis_company";
   let candidates: GcisCompany[] = [];
   let resolvedTaxId = brand.tax_id || null;
 
   // ── 已有統編：直接查 ─────────────────────────────────
   if (resolvedTaxId) {
+    step(`[GCIS] 已有統編 ${resolvedTaxId}，直接查詢…`);
     candidates = await searchByTaxId(resolvedTaxId);
   }
 
   // ── Step 1：mygov.tw（統編快搜，漸進式名稱搜尋）────────
   if (candidates.length === 0) {
+    step(`[mygov.tw] 搜尋「${brand.name}」…`);
     const mygovResult = await searchMygov(brand.name);
     if (mygovResult) {
       candidates = [mygovResult];
       resolvedTaxId = mygovResult.Business_Accounting_NO;
       source = "mygov";
+      step(`[mygov.tw] ✓ 命中 ${mygovResult.Company_Name}（${resolvedTaxId}）`);
+    } else {
+      step(`[mygov.tw] 未找到`);
     }
   }
 
   // ── Step 2：twincn.com ─────────────────────────────
   if (candidates.length === 0) {
+    step(`[twincn.com] 搜尋「${brand.name}」…`);
     const twincnResult = await searchTwincn(brand.name);
     if (twincnResult?.taxId) {
       const taxCands = await searchByTaxId(twincnResult.taxId);
@@ -308,6 +331,7 @@ async function matchBrand(
         candidates = taxCands;
         resolvedTaxId = twincnResult.taxId;
         source = "twincn";
+        step(`[twincn.com] ✓ 命中 ${taxCands[0].Company_Name}（${resolvedTaxId}）`);
       } else {
         candidates = [{
           Business_Accounting_NO: twincnResult.taxId,
@@ -316,19 +340,27 @@ async function matchBrand(
         }];
         resolvedTaxId = twincnResult.taxId;
         source = "twincn";
+        step(`[twincn.com] ✓ 統編 ${resolvedTaxId}（無 GCIS 詳情）`);
       }
+    } else {
+      step(`[twincn.com] 未找到`);
     }
   }
 
   // ── Step 3：爬官網找統一編號 ──────────────────────────
   if (!resolvedTaxId && brand.website && candidates.length === 0) {
+    step(`[官網爬蟲] 掃描 ${brand.website}…`);
     const found = await findTaxIdOnWebsite(brand.website);
     if (found) {
+      step(`[官網爬蟲] ✓ 找到統編 ${found}，查詢 GCIS…`);
       const taxCands = await searchByTaxId(found);
       if (taxCands.length > 0) {
         candidates = taxCands;
         resolvedTaxId = found;
+        step(`[官網爬蟲] ✓ 命中 ${taxCands[0].Company_Name}`);
       }
+    } else {
+      step(`[官網爬蟲] 未找到統編`);
     }
   }
 
@@ -336,42 +368,44 @@ async function matchBrand(
   const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
   const cseId = process.env.GOOGLE_CSE_ID;
   if (candidates.length === 0 && googleApiKey && cseId) {
+    step(`[Google CSE] 漸進搜尋「${brand.name}」統編…`);
     const cseResult = await googleCseFind(brand.name, googleApiKey, cseId);
     if (cseResult?.taxId) {
+      step(`[Google CSE] ✓ 搜尋詞「${cseResult.query}」找到統編 ${cseResult.taxId}，查詢 GCIS…`);
       const taxCands = await searchByTaxId(cseResult.taxId);
       if (taxCands.length > 0) {
         candidates = taxCands;
         resolvedTaxId = cseResult.taxId;
+        step(`[Google CSE] ✓ 命中 ${taxCands[0].Company_Name}`);
       }
     } else if (cseResult?.companyName) {
+      step(`[Google CSE] 搜尋詞「${cseResult.query}」找到公司名「${cseResult.companyName}」，查詢 GCIS…`);
       candidates = await searchByName(cseResult.companyName.slice(0, 8));
+      if (candidates.length > 0) step(`[Google CSE] ✓ GCIS 命中 ${candidates[0].Company_Name}`);
+    } else {
+      step(`[Google CSE] 未找到`);
     }
   }
 
   // ── Step 5：漸進式 GCIS 名稱搜尋 ─────────────────────
   if (candidates.length === 0) {
-    const rawName = (brand.brand_key || brand.name).split(/[｜|│]/)[0].trim();
-
-    // 試 5 字
-    candidates = await searchByName(rawName.slice(0, 5));
-
-    // 去通路詞再試
-    if (candidates.length === 0) {
-      const stripped = rawName.replace(VENUE_RE, "").trim();
-      if (stripped.length >= 2 && stripped !== rawName) {
-        candidates = await searchByName(stripped.slice(0, 5));
+    const baseName = brand.brand_key || brand.name;
+    for (const q of getNameVariants(baseName)) {
+      step(`[GCIS] 名稱搜尋「${q}」…`);
+      candidates = await searchByName(q);
+      if (candidates.length > 0) {
+        step(`[GCIS] ✓ 命中 ${candidates[0].Company_Name}`);
+        break;
       }
     }
 
-    // 試 3 字
-    if (candidates.length === 0 && rawName.length > 3) {
-      candidates = await searchByName(rawName.slice(0, 3));
-    }
-
-    // Fallback：本地稅籍（獨資/合夥商號）
     if (candidates.length === 0) {
+      const rawName = baseName.split(/[｜|│]/)[0].trim();
+      step(`[財政部稅籍] 查詢「${rawName.slice(0, 5)}」（獨資/合夥商號）…`);
       candidates = await searchRegistry(supabase, rawName.slice(0, 5));
       source = "fia_registry";
+      if (candidates.length > 0) step(`[財政部稅籍] ✓ 命中 ${candidates[0].Company_Name}`);
+      else step(`[財政部稅籍] 未找到`);
     }
   }
 
@@ -521,7 +555,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 單一品牌比對（含 website 取得）
+    // 單一品牌比對（串流 NDJSON）
     if (body.brand_id) {
       const { data: brand, error } = await supabase
         .from("brands")
@@ -532,11 +566,30 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: false, error: "品牌不存在" }, { status: 404 });
       }
       const website = extractWebsite(brand as unknown as { stores?: { website?: string | null }[]; brand_channels?: { channel: string; value: string }[] });
-      const result = await matchBrand(supabase, { ...brand, website });
-      return NextResponse.json({ success: true, data: result });
+
+      const stream = new TransformStream();
+      const writer = stream.writable.getWriter();
+      const enc = new TextEncoder();
+      const send = (obj: object) => writer.write(enc.encode(JSON.stringify(obj) + "\n"));
+
+      (async () => {
+        try {
+          send({ type: "step", text: `開始比對「${brand.name}」…` });
+          const result = await matchBrand(supabase, { ...brand, website }, (text) => send({ type: "step", text }));
+          send({ type: "done", data: result });
+        } catch (e) {
+          send({ type: "error", text: e instanceof Error ? e.message : "比對失敗" });
+        } finally {
+          writer.close();
+        }
+      })();
+
+      return new Response(stream.readable, {
+        headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "X-Accel-Buffering": "no" },
+      });
     }
 
-    // 批次比對：缺統編的品牌（GCIS 有限流，每筆間隔 400ms）
+    // 批次比對（串流 NDJSON）
     if (body.all) {
       const industry = body.industry ? String(body.industry) : null;
       let brandQuery = supabase
@@ -546,16 +599,37 @@ export async function POST(request: NextRequest) {
       if (industry) brandQuery = brandQuery.ilike("industry", `%${industry}%`);
       const { data: brands } = await brandQuery;
 
-      const results = [];
-      for (const b of brands || []) {
-        const website = extractWebsite(b as unknown as { stores?: { website?: string | null }[]; brand_channels?: { channel: string; value: string }[] });
-        results.push(await matchBrand(supabase, { ...b, website }));
-        await new Promise((r) => setTimeout(r, 400));
-      }
-      const matched = results.filter((r) => r.matched).length;
-      return NextResponse.json({
-        success: true,
-        data: { total: results.length, matched, low_confidence: results.length - matched, results },
+      const stream = new TransformStream();
+      const writer = stream.writable.getWriter();
+      const enc = new TextEncoder();
+      const send = (obj: object) => writer.write(enc.encode(JSON.stringify(obj) + "\n"));
+
+      (async () => {
+        const list = brands || [];
+        send({ type: "step", text: `共 ${list.length} 個品牌待比對…` });
+        const results = [];
+        for (let i = 0; i < list.length; i++) {
+          const b = list[i];
+          send({ type: "brand", text: `[${i + 1}/${list.length}] ${b.name}` });
+          const website = extractWebsite(b as unknown as { stores?: { website?: string | null }[]; brand_channels?: { channel: string; value: string }[] });
+          try {
+            const r = await matchBrand(supabase, { ...b, website }, (text) => send({ type: "step", text }));
+            results.push(r);
+            const ok = r.matched;
+            send({ type: "store", ok, text: ok ? `  ✓ ${r.registered_name}（${r.tax_id}）[${r.source}]` : `  ✗ ${b.name} 未比對到` });
+          } catch (e) {
+            results.push({ brand: b.name, matched: false });
+            send({ type: "store", ok: false, text: `  ✗ ${b.name} 錯誤：${e instanceof Error ? e.message : "失敗"}` });
+          }
+          await new Promise((r) => setTimeout(r, 400));
+        }
+        const matched = results.filter((r) => r.matched).length;
+        send({ type: "done", data: { total: results.length, matched, low_confidence: results.length - matched, results } });
+        writer.close();
+      })();
+
+      return new Response(stream.readable, {
+        headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "X-Accel-Buffering": "no" },
       });
     }
 

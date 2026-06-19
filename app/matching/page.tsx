@@ -436,14 +436,17 @@ function GovManualSearch({ brandId, onDone }: { brandId: string; onDone: () => v
 
   return (
     <div style={{ marginTop: 10, padding: "14px 16px", borderRadius: 13, background: "#F0EBF8", border: "1px solid #DDD5EB" }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: "#7B6E99", marginBottom: 10 }}>🔍 手動查詢工商登記</div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#7B6E99", marginBottom: 6 }}>🔍 手動查詢工商登記</div>
+      <div style={{ fontSize: 11, color: "#9D8EC1", marginBottom: 10 }}>
+        輸入 8 位統一編號可直接查詢並寫入，或輸入公司名稱關鍵字搜尋候選清單
+      </div>
       <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && !searching && search()}
-          placeholder="輸入統一編號（8位數）或公司名稱關鍵字…"
-          style={{ flex: 1, padding: "8px 11px", borderRadius: 9, border: "1px solid #DDD5EB", background: "white", fontSize: 13, color: C.text, outline: "none" }}
+          placeholder="統一編號（8碼）或公司名稱…"
+          style={{ flex: 1, padding: "8px 11px", borderRadius: 9, border: `2px solid ${/^\d{8}$/.test(query.trim()) ? "#7B6E99" : "#DDD5EB"}`, background: "white", fontSize: 13, color: C.text, outline: "none", transition: "border-color 150ms" }}
         />
         <button
           onClick={search}
@@ -1446,6 +1449,104 @@ function WebsiteScraperPanel({ onClose, onDone, industries }: { onClose: () => v
   );
 }
 
+// ── 工商登記批次比對面板 ──────────────────────────────
+function GovBatchPanel({ industry, onClose, onDone }: { industry?: string | null; onClose: () => void; onDone?: () => void }) {
+  const [running, setRunning] = useState(false);
+  const [steps, setSteps] = useState<{ type: string; text: string; ok?: boolean }[]>([]);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const logRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [steps]);
+
+  const run = async () => {
+    if (running) return;
+    setRunning(true);
+    setResult(null);
+    setSteps([]);
+    try {
+      const body: Record<string, unknown> = { all: true };
+      if (industry) body.industry = industry;
+      const res = await fetch("/api/gov/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok || !res.body) { setResult({ ok: false, text: "比對失敗" }); setRunning(false); return; }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n"); buf = lines.pop() ?? "";
+        for (const line of lines) {
+          const t = line.trim(); if (!t) continue;
+          try {
+            const evt = JSON.parse(t);
+            if (evt.type === "done") {
+              const d = evt.data;
+              setResult({ ok: true, text: `完成：${d.total} 筆中 ${d.matched} 筆高信心寫入統編，${d.low_confidence} 筆待確認` });
+              onDone?.();
+            } else if (evt.type === "error") {
+              setResult({ ok: false, text: evt.text });
+            } else {
+              setSteps((prev) => [...prev, { type: evt.type, text: evt.text, ok: evt.ok }]);
+            }
+          } catch {}
+        }
+      }
+    } catch { setResult({ ok: false, text: "網路錯誤" }); }
+    setRunning(false);
+  };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(46,69,53,.4)", backdropFilter: "blur(2px)" }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 510, width: "94vw", maxWidth: 520, maxHeight: "82vh", background: C.surface, borderRadius: 20, boxShadow: "0 24px 64px rgba(21,20,26,.22)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ padding: "18px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>🏛 工商登記批次比對</div>
+            <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
+              依序嘗試：mygov.tw → twincn.com → 官網爬蟲 → Google CSE → GCIS API → 財政部稅籍
+              {industry ? `（篩選：${industry}）` : "（全部缺統編品牌）"}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: C.muted, fontSize: 24, lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px" }}>
+          <button onClick={run} disabled={running} className="pressable"
+            style={{ width: "100%", padding: 13, borderRadius: 12, border: "none", background: running ? C.surf2 : "#7B6E99", color: running ? C.muted : "white", fontWeight: 700, fontSize: 15, cursor: running ? "default" : "pointer" }}>
+            {running ? <span><span className="spin" style={{ marginRight: 6 }}>↻</span>比對中，請稍候…</span> : "🏛 開始批次比對工商登記"}
+          </button>
+          {steps.length > 0 && (
+            <div ref={logRef} style={{ marginTop: 12, maxHeight: 340, overflowY: "auto", background: "#0e1a11", borderRadius: 10, padding: "10px 14px", fontFamily: "monospace", fontSize: 12, lineHeight: 1.75 }}>
+              {steps.map((s, i) => (
+                <div key={i} style={{
+                  color: s.type === "brand" ? "#c5b8e6"
+                    : s.type === "store" ? (s.ok ? "#5be585" : "#888")
+                    : s.text?.startsWith("[") ? "#ffd27f"
+                    : "#9dbeaa",
+                }}>
+                  {s.text}
+                </div>
+              ))}
+              {running && <div style={{ color: "#5be585", opacity: 0.7 }}>▌</div>}
+            </div>
+          )}
+          {result && (
+            <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 10, background: result.ok ? C.successBg : C.dangerBg, fontSize: 13, color: result.ok ? C.success : C.danger, lineHeight: 1.6 }}>
+              {result.ok ? "✓ " : "✕ "}{result.text}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── 主頁面 ───────────────────────────────────────────
 export default function MatchingPage() {
   const [brands, setBrands] = useState<ScrapeBrand[]>([]);
@@ -1478,21 +1579,19 @@ export default function MatchingPage() {
   const [jobPanelOpen, setJobPanelOpen] = useState(false);
   const [websitePanelOpen, setWebsitePanelOpen] = useState(false);
   const [placesRefreshOpen, setPlacesRefreshOpen] = useState(false);
+  const [govBatchOpen, setGovBatchOpen] = useState(false);
   const [bulkRunning, setBulkRunning] = useState<string | null>(null);
   const [bulkMsg, setBulkMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [lastRunAll, setLastRunAll] = useState<string | null>(null);
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
-  // 批次政府登記比對 / 管道補齊 / 連鎖偵測
-  const runBulk = async (kind: "gov" | "channels" | "chains", industry?: string | null) => {
+  // 批次管道補齊 / 連鎖偵測（gov 已改用 GovBatchPanel）
+  const runBulk = async (kind: "channels" | "chains", industry?: string | null) => {
     if (bulkRunning) return;
     setBulkRunning(kind);
     setBulkMsg(null);
     try {
-      const url =
-        kind === "gov" ? "/api/gov/lookup"
-        : kind === "chains" ? "/api/brands/detect-chains"
-        : "/api/enrich/channels";
+      const url = kind === "chains" ? "/api/brands/detect-chains" : "/api/enrich/channels";
       const reqBody: Record<string, unknown> = { all: true };
       if (industry && kind !== "chains") reqBody.industry = industry;
       const res = await fetch(url, {
@@ -1507,9 +1606,7 @@ export default function MatchingPage() {
         setBulkMsg({
           ok: true,
           text:
-            kind === "gov"
-              ? `工商登記比對完成${indsuffix}：${d.total} 筆中 ${d.matched} 筆高信心回寫（統編/負責人/資本額），${d.low_confidence} 筆待人工確認`
-              : kind === "chains"
+            kind === "chains"
               ? `連鎖偵測完成：掃描 ${d.total_brands} 個品牌，識別 ${d.chains_found} 個連鎖品牌（全國連鎖 ${d.groups["全國連鎖"]}、區域連鎖 ${d.groups["區域連鎖"]}、多據點 ${d.groups["多據點"]}），已提升優先分`
               : `管道補齊完成${indsuffix}：${d.total} 個品牌中 ${d.enriched} 個取得官網/電話/地圖/社群連結`,
         });
@@ -1546,8 +1643,7 @@ export default function MatchingPage() {
     downloadCSV("HeroHerb_採集狀態.csv", hdrs, rows);
   };
 
-  // 真實採集：gov → 工商登記比對；其他來源 → 管道補齊
-  // line/fb/ig/map 共用同一支 enrich API，同品牌同時只發一次
+  // 真實採集：gov / channels / map 全部走 NDJSON 串流
   const inflight = useRef<Set<string>>(new Set());
   const runRealTask = async (brandId: string, srcKey: string) => {
     setBrands((prev) =>
@@ -1567,11 +1663,7 @@ export default function MatchingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ brand_id: brandId }),
       });
-      // gov 回傳 JSON；channels/map 回傳 NDJSON 串流，需消耗完畢才能確保 DB 寫入完成
-      if (srcKey === "gov") {
-        const json = await res.json();
-        if (!json.success) taskError = json.error || "比對失敗";
-      } else if (res.body) {
+      if (res.body) {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buf = "";
@@ -1740,12 +1832,11 @@ export default function MatchingPage() {
           {bulkRunning === "chains" ? <span className="spin">↻</span> : "🔗"} 連鎖偵測
         </button>
         <button
-          onClick={() => runBulk("gov", filterIndustry)}
-          disabled={!!bulkRunning}
+          onClick={() => setGovBatchOpen(true)}
           className="pressable"
-          style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid #7B6E9960`, background: "#EAE5F0", color: "#7B6E99", fontSize: 13, fontWeight: 700, cursor: bulkRunning ? "default" : "pointer", flexShrink: 0 }}
+          style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid #7B6E9960`, background: "#EAE5F0", color: "#7B6E99", fontSize: 13, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}
         >
-          {bulkRunning === "gov" ? <span className="spin">↻</span> : "🏛"} 工商登記比對{filterIndustry ? `（${filterIndustry}）` : ""}
+          🏛 工商登記比對{filterIndustry ? `（${filterIndustry}）` : ""}
         </button>
         <button
           onClick={() => runBulk("channels", filterIndustry)}
@@ -1883,7 +1974,7 @@ export default function MatchingPage() {
           }}
           onRunAll={async () => {
             if (usingApi) {
-              await runBulk("gov", filterIndustry);
+              setGovBatchOpen(true);
               await runBulk("channels", filterIndustry);
             } else {
               visibleBrands.forEach((b) => Object.keys(b.tasks).forEach((k) => runTask(b.id, k)));
@@ -1898,6 +1989,7 @@ export default function MatchingPage() {
       {jobPanelOpen && <PlacesJobPanel onClose={() => setJobPanelOpen(false)} onDone={loadBrands} />}
       {websitePanelOpen && <WebsiteScraperPanel onClose={() => setWebsitePanelOpen(false)} onDone={loadBrands} industries={availableIndustries} />}
       {placesRefreshOpen && <PlacesRefreshPanel onClose={() => setPlacesRefreshOpen(false)} onDone={loadBrands} />}
+      {govBatchOpen && <GovBatchPanel industry={filterIndustry} onClose={() => setGovBatchOpen(false)} onDone={loadBrands} />}
     </>
   );
 }
