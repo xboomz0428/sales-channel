@@ -94,31 +94,112 @@ async function searchRegistry(supabase: SupabaseServerClient, name: string): Pro
   }));
 }
 
-// ── Step 0A：爬官網找統一編號 ─────────────────────────────────────────────────
-async function findTaxIdOnWebsite(website: string): Promise<string | null> {
+// ── Step 0A：爬官網 — 同時抓統一編號 + 聯絡管道 ──────────────────────────────
+const WEBSITE_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+const EMAIL_JUNK = /^(?:noreply|no-reply|support|webmaster|admin|postmaster)/i;
+const FB_JUNK    = /^(?:sharer|share\.php|dialog|plugins|help|policies|legal|login|l\.php|photo|video|events|groups|pages|permalink|profile\.php|messages)/i;
+const IG_JUNK    = /^(?:p|explore|accounts|stories|reels|tv|a|static)/i;
+
+interface WebsiteScrape {
+  taxId: string | null;
+  channels: Record<string, string>; // channel → value
+}
+
+async function scrapeWebsite(website: string): Promise<WebsiteScrape> {
+  const out: WebsiteScrape = { taxId: null, channels: {} };
   try {
     const res = await fetch(website, {
-      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
-      signal: AbortSignal.timeout(6000),
+      headers: { "User-Agent": WEBSITE_UA, "Accept": "text/html,*/*;q=0.8" },
+      signal: AbortSignal.timeout(8000),
       redirect: "follow",
     });
-    if (!res.ok) return null;
+    if (!res.ok) return out;
     const ct = res.headers.get("content-type") || "";
-    if (!ct.includes("html")) return null;
-    const html = (await res.text()).slice(0, 300_000);
-    const patterns = [
+    if (!ct.includes("html")) return out;
+
+    const buf = await res.arrayBuffer();
+    let charset = (ct.match(/charset=([^\s;]+)/i) ?? [])[1] ?? "utf-8";
+    charset = charset.toLowerCase().replace(/^x-/, "");
+    if (charset === "big5-hkscs") charset = "big5";
+    let html: string;
+    try { html = new TextDecoder(charset, { fatal: false }).decode(buf).slice(0, 400_000); }
+    catch { html = new TextDecoder("utf-8", { fatal: false }).decode(buf).slice(0, 400_000); }
+
+    // 統一編號
+    for (const p of [
       /統[一]?編號?[：:\s]{0,3}(\d{8})/,
       /稅籍編號[：:\s]{0,3}(\d{8})/,
       /統\s*編[：:\s]{0,3}(\d{8})/,
       /公司統編[：:\s]{0,3}(\d{8})/,
       /GUI[：:\s]{0,5}(\d{8})/i,
-    ];
-    for (const p of patterns) {
+    ]) {
       const m = html.match(p);
-      if (m?.[1] && /^\d{8}$/.test(m[1])) return m[1];
+      if (m?.[1] && /^\d{8}$/.test(m[1])) { out.taxId = m[1]; break; }
+    }
+
+    // Email
+    for (const m of html.matchAll(/\b([A-Za-z0-9_.+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b/g)) {
+      const e = m[1];
+      if (!EMAIL_JUNK.test(e.split("@")[0]) && !/\.(png|jpg|gif|svg|webp|ico)$/i.test(e)) {
+        out.channels.email = e; break;
+      }
+    }
+
+    // 電話（tel: href 優先，再 regex）
+    const telHref = html.match(/href=["']tel:([+0-9\-\s()]+)["']/i);
+    if (telHref) {
+      const n = telHref[1].replace(/[\s\-().+]/g, "").replace(/^886/, "0");
+      if (/^0[2-9]/.test(n)) out.channels.phone = n;
+    }
+    if (!out.channels.phone) {
+      const pm = html.match(/0[2-8]-?\d{3,4}-?\d{4}|09\d{2}-?\d{3}-?\d{3}/);
+      if (pm) out.channels.phone = pm[0];
+    }
+
+    // LINE
+    const lineUrl = html.match(/https?:\/\/(?:line\.me\/(?:R\/)?(?:ti\/p\/|ti\/g2\/)[@%\w\-.]+|lin\.ee\/\w+|page\.line\.me\/[\w.\-]+)/i);
+    if (lineUrl) out.channels.line = lineUrl[0];
+    if (!out.channels.line) {
+      const lineAt = html.match(/(?:line|賴|加好友|官方帳號)[^\n@＠]{0,40}[@＠]([\w.\-]{3,20})/i);
+      if (lineAt) out.channels.line_id = "@" + lineAt[1];
+    }
+
+    // Facebook
+    for (const m of html.matchAll(/https?:\/\/(?:www\.|m\.)?facebook\.com\/([\w.\-]{3,80})/gi)) {
+      const path = m[1].split(/[?#]/)[0].replace(/\/$/, "");
+      if (path && !FB_JUNK.test(path)) { out.channels.fb = `https://facebook.com/${path}`; break; }
+    }
+
+    // Instagram
+    for (const m of html.matchAll(/https?:\/\/(?:www\.)?instagram\.com\/([\w.\-]{1,30})/gi)) {
+      const user = m[1].split(/[?#]/)[0].replace(/\/$/, "");
+      if (user && !IG_JUNK.test(user)) { out.channels.ig = `https://instagram.com/${user}`; break; }
     }
   } catch {}
-  return null;
+  return out;
+}
+
+// 將官網採集到的管道寫入 brand_channels（只補缺失）
+async function saveWebsiteChannels(
+  supabase: SupabaseServerClient,
+  brandId: string,
+  channels: Record<string, string>,
+  sourceUrl: string
+): Promise<string[]> {
+  if (Object.keys(channels).length === 0) return [];
+  const { data: exist } = await supabase
+    .from("brand_channels").select("channel").eq("brand_id", brandId);
+  const have = new Set((exist ?? []).map((r) => r.channel));
+  const saved: string[] = [];
+  for (const [ch, value] of Object.entries(channels)) {
+    if (have.has(ch)) continue;
+    const { error } = await supabase.from("brand_channels").insert({
+      brand_id: brandId, channel: ch, value,
+      source_url: sourceUrl, fetched_at: new Date().toISOString(),
+    });
+    if (!error) saved.push(ch);
+  }
+  return saved;
 }
 
 // ── Step 0B：Google CSE 找公司名/統編 ────────────────────────────────────────
@@ -294,7 +375,7 @@ type EmitStep = (text: string) => void;
 async function matchBrand(
   supabase: SupabaseServerClient,
   brand: { id: string; name: string; brand_key?: string | null; tax_id?: string | null; website?: string | null },
-  emit?: EmitStep
+  emit?: EmitStep,
 ) {
   const step = (text: string) => emit?.(text);
   let source = "gcis_company";
@@ -347,19 +428,26 @@ async function matchBrand(
     }
   }
 
-  // ── Step 3：爬官網找統一編號 ──────────────────────────
-  if (!resolvedTaxId && brand.website && candidates.length === 0) {
+  // ── Step 3：爬官網 — 統編 + 聯絡管道 ────────────────
+  if (brand.website && candidates.length === 0) {
     step(`[官網爬蟲] 掃描 ${brand.website}…`);
-    const found = await findTaxIdOnWebsite(brand.website);
-    if (found) {
-      step(`[官網爬蟲] ✓ 找到統編 ${found}，查詢 GCIS…`);
-      const taxCands = await searchByTaxId(found);
+    const scraped = await scrapeWebsite(brand.website);
+
+    // 聯絡管道：寫入 DB，無論統編是否找到
+    if (Object.keys(scraped.channels).length > 0) {
+      const saved = await saveWebsiteChannels(supabase, brand.id, scraped.channels, brand.website);
+      if (saved.length > 0) step(`[官網爬蟲] 順帶找到聯絡管道：${saved.join("、")}，已寫入`);
+    }
+
+    if (scraped.taxId && !resolvedTaxId) {
+      step(`[官網爬蟲] ✓ 找到統編 ${scraped.taxId}，查詢 GCIS…`);
+      const taxCands = await searchByTaxId(scraped.taxId);
       if (taxCands.length > 0) {
         candidates = taxCands;
-        resolvedTaxId = found;
+        resolvedTaxId = scraped.taxId;
         step(`[官網爬蟲] ✓ 命中 ${taxCands[0].Company_Name}`);
       }
-    } else {
+    } else if (!scraped.taxId && candidates.length === 0) {
       step(`[官網爬蟲] 未找到統編`);
     }
   }
@@ -589,15 +677,29 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 批次比對（串流 NDJSON）
-    if (body.all) {
-      const industry = body.industry ? String(body.industry) : null;
-      let brandQuery = supabase
-        .from("brands")
-        .select("id, name, brand_key, tax_id, brand_channels(channel, value), stores(website)")
-        .is("tax_id", null);
-      if (industry) brandQuery = brandQuery.ilike("industry", `%${industry}%`);
-      const { data: brands } = await brandQuery;
+    // 批次比對（串流 NDJSON）— 支援 brand_ids（篩選後）或 all（全部缺統編）
+    if (body.all || (Array.isArray(body.brand_ids) && (body.brand_ids as string[]).length > 0)) {
+      let brands: { id: string; name: string; brand_key?: string | null; tax_id?: string | null; brand_channels?: { channel: string; value: string }[]; stores?: { website?: string | null }[] }[] = [];
+
+      if (Array.isArray(body.brand_ids) && (body.brand_ids as string[]).length > 0) {
+        // 前端傳入指定 ID 清單（篩選後的品牌）— 不限 tax_id 是否存在
+        const ids = (body.brand_ids as string[]).slice(0, 200);
+        const { data } = await supabase
+          .from("brands")
+          .select("id, name, brand_key, tax_id, brand_channels(channel, value), stores(website)")
+          .in("id", ids)
+          .is("tax_id", null); // 仍只對缺統編的執行
+        brands = data ?? [];
+      } else {
+        const industry = body.industry ? String(body.industry) : null;
+        let q = supabase
+          .from("brands")
+          .select("id, name, brand_key, tax_id, brand_channels(channel, value), stores(website)")
+          .is("tax_id", null);
+        if (industry) q = q.ilike("industry", `%${industry}%`);
+        const { data } = await q;
+        brands = data ?? [];
+      }
 
       const stream = new TransformStream();
       const writer = stream.writable.getWriter();
@@ -605,8 +707,8 @@ export async function POST(request: NextRequest) {
       const send = (obj: object) => writer.write(enc.encode(JSON.stringify(obj) + "\n"));
 
       (async () => {
-        const list = brands || [];
-        send({ type: "step", text: `共 ${list.length} 個品牌待比對…` });
+        const list = brands;
+        send({ type: "step", text: `共 ${list.length} 個品牌待比對（缺統編）…` });
         const results = [];
         for (let i = 0; i < list.length; i++) {
           const b = list[i];
@@ -621,7 +723,7 @@ export async function POST(request: NextRequest) {
             results.push({ brand: b.name, matched: false });
             send({ type: "store", ok: false, text: `  ✗ ${b.name} 錯誤：${e instanceof Error ? e.message : "失敗"}` });
           }
-          await new Promise((r) => setTimeout(r, 400));
+          await new Promise((r) => setTimeout(r, 300));
         }
         const matched = results.filter((r) => r.matched).length;
         send({ type: "done", data: { total: results.length, matched, low_confidence: results.length - matched, results } });

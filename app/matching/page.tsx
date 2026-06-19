@@ -1450,7 +1450,7 @@ function WebsiteScraperPanel({ onClose, onDone, industries }: { onClose: () => v
 }
 
 // ── 工商登記批次比對面板 ──────────────────────────────
-function GovBatchPanel({ industry, onClose, onDone }: { industry?: string | null; onClose: () => void; onDone?: () => void }) {
+function GovBatchPanel({ industry, brandIds, onClose, onDone }: { industry?: string | null; brandIds?: string[]; onClose: () => void; onDone?: () => void }) {
   const [running, setRunning] = useState(false);
   const [steps, setSteps] = useState<{ type: string; text: string; ok?: boolean }[]>([]);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
@@ -1466,8 +1466,10 @@ function GovBatchPanel({ industry, onClose, onDone }: { industry?: string | null
     setResult(null);
     setSteps([]);
     try {
-      const body: Record<string, unknown> = { all: true };
-      if (industry) body.industry = industry;
+      const body: Record<string, unknown> =
+        brandIds && brandIds.length > 0
+          ? { brand_ids: brandIds }
+          : { all: true, ...(industry ? { industry } : {}) };
       const res = await fetch("/api/gov/lookup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1511,7 +1513,9 @@ function GovBatchPanel({ industry, onClose, onDone }: { industry?: string | null
             <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>🏛 工商登記批次比對</div>
             <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
               依序嘗試：mygov.tw → twincn.com → 官網爬蟲 → Google CSE → GCIS API → 財政部稅籍
-              {industry ? `（篩選：${industry}）` : "（全部缺統編品牌）"}
+              {brandIds && brandIds.length > 0
+                ? `（目前篩選：${brandIds.length} 個品牌）`
+                : industry ? `（篩選：${industry}）` : "（全部缺統編品牌）"}
             </div>
           </div>
           <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: C.muted, fontSize: 24, lineHeight: 1 }}>×</button>
@@ -1989,7 +1993,7 @@ export default function MatchingPage() {
       {jobPanelOpen && <PlacesJobPanel onClose={() => setJobPanelOpen(false)} onDone={loadBrands} />}
       {websitePanelOpen && <WebsiteScraperPanel onClose={() => setWebsitePanelOpen(false)} onDone={loadBrands} industries={availableIndustries} />}
       {placesRefreshOpen && <PlacesRefreshPanel onClose={() => setPlacesRefreshOpen(false)} onDone={loadBrands} />}
-      {govBatchOpen && <GovBatchPanel industry={filterIndustry} onClose={() => setGovBatchOpen(false)} onDone={loadBrands} />}
+      {govBatchOpen && <GovBatchPanel industry={filterIndustry} brandIds={visibleBrands.map((b) => String(b.id))} onClose={() => setGovBatchOpen(false)} onDone={loadBrands} />}
     </>
   );
 }
