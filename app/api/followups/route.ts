@@ -32,6 +32,13 @@ export async function GET(request: NextRequest) {
       .gte("due_date", today)
       .order("due_date", { ascending: true });
 
+    // 查詢拜訪到期（care_plans.last_contact_date + visit_cycle_days <= today）
+    const { data: visitPlans } = await supabase
+      .from("care_plans")
+      .select(`*, brands(id, name, ${channelSelect})`)
+      .not("visit_cycle_days", "is", null)
+      .not("last_contact_date", "is", null);
+
     // 從 brand_channels 陣列轉成 { channel: value } map
     const toContacts = (brandChannels: { channel: string; value: string }[] | undefined) => {
       const map: Record<string, string> = {};
@@ -93,6 +100,28 @@ export async function GET(request: NextRequest) {
         contacts: toContacts(task.brands?.brand_channels),
         done: task.done,
       })),
+
+      // 拜訪到期
+      ...(visitPlans || [])
+        .filter((plan: any) => {
+          const next = new Date(plan.last_contact_date);
+          next.setDate(next.getDate() + (plan.visit_cycle_days as number));
+          return next <= new Date();
+        })
+        .map((plan: any) => {
+          const daysSince = Math.floor(
+            (Date.now() - new Date(plan.last_contact_date).getTime()) / 86400000
+          );
+          return {
+            id: `visit_${plan.id}`,
+            brand: plan.brands?.name,
+            type: "visit",
+            title: `${plan.tier || ""}級客戶拜訪到期`,
+            desc: `上次聯繫 ${daysSince} 天前（週期 ${plan.visit_cycle_days} 天）`,
+            contacts: toContacts(plan.brands?.brand_channels),
+            done: false,
+          };
+        }),
     ];
 
     return NextResponse.json({
@@ -157,6 +186,17 @@ export async function PATCH(request: NextRequest) {
         .from("opportunities")
         .update({ stage_entered_at: new Date().toISOString() })
         .eq("id", oppId);
+      if (error) throw error;
+      return NextResponse.json({ success: true });
+    }
+
+    // visit_ → 更新 care_plans.last_contact_date，重設拜訪週期計時
+    if (id.startsWith("visit_")) {
+      const planId = id.slice("visit_".length);
+      const { error } = await supabase
+        .from("care_plans")
+        .update({ last_contact_date: today })
+        .eq("id", planId);
       if (error) throw error;
       return NextResponse.json({ success: true });
     }

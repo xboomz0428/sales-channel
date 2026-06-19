@@ -1228,9 +1228,9 @@ function PlacesRefreshPanel({ onClose, onDone }: { onClose: () => void; onDone?:
 }
 
 // ── 官網爬蟲面板 ─────────────────────────────────────
-type ScrapeMode = "limit" | "industry" | "brand";
+type ScrapeMode = "limit" | "industry" | "brand" | "filtered";
 
-function WebsiteScraperPanel({ onClose, onDone, industries }: { onClose: () => void; onDone?: () => void; industries: string[] }) {
+function WebsiteScraperPanel({ onClose, onDone, industries, filterCity, filterIndustry, visibleBrandIds }: { onClose: () => void; onDone?: () => void; industries: string[]; filterCity?: string | null; filterIndustry?: string | null; visibleBrandIds?: string[] }) {
   const [mode, setMode] = useState<ScrapeMode>("limit");
   const [limit, setLimit] = useState(0); // 0 = 全部
   const [industry, setIndustry] = useState("");
@@ -1266,6 +1266,7 @@ function WebsiteScraperPanel({ onClose, onDone, industries }: { onClose: () => v
 
   const buildBody = () => {
     if (mode === "brand") return { brand_ids: [...selectedIds] };
+    if (mode === "filtered") return { brand_ids: visibleBrandIds ?? [] };
     if (mode === "industry") return { all: true, industry }; // 不加 limit，全類別採集
     return limit > 0 ? { all: true, limit } : { all: true }; // limit=0 → 不限制
   };
@@ -1273,12 +1274,14 @@ function WebsiteScraperPanel({ onClose, onDone, industries }: { onClose: () => v
   const canRun = !running && (
     mode === "limit" ||
     (mode === "industry" && industry) ||
-    (mode === "brand" && selectedIds.size > 0)
+    (mode === "brand" && selectedIds.size > 0) ||
+    (mode === "filtered" && (visibleBrandIds?.length ?? 0) > 0)
   );
 
   const runLabel = () => {
     if (running) return "爬取中…";
     if (mode === "brand") return `🌐 爬取已選 ${selectedIds.size} 個品牌`;
+    if (mode === "filtered") return `🌐 爬取篩選中 ${visibleBrandIds?.length ?? 0} 個品牌`;
     if (mode === "industry") return industry ? `🌐 爬取「${industry}」全部品牌` : "請先選擇類別";
     return limit > 0 ? `🌐 開始爬取（${limit} 個品牌）` : "🌐 爬取全部品牌";
   };
@@ -1348,10 +1351,13 @@ function WebsiteScraperPanel({ onClose, onDone, industries }: { onClose: () => v
 
         <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px" }}>
           {/* 模式切換 */}
-          <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
+          <div style={{ display: "flex", gap: 6, marginBottom: 18, flexWrap: "wrap" }}>
             <ModeBtn m="limit" label="依數量" />
             <ModeBtn m="industry" label="依類別" />
             <ModeBtn m="brand" label="指定品牌" />
+            {(filterCity || filterIndustry) && (
+              <ModeBtn m="filtered" label={`依篩選${filterIndustry ? `·${filterIndustry}` : ""}${filterCity ? `·${filterCity}` : ""}（${visibleBrandIds?.length ?? 0}）`} />
+            )}
           </div>
 
           {/* 依數量 */}
@@ -1379,6 +1385,16 @@ function WebsiteScraperPanel({ onClose, onDone, industries }: { onClose: () => v
                   {ind}
                 </button>
               ))}
+            </div>
+          )}
+
+          {/* 依篩選 */}
+          {mode === "filtered" && (
+            <div style={{ marginBottom: 18, padding: "12px 14px", borderRadius: 10, background: "#EDF4F0", border: `1px solid #c2d9ce`, fontSize: 13, color: C.text, lineHeight: 1.7 }}>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>目前篩選條件</div>
+              {filterIndustry && <div>類別：{filterIndustry}</div>}
+              {filterCity && <div>縣市：{filterCity}</div>}
+              <div style={{ marginTop: 4, color: C.muted }}>共 {visibleBrandIds?.length ?? 0} 個品牌符合篩選</div>
             </div>
           )}
 
@@ -1590,14 +1606,17 @@ export default function MatchingPage() {
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   // 批次管道補齊 / 連鎖偵測（gov 已改用 GovBatchPanel）
-  const runBulk = async (kind: "channels" | "chains", industry?: string | null) => {
+  const runBulk = async (kind: "channels" | "chains") => {
     if (bulkRunning) return;
     setBulkRunning(kind);
     setBulkMsg(null);
     try {
       const url = kind === "chains" ? "/api/brands/detect-chains" : "/api/enrich/channels";
-      const reqBody: Record<string, unknown> = { all: true };
-      if (industry && kind !== "chains") reqBody.industry = industry;
+      // channels：傳已篩選品牌 IDs（含縣市+類別過濾），chains：仍用 all:true
+      const reqBody: Record<string, unknown> =
+        kind === "channels"
+          ? { brand_ids: visibleBrands.map((b) => String(b.id)) }
+          : { all: true };
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1606,13 +1625,13 @@ export default function MatchingPage() {
       const json = await res.json();
       if (json.success) {
         const d = json.data;
-        const indsuffix = industry ? `（「${industry}」類）` : "";
+        const filterSuffix = [filterIndustry ? `「${filterIndustry}」類` : "", filterCity ? filterCity : ""].filter(Boolean).join("·");
         setBulkMsg({
           ok: true,
           text:
             kind === "chains"
               ? `連鎖偵測完成：掃描 ${d.total_brands} 個品牌，識別 ${d.chains_found} 個連鎖品牌（全國連鎖 ${d.groups["全國連鎖"]}、區域連鎖 ${d.groups["區域連鎖"]}、多據點 ${d.groups["多據點"]}），已提升優先分`
-              : `管道補齊完成${indsuffix}：${d.total} 個品牌中 ${d.enriched} 個取得官網/電話/地圖/社群連結`,
+              : `管道補齊完成${filterSuffix ? `（${filterSuffix}）` : ""}：${d.total} 個品牌中 ${d.enriched} 個取得官網/電話/地圖/社群連結`,
         });
         loadBrands();
       } else {
@@ -1840,15 +1859,15 @@ export default function MatchingPage() {
           className="pressable"
           style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid #7B6E9960`, background: "#EAE5F0", color: "#7B6E99", fontSize: 13, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}
         >
-          🏛 工商登記比對{filterIndustry ? `（${filterIndustry}）` : ""}
+          🏛 工商登記比對{filterIndustry ? `（${filterIndustry}）` : ""}{filterCity ? `·${filterCity}` : ""}
         </button>
         <button
-          onClick={() => runBulk("channels", filterIndustry)}
+          onClick={() => runBulk("channels")}
           disabled={!!bulkRunning}
           className="pressable"
           style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid #5B7C9960`, background: "#E3EDFB", color: "#5B7C99", fontSize: 13, fontWeight: 700, cursor: bulkRunning ? "default" : "pointer", flexShrink: 0 }}
         >
-          {bulkRunning === "channels" ? <span className="spin">↻</span> : "🔗"} 管道補齊{filterIndustry ? `（${filterIndustry}）` : ""}
+          {bulkRunning === "channels" ? <span className="spin">↻</span> : "🔗"} 管道補齊{filterIndustry ? `（${filterIndustry}）` : ""}{filterCity ? `·${filterCity}` : ""}
         </button>
         <button
           onClick={() => setWebsitePanelOpen(true)}
@@ -1979,7 +1998,7 @@ export default function MatchingPage() {
           onRunAll={async () => {
             if (usingApi) {
               setGovBatchOpen(true);
-              await runBulk("channels", filterIndustry);
+              await runBulk("channels");
             } else {
               visibleBrands.forEach((b) => Object.keys(b.tasks).forEach((k) => runTask(b.id, k)));
             }
@@ -1991,7 +2010,7 @@ export default function MatchingPage() {
       </div>
 
       {jobPanelOpen && <PlacesJobPanel onClose={() => setJobPanelOpen(false)} onDone={loadBrands} />}
-      {websitePanelOpen && <WebsiteScraperPanel onClose={() => setWebsitePanelOpen(false)} onDone={loadBrands} industries={availableIndustries} />}
+      {websitePanelOpen && <WebsiteScraperPanel onClose={() => setWebsitePanelOpen(false)} onDone={loadBrands} industries={availableIndustries} filterCity={filterCity} filterIndustry={filterIndustry} visibleBrandIds={visibleBrands.map((b) => String(b.id))} />}
       {placesRefreshOpen && <PlacesRefreshPanel onClose={() => setPlacesRefreshOpen(false)} onDone={loadBrands} />}
       {govBatchOpen && <GovBatchPanel industry={filterIndustry} brandIds={visibleBrands.map((b) => String(b.id))} onClose={() => setGovBatchOpen(false)} onDone={loadBrands} />}
     </>

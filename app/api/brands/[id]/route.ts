@@ -20,6 +20,7 @@ export async function GET(
       { data: outreach },
       { data: channels },
       { data: stores },
+      { data: carePlan },
     ] = await Promise.all([
       supabase.from("brands").select("*").eq("id", id).single(),
       supabase.from("contacts").select("*").eq("brand_id", id),
@@ -33,6 +34,11 @@ export async function GET(
         .from("stores")
         .select("id, name, city, gmaps_url, phone, website, address")
         .eq("brand_id", id),
+      supabase
+        .from("care_plans")
+        .select("*")
+        .eq("brand_id", id)
+        .maybeSingle(),
     ]);
 
     if (brandError) {
@@ -50,6 +56,7 @@ export async function GET(
         outreach: outreach || [],
         channels: channels || [],
         stores: stores || [],
+        care_plan: carePlan || null,
       },
     });
   } catch (error) {

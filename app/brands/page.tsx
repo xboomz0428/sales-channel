@@ -570,19 +570,144 @@ function ContactModal({
   );
 }
 
-// ── 第二欄：聯絡窗口 + 商機概況 ───────────────────────
+// ── 客情計畫 Modal ──────────────────────────────────
+interface CarePlanData {
+  id?: string;
+  tier: string;
+  visit_cycle_days: number;
+  reorder_cycle_days: number | null;
+  last_order_date: string;
+  last_contact_date: string;
+  note: string;
+}
+
+function CarePlanModal({
+  brandId,
+  initial,
+  onClose,
+  onSaved,
+}: {
+  brandId: string;
+  initial?: CarePlanData | null;
+  onClose: () => void;
+  onSaved: (plan: CarePlanData) => void;
+}) {
+  const TIER_CYCLES: Record<string, number> = { A: 30, B: 90, C: 180 };
+  const [form, setForm] = useState<CarePlanData>({
+    tier: initial?.tier ?? "B",
+    visit_cycle_days: initial?.visit_cycle_days ?? 90,
+    reorder_cycle_days: initial?.reorder_cycle_days ?? null,
+    last_order_date: initial?.last_order_date ?? "",
+    last_contact_date: initial?.last_contact_date ?? new Date().toISOString().split("T")[0],
+    note: initial?.note ?? "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const inputStyle = { width: "100%", padding: "9px 12px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surf2, fontSize: 14, color: C.text, outline: "none", boxSizing: "border-box" as const };
+
+  const set = (k: keyof CarePlanData, v: string | number | null) =>
+    setForm((prev) => ({ ...prev, [k]: v }));
+
+  const save = async () => {
+    setSaving(true);
+    setErr(null);
+    try {
+      const res = await fetch("/api/care", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brand_id: brandId, ...form }),
+      });
+      const json = await res.json();
+      if (!json.success) { setErr(json.error || "儲存失敗"); return; }
+      onSaved({ ...form, id: json.data?.id || initial?.id });
+      onClose();
+    } catch { setErr("網路錯誤"); }
+    setSaving(false);
+  };
+
+  const TIER_LABELS: Record<string, { label: string; desc: string }> = {
+    A: { label: "A 級", desc: "月訂量大/連鎖總部" },
+    B: { label: "B 級", desc: "穩定回購" },
+    C: { label: "C 級", desc: "零星採購" },
+  };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 600, background: "rgba(0,0,0,.3)" }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 610, width: "92vw", maxWidth: 440, background: C.surface, borderRadius: 18, boxShadow: "0 20px 60px rgba(0,0,0,.18)", padding: "22px 22px 18px", overflowY: "auto", maxHeight: "90vh" }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 18 }}>
+          {initial ? "編輯客情計畫" : "設定客情計畫"}
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>客戶分級</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {Object.entries(TIER_LABELS).map(([k, v]) => (
+              <button key={k} onClick={() => { set("tier", k); set("visit_cycle_days", TIER_CYCLES[k]); }}
+                style={{ flex: 1, padding: "8px 0", borderRadius: 9, border: `1px solid ${form.tier === k ? C.accent : C.border}`, background: form.tier === k ? `${C.accent}18` : "transparent", color: form.tier === k ? C.accentDk : C.muted, fontSize: 13, fontWeight: form.tier === k ? 700 : 400, cursor: "pointer", lineHeight: 1.4 }}>
+                <div>{v.label}</div>
+                <div style={{ fontSize: 10, opacity: 0.75 }}>{v.desc}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>拜訪週期（天）</div>
+            <input type="number" value={form.visit_cycle_days} onChange={(e) => set("visit_cycle_days", Number(e.target.value))} min={1} style={inputStyle} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>回購週期（天）</div>
+            <input type="number" value={form.reorder_cycle_days ?? ""} onChange={(e) => set("reorder_cycle_days", e.target.value ? Number(e.target.value) : null)} placeholder="選填" min={1} style={inputStyle} />
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>上次出貨日</div>
+            <input type="date" value={form.last_order_date} onChange={(e) => set("last_order_date", e.target.value)} style={inputStyle} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>上次聯繫日</div>
+            <input type="date" value={form.last_contact_date} onChange={(e) => set("last_contact_date", e.target.value)} style={inputStyle} />
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>備註</div>
+          <textarea value={form.note} onChange={(e) => set("note", e.target.value)} rows={2} placeholder="例：送禮記錄、偏好備注…" style={{ ...inputStyle, resize: "none" }} />
+        </div>
+
+        {err && <div style={{ marginBottom: 10, padding: "7px 10px", borderRadius: 8, background: `${C.danger}15`, color: C.danger, fontSize: 13 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={save} disabled={saving} style={{ flex: 1, padding: 10, borderRadius: 10, border: "none", background: C.primary, color: "white", fontSize: 14, fontWeight: 700, cursor: saving ? "default" : "pointer" }}>
+            {saving ? "儲存中…" : "儲存"}
+          </button>
+          <button onClick={onClose} style={{ padding: "10px 16px", borderRadius: 10, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontSize: 14, cursor: "pointer" }}>取消</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── 第二欄：聯絡窗口 + 商機概況 + 客情計畫 ────────────
 function Col2({
   brand,
   contacts,
+  carePlan,
   onAdd,
   onEdit,
   onDelete,
+  onEditCarePlan,
 }: {
   brand: BrandDetail;
   contacts: ContactItem[];
+  carePlan: CarePlanData | null;
   onAdd: () => void;
   onEdit: (c: ContactItem) => void;
   onDelete: (id: number | string) => void;
+  onEditCarePlan: () => void;
 }) {
   return (
     <div>
@@ -649,6 +774,51 @@ function Col2({
               已在{STATUS[brand.status as StatusKey]?.label || "此階段"} <strong>{brand.stage_days}</strong> 天
               {(brand.stage_days || 0) > 14 ? " — 建議本週跟進" : ""}
             </span>
+          </div>
+        )}
+      </div>
+
+      {/* 客情計畫 */}
+      <div style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.2, color: C.muted }}>客情計畫</span>
+          <button onClick={onEditCarePlan} style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", cursor: "pointer", fontSize: 12, color: C.primary, fontWeight: 600 }}>
+            <Icon n={carePlan ? "edit" : "plus"} size={11} color={C.primary} />
+            {carePlan ? "編輯" : "設定"}
+          </button>
+        </div>
+        {carePlan ? (
+          <div style={{ background: C.surface, borderRadius: 14, border: `1px solid ${C.border}`, padding: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <span style={{ padding: "3px 10px", borderRadius: 999, background: `${C.accent}22`, color: C.accentDk, fontSize: 12, fontWeight: 700 }}>
+                {carePlan.tier} 級
+              </span>
+              <span style={{ fontSize: 13, color: C.muted }}>拜訪週期 {carePlan.visit_cycle_days} 天</span>
+              {carePlan.reorder_cycle_days && (
+                <span style={{ fontSize: 13, color: C.muted }}>· 回購週期 {carePlan.reorder_cycle_days} 天</span>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 16 }}>
+              {carePlan.last_order_date && (
+                <div>
+                  <div style={{ fontSize: 11, color: C.muted }}>上次出貨</div>
+                  <div style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>{carePlan.last_order_date}</div>
+                </div>
+              )}
+              {carePlan.last_contact_date && (
+                <div>
+                  <div style={{ fontSize: 11, color: C.muted }}>上次聯繫</div>
+                  <div style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>{carePlan.last_contact_date}</div>
+                </div>
+              )}
+            </div>
+            {carePlan.note && (
+              <div style={{ fontSize: 12, color: C.muted, background: C.surf2, borderRadius: 8, padding: "6px 10px", marginTop: 10 }}>{carePlan.note}</div>
+            )}
+          </div>
+        ) : (
+          <div style={{ background: C.surface, borderRadius: 14, border: `1px dashed ${C.border}`, padding: 18, textAlign: "center", color: C.muted, fontSize: 13 }}>
+            成交後可設定分級與回購提醒
           </div>
         )}
       </div>
@@ -766,6 +936,8 @@ export default function BrandDetailPage() {
   const [contacts, setContacts] = useState<ContactItem[]>([]);
   const [logs, setLogs] = useState<LogItem[]>([]);
   const [channelLinks, setChannelLinks] = useState<Record<string, string>>({});
+  const [carePlan, setCarePlan] = useState<CarePlanData | null>(null);
+  const [carePlanModal, setCarePlanModal] = useState(false);
   const [tab, setTab] = useState<"info" | "contacts" | "logs">("info");
   const [contactModal, setContactModal] = useState<{ mode: "add" | "edit"; contact?: ContactItem } | null>(null);
   const [regModalOpen, setRegModalOpen] = useState(false);
@@ -862,6 +1034,18 @@ export default function BrandDetailPage() {
             setChannelLinks(links);
             // 更新 brand.channels 列表
             setBrand((prev) => ({ ...prev, channels: Object.keys(links) }));
+          }
+          if (result.data.care_plan) {
+            const cp = result.data.care_plan as Record<string, unknown>;
+            setCarePlan({
+              id: cp.id as string | undefined,
+              tier: (cp.tier as string) || "B",
+              visit_cycle_days: (cp.visit_cycle_days as number) || 90,
+              reorder_cycle_days: cp.reorder_cycle_days as number | null,
+              last_order_date: (cp.last_order_date as string) || "",
+              last_contact_date: (cp.last_contact_date as string) || "",
+              note: (cp.note as string) || "",
+            });
           }
         })
         .catch(() => {});
@@ -1014,7 +1198,7 @@ export default function BrandDetailPage() {
           {/* 下方：聯絡窗口/商機 + 跟進/紀錄 兩張卡片 */}
           <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <Col2 brand={brand} contacts={contacts} onAdd={() => setContactModal({ mode: "add" })} onEdit={(c) => setContactModal({ mode: "edit", contact: c })} onDelete={handleDeleteContact} />
+              <Col2 brand={brand} contacts={contacts} carePlan={carePlan} onAdd={() => setContactModal({ mode: "add" })} onEdit={(c) => setContactModal({ mode: "edit", contact: c })} onDelete={handleDeleteContact} onEditCarePlan={() => setCarePlanModal(true)} />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <Col3 brand={brand} logs={logs} onAddLog={addLog} />
@@ -1024,7 +1208,7 @@ export default function BrandDetailPage() {
         {/* Mobile: 分頁 */}
         <div className="m-only">
           {tab === "info" && <Col1 brand={brand} channelLinks={channelLinks} onEditReg={() => setRegModalOpen(true)} onAddChannel={() => setChannelModal("add")} onEditChannel={(ch, val) => setChannelModal({ channel: ch, value: val })} onDeleteChannel={handleDeleteChannel} />}
-          {tab === "contacts" && <Col2 brand={brand} contacts={contacts} onAdd={() => setContactModal({ mode: "add" })} onEdit={(c) => setContactModal({ mode: "edit", contact: c })} onDelete={handleDeleteContact} />}
+          {tab === "contacts" && <Col2 brand={brand} contacts={contacts} carePlan={carePlan} onAdd={() => setContactModal({ mode: "add" })} onEdit={(c) => setContactModal({ mode: "edit", contact: c })} onDelete={handleDeleteContact} onEditCarePlan={() => setCarePlanModal(true)} />}
           {tab === "logs" && <Col3 brand={brand} logs={logs} onAddLog={addLog} />}
         </div>
       </div>
@@ -1044,6 +1228,15 @@ export default function BrandDetailPage() {
           initial={brand}
           onClose={() => setRegModalOpen(false)}
           onSaved={handleRegSaved}
+        />
+      )}
+
+      {carePlanModal && brand.id && typeof brand.id === "string" && (
+        <CarePlanModal
+          brandId={brand.id}
+          initial={carePlan}
+          onClose={() => setCarePlanModal(false)}
+          onSaved={(plan) => setCarePlan(plan)}
         />
       )}
 

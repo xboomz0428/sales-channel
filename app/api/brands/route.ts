@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
       query = query.ilike("name", `%${search}%`);
     }
 
-    const { data, error } = await query;
+    const { data, error } = await query.limit(100000);
 
     if (error) {
       return NextResponse.json(
