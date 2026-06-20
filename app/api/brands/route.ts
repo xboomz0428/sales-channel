@@ -38,19 +38,28 @@ export async function GET(request: NextRequest) {
       query = query.ilike("name", `%${search}%`);
     }
 
-    const { data, error } = await query.limit(100000);
-
-    if (error) {
-      return NextResponse.json(
-        { success: false, error: error.message },
-        { status: 500 }
-      );
+    // Supabase PostgREST max-rows 預設 1000，需分頁取回全部
+    const PAGE = 1000;
+    let all: Record<string, unknown>[] = [];
+    let offset = 0;
+    while (true) {
+      const { data: page, error: pageErr } = await query.range(offset, offset + PAGE - 1);
+      if (pageErr) {
+        return NextResponse.json(
+          { success: false, error: pageErr.message },
+          { status: 500 }
+        );
+      }
+      if (!page || page.length === 0) break;
+      all = all.concat(page);
+      if (page.length < PAGE) break;
+      offset += PAGE;
     }
 
     return NextResponse.json({
       success: true,
-      data: data || [],
-      count: data?.length || 0,
+      data: all,
+      count: all.length,
     });
   } catch (error) {
     return NextResponse.json(

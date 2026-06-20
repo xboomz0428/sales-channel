@@ -73,6 +73,7 @@ interface ScrapeBrand {
   stores: StoreData[];
   channels: string[];
   cities: string[];
+  districts: string[];
   tax_id: string | null;
 }
 
@@ -181,6 +182,10 @@ function dbBrandToScrapeBrand(b: Record<string, unknown>): ScrapeBrand {
     stores,
     channels: Object.keys(links),
     cities: [...new Set(storeRows.map((s) => s.city).filter(Boolean))] as string[],
+    districts: [...new Set(storeRows.map((s) => {
+      const m = (s.address || "").match(/[^\d]{2,3}[市縣](.{1,3}[區鄉鎮市])/);
+      return m ? m[1] : "";
+    }).filter(Boolean))] as string[],
     tax_id: (b.tax_id as string | null) || null,
   };
 }
@@ -1578,6 +1583,7 @@ export default function MatchingPage() {
   const [filterGov, setFilterGov] = useState<boolean | null>(null);
   const [filterChannel, setFilterChannel] = useState<string | null>(null);
   const [filterCity, setFilterCity] = useState<string | null>(null);
+  const [filterDistrict, setFilterDistrict] = useState<string | null>(null);
 
   const loadBrands = () => {
     fetch("/api/brands")
@@ -1625,7 +1631,7 @@ export default function MatchingPage() {
       const json = await res.json();
       if (json.success) {
         const d = json.data;
-        const filterSuffix = [filterIndustry ? `「${filterIndustry}」類` : "", filterCity ? filterCity : ""].filter(Boolean).join("·");
+        const filterSuffix = [filterIndustry ? `「${filterIndustry}」類` : "", filterCity ? filterCity : "", filterDistrict ? filterDistrict : ""].filter(Boolean).join("·");
         setBulkMsg({
           ok: true,
           text:
@@ -1805,6 +1811,7 @@ export default function MatchingPage() {
     if (filterGov === false && !!b.tax_id) return false;
     if (filterChannel && !b.channels.includes(filterChannel)) return false;
     if (filterCity && !b.cities.includes(filterCity)) return false;
+    if (filterDistrict && !b.districts.includes(filterDistrict)) return false;
     return true;
   });
   const selected = selectedId != null ? visibleBrands.find((b) => b.id === selectedId) ?? visibleBrands[0] : visibleBrands[0];
@@ -1924,7 +1931,7 @@ export default function MatchingPage() {
         for (const ch of [...CHANNEL_ORDER, "email"]) {
           chCounts[ch] = brands.filter((b) => b.channels.includes(ch) || (ch === "line" && b.channels.includes("line_id"))).length;
         }
-        const hasAnyExtra = filterGov !== null || filterChannel !== null || filterCity !== null;
+        const hasAnyExtra = filterGov !== null || filterChannel !== null || filterCity !== null || filterDistrict !== null;
         return (
           <div style={{ display: "flex", gap: 6, padding: "7px 20px", background: C.surf2, borderBottom: `1px solid ${C.border}`, flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
             {/* 工商登記 */}
@@ -1966,7 +1973,7 @@ export default function MatchingPage() {
                 {availableCities.slice(0, 8).map((city) => (
                   <button
                     key={city}
-                    onClick={() => setFilterCity(filterCity === city ? null : city)}
+                    onClick={() => { setFilterCity(filterCity === city ? null : city); setFilterDistrict(null); }}
                     style={{ padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: filterCity === city ? 700 : 400, border: `1px solid ${filterCity === city ? C.accent : C.border}`, background: filterCity === city ? "#EDF4F0" : "transparent", color: filterCity === city ? C.accentDk : C.muted, cursor: "pointer" }}
                   >
                     {city}
@@ -1975,9 +1982,33 @@ export default function MatchingPage() {
               </>
             )}
 
+            {/* 地區（選了縣市後顯示該縣市的行政區） */}
+            {(() => {
+              const cityKey = filterCity ? Object.keys(CITY_DISTRICTS).find((c) => c === filterCity) : null;
+              const dists = cityKey ? CITY_DISTRICTS[cityKey] : [];
+              const availableDistricts = dists.length > 0
+                ? dists.filter((d) => brands.some((b) => b.districts.includes(d)))
+                : [...new Set(brands.flatMap((b) => b.districts))].sort((a, z) => a.localeCompare(z, "zh-TW"));
+              if (availableDistricts.length === 0) return null;
+              return (
+                <>
+                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 700, letterSpacing: 0.6, marginLeft: 8, paddingLeft: 8, borderLeft: `1px solid ${C.border}` }}>地區：</span>
+                  {availableDistricts.map((d) => (
+                    <button
+                      key={d}
+                      onClick={() => setFilterDistrict(filterDistrict === d ? null : d)}
+                      style={{ padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: filterDistrict === d ? 700 : 400, border: `1px solid ${filterDistrict === d ? "#D97706" : C.border}`, background: filterDistrict === d ? "#FEF3C7" : "transparent", color: filterDistrict === d ? "#92400E" : C.muted, cursor: "pointer" }}
+                    >
+                      {d}
+                    </button>
+                  ))}
+                </>
+              );
+            })()}
+
             {hasAnyExtra && (
               <button
-                onClick={() => { setFilterGov(null); setFilterChannel(null); setFilterCity(null); }}
+                onClick={() => { setFilterGov(null); setFilterChannel(null); setFilterCity(null); setFilterDistrict(null); }}
                 style={{ marginLeft: "auto", fontSize: 11, color: C.muted, border: "none", background: "none", cursor: "pointer", textDecoration: "underline" }}
               >
                 清除

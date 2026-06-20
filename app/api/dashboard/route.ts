@@ -1,17 +1,28 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 
+// Supabase PostgREST max-rows 預設 1000，需分頁取回全部
+async function fetchAll(query: any) {
+  const PAGE = 1000;
+  let all: any[] = [];
+  let offset = 0;
+  while (true) {
+    const { data: page } = await query.range(offset, offset + PAGE - 1);
+    if (!page || page.length === 0) break;
+    all = all.concat(page);
+    if (page.length < PAGE) break;
+    offset += PAGE;
+  }
+  return all;
+}
+
 export async function GET() {
   try {
     const supabase = getSupabaseServerClient();
 
-    const [
-      { data: allBrands },
-      { data: opportunities },
-      { data: aCarePlans },
-    ] = await Promise.all([
-      supabase.from("brands").select("id, name, status, industry, tax_id, registered_name, brand_channels(channel)"),
-      supabase.from("opportunities").select("stage, est_annual_value, probability"),
+    const [allBrands, opportunities, { data: aCarePlans }] = await Promise.all([
+      fetchAll(supabase.from("brands").select("id, name, status, industry, tax_id, registered_name, brand_channels(channel)")),
+      fetchAll(supabase.from("opportunities").select("stage, est_annual_value, probability")),
       supabase
         .from("care_plans")
         .select("id, tier, last_contact_date, brands(name)")

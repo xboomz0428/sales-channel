@@ -170,7 +170,8 @@ async function enrichBrand(
   brandId: string,
   brandName: string,
   emit: (obj: Record<string, unknown>) => Promise<void>,
-  prefix: string
+  prefix: string,
+  registeredName?: string | null
 ): Promise<string[]> {
   // 載入門市資料 + 現有管道（判斷缺失）
   const [{ data: stores }, { data: existingChannels }] = await Promise.all([
@@ -184,6 +185,11 @@ async function enrichBrand(
   const website = stores?.find((s) => s.website)?.website;
   const gmaps = stores?.find((s) => s.gmaps_url)?.gmaps_url;
   const storeName = stores?.find((s) => s.name)?.name || brandName;
+  // 搜尋用名稱：品牌名 + 公司登記名（去重）
+  const searchNames = [storeName];
+  if (registeredName && registeredName !== storeName && registeredName !== brandName) {
+    searchNames.push(registeredName.replace(/(股份|有限|公司)/g, "").trim());
+  }
 
   // 目標管道（不含 map，map 由 enrich/places 處理）
   const TARGET_CHANNELS = ["phone", "email", "line", "fb", "ig"];
@@ -241,28 +247,31 @@ async function enrichBrand(
     const apiKey = process.env.GOOGLE_PLACES_API_KEY;
     const cseId = process.env.GOOGLE_CSE_ID;
     if (apiKey && cseId) {
-      // 搜尋品牌聯絡資訊（非限定 FB）
-      await emit({ type: "step", text: `${prefix}Google 搜尋「${storeName}」聯絡資訊…` });
-      try {
-        const q = encodeURIComponent(`"${storeName.slice(0, 15)}" 電話 email LINE`);
-        const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cseId}&q=${q}&num=5&hl=zh-TW&gl=tw`;
-        const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
-        logApiUsage("cse", 1);
-        if (res.ok) {
-          const data = (await res.json()) as { items?: { snippet?: string }[] };
-          const text = (data.items || []).map((i) => i.snippet || "").join(" ");
-          if (!have.has("phone")) {
-            const pm = text.match(/0[2-8]-?\d{3,4}-?\d{4}|09\d{2}-?\d{3}-?\d{3}/);
-            if (pm) { await upsertChannel(supabase, brandId, "phone", pm[0], "google_cse"); added.push("phone"); have.add("phone"); }
+      // 搜尋品牌聯絡資訊（品牌名 + 公司名都搜）
+      for (const sn of searchNames) {
+        if (!TARGET_CHANNELS.some((ch) => !have.has(ch))) break;
+        await emit({ type: "step", text: `${prefix}Google 搜尋「${sn}」聯絡資訊…` });
+        try {
+          const q = encodeURIComponent(`"${sn.slice(0, 15)}" 電話 email LINE`);
+          const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cseId}&q=${q}&num=5&hl=zh-TW&gl=tw`;
+          const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+          logApiUsage("cse", 1);
+          if (res.ok) {
+            const data = (await res.json()) as { items?: { snippet?: string }[] };
+            const text = (data.items || []).map((i) => i.snippet || "").join(" ");
+            if (!have.has("phone")) {
+              const pm = text.match(/0[2-8]-?\d{3,4}-?\d{4}|09\d{2}-?\d{3}-?\d{3}/);
+              if (pm) { await upsertChannel(supabase, brandId, "phone", pm[0], "google_cse"); added.push("phone"); have.add("phone"); }
+            }
+            if (!have.has("email")) {
+              const em = text.match(/([A-Za-z0-9_.+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})/);
+              if (em && !/noreply|no-reply/i.test(em[1])) { await upsertChannel(supabase, brandId, "email", em[1], "google_cse"); added.push("email"); have.add("email"); }
+            }
+            const cseFound = added.filter((ch) => !existingChannels?.some((e) => e.channel === ch));
+            if (cseFound.length > 0) await emit({ type: "step", text: `${prefix}Google 搜尋找到 ${cseFound.join("、")}` });
           }
-          if (!have.has("email")) {
-            const em = text.match(/([A-Za-z0-9_.+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})/);
-            if (em && !/noreply|no-reply/i.test(em[1])) { await upsertChannel(supabase, brandId, "email", em[1], "google_cse"); added.push("email"); have.add("email"); }
-          }
-          const cseFound = added.filter((ch) => !existingChannels?.some((e) => e.channel === ch));
-          if (cseFound.length > 0) await emit({ type: "step", text: `${prefix}Google 搜尋找到 ${cseFound.join("、")}` });
-        }
-      } catch { /* CSE 搜尋失敗 → 略過 */ }
+        } catch { /* CSE 搜尋失敗 → 略過 */ }
+      }
     }
   }
 
@@ -275,8 +284,13 @@ async function enrichBrand(
       const apiKey = process.env.GOOGLE_PLACES_API_KEY;
       const cseId = process.env.GOOGLE_CSE_ID;
       if (apiKey && cseId) {
-        await emit({ type: "step", text: `${prefix}搜尋 Facebook 粉專「${storeName}」…` });
-        const cseResult = await findFacebookPage(storeName, apiKey, cseId);
+        // 用品牌名+公司名依序搜尋 FB 粉專
+        let cseResult: { fbUrl: string | null; snippetLinks: Record<string, string> } = { fbUrl: null, snippetLinks: {} };
+        for (const sn of searchNames) {
+          await emit({ type: "step", text: `${prefix}搜尋 Facebook 粉專「${sn}」…` });
+          cseResult = await findFacebookPage(sn, apiKey, cseId);
+          if (cseResult.fbUrl) break;
+        }
         fbUrl = cseResult.fbUrl;
         for (const [ch, value] of Object.entries(cseResult.snippetLinks)) {
           if (!have.has(ch)) {
@@ -341,11 +355,11 @@ export async function POST(request: NextRequest) {
   (async () => {
     const supabase = getSupabaseServerClient();
     try {
-      let brands: { id: string; name: string }[] = [];
+      let brands: { id: string; name: string; registered_name?: string | null }[] = [];
 
       if (body.brand_id) {
         const { data: brand } = await supabase
-          .from("brands").select("id, name").eq("id", String(body.brand_id)).single();
+          .from("brands").select("id, name, registered_name").eq("id", String(body.brand_id)).single();
         if (!brand) {
           await emit({ type: "error", text: "品牌不存在" });
           return;
@@ -353,11 +367,11 @@ export async function POST(request: NextRequest) {
         brands = [brand];
       } else if (Array.isArray(body.brand_ids) && body.brand_ids.length > 0) {
         const ids = (body.brand_ids as string[]).slice(0, 50);
-        const { data } = await supabase.from("brands").select("id, name").in("id", ids);
+        const { data } = await supabase.from("brands").select("id, name, registered_name").in("id", ids);
         brands = data || [];
       } else if (body.all) {
         const industry = body.industry ? String(body.industry) : null;
-        let q = supabase.from("brands").select("id, name");
+        let q = supabase.from("brands").select("id, name, registered_name").limit(100000);
         if (industry) q = q.ilike("industry", `%${industry}%`);
         const { data } = await q;
         brands = data || [];
@@ -379,7 +393,7 @@ export async function POST(request: NextRequest) {
         const prefix = brands.length > 1 ? `[${i + 1}/${brands.length}] ` : "";
         try {
           await emit({ type: "step", text: `${prefix}${name}：查詢門市資料…` });
-          const channels = await enrichBrand(supabase, id, name, emit, prefix);
+          const channels = await enrichBrand(supabase, id, name, emit, prefix, (brands[i] as any).registered_name);
           if (channels.length > 0) {
             enriched++;
             await emit({ type: "store", ok: true, text: `${prefix}✓ ${name}：取得 ${channels.join("、")}` });
