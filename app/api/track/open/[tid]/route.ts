@@ -6,12 +6,13 @@ export const runtime = 'nodejs';
 // GET /api/track/open/[tid] — 回 1x1 GIF,並記錄開信。
 // 公開端點:email 客戶端會直接抓圖,故無登入。
 // 注意:Gmail 圖片代理 / Apple Mail 隱私保護會預載或擋圖,開信數僅供參考。
-export async function GET(req: Request, { params }: { params: { tid: string } }) {
+export async function GET(req: Request, { params }: { params: Promise<{ tid: string }> }) {
+  const { tid } = await params;
   try {
     const { data: msg } = await supabaseAdmin
       .from('outreach_messages')
       .select('id, open_count, first_opened_at, read_at')
-      .eq('tracking_id', params.tid)
+      .eq('tracking_id', tid)
       .single();
 
     if (msg) {

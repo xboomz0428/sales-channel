@@ -5,13 +5,14 @@ export const runtime = 'nodejs';
 
 // GET /api/track/click/[lid] — 記錄點擊後 302 轉回原網址。
 // 以 DB 內的 link id 查回 url(非由 query 帶 url),因此沒有 open redirect 風險。
-export async function GET(req: Request, { params }: { params: { lid: string } }) {
+export async function GET(req: Request, { params }: { params: Promise<{ lid: string }> }) {
+  const { lid } = await params;
   const fallback = process.env.APP_BASE_URL || '/';
   try {
     const { data: link } = await supabaseAdmin
       .from('email_links')
       .select('id, url, message_id, click_count')
-      .eq('id', params.lid)
+      .eq('id', lid)
       .single();
 
     if (!link || !/^https?:\/\//i.test(link.url)) {

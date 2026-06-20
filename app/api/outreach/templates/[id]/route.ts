@@ -5,9 +5,10 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 export const runtime = 'nodejs';
 
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     await requireUser();
+    const { id } = await params;
     const b = await parseBody(req, templateUpdateSchema);
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (b.name !== undefined) patch.name = b.name;
@@ -22,7 +23,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     const { error } = await supabaseAdmin
       .from('outreach_templates')
       .update(patch)
-      .eq('id', params.id);
+      .eq('id', id);
     if (error) throw new HttpError(500, '更新失敗');
     return NextResponse.json({ ok: true });
   } catch (err) {
@@ -30,14 +31,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
 }
 
-export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     await requireUser();
-    // 軟刪除:停用即可,保留歷史成效資料
+    const { id } = await params;
     const { error } = await supabaseAdmin
       .from('outreach_templates')
       .update({ is_active: false, updated_at: new Date().toISOString() })
-      .eq('id', params.id);
+      .eq('id', id);
     if (error) throw new HttpError(500, '停用失敗');
     return NextResponse.json({ ok: true, softDeleted: true });
   } catch (err) {
