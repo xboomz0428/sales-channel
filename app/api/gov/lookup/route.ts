@@ -306,6 +306,77 @@ async function searchMygov(brandName: string): Promise<GcisCompany | null> {
   return null;
 }
 
+// ── Step 0C-1.5：Google → mygov.tw（用 Google 搜品牌名，找 mygov 頁面再爬詳情）───
+// mygov.tw 自身搜尋有時命中率低，但 Google 索引更完整。
+// 策略：Google CSE 搜 "品牌名 統一編號 site:mygov.tw" → 從結果提取統編或 mygov URL → 抓 mygov 詳情
+async function googleSearchMygov(
+  brandName: string,
+  apiKey: string,
+  cseId: string
+): Promise<GcisCompany | null> {
+  for (const q of getNameVariants(brandName)) {
+    const result = await googleSearchMygovOne(q, apiKey, cseId);
+    if (result) return result;
+  }
+  return null;
+}
+
+async function googleSearchMygovOne(
+  query: string,
+  apiKey: string,
+  cseId: string
+): Promise<GcisCompany | null> {
+  try {
+    // 搜尋時加上 mygov 關鍵字讓 Google 優先回傳 mygov.tw 結果
+    const searchQ = `"${query}" 統一編號 site:mygov.tw`;
+    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cseId}&q=${encodeURIComponent(searchQ)}&num=5&hl=zh-TW&gl=tw`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    logApiUsage("cse", 1);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { error?: unknown; items?: { title?: string; link?: string; snippet?: string }[] };
+    if (data.error || !data.items?.length) return null;
+
+    // 優先：從結果中找 mygov.tw 連結，提取統編
+    for (const item of data.items) {
+      const link = item.link || "";
+      // mygov.tw URL 通常含統編：mygov.tw/company/12345678 或 /item/12345678
+      const urlTaxMatch = link.match(/mygov\.tw\/(?:company|item)\/(\d{8})/);
+      if (urlTaxMatch?.[1]) {
+        // 用統編直接查 mygov 詳情頁
+        const detail = await fetchMygovSearch(urlTaxMatch[1]);
+        if (detail) return detail;
+        // mygov search 沒結果就用統編直接查 GCIS
+        const gcis = await searchByTaxId(urlTaxMatch[1]);
+        if (gcis.length > 0) return gcis[0];
+      }
+
+      // 從 snippet 提取統編
+      const snippetText = `${item.title || ""} ${item.snippet || ""}`;
+      const taxMatch = snippetText.match(/統[一]?編號?[：:\s]{0,3}(\d{8})/);
+      if (taxMatch?.[1]) {
+        const detail = await fetchMygovSearch(taxMatch[1]);
+        if (detail) return detail;
+        const gcis = await searchByTaxId(taxMatch[1]);
+        if (gcis.length > 0) return gcis[0];
+      }
+    }
+
+    // 備用：snippet 裡只找到公司名+統編的數字
+    for (const item of data.items) {
+      const snippetText = `${item.title || ""} ${item.snippet || ""}`;
+      const taxDigits = snippetText.match(/\b(\d{8})\b/);
+      if (taxDigits?.[1] && (item.link || "").includes("mygov.tw")) {
+        const detail = await fetchMygovSearch(taxDigits[1]);
+        if (detail) return detail;
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Step 0C-2：twincn.com（台灣公司網）直接查詢 ──────────────────────────────────
 // 1) Lq.aspx?q=品牌名 → 從搜尋結果取得統編（item.aspx?no=XXXXXXXX）
 // 2) item.aspx?no=統編 → 從 meta tags 取得公司名、地址、稅籍狀態
@@ -402,6 +473,22 @@ async function matchBrand(
     }
   }
 
+  // ── Step 1.5：Google → mygov.tw（mygov 直搜失敗時，改透過 Google 找 mygov 頁面）──
+  const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
+  const cseId = process.env.GOOGLE_CSE_ID;
+  if (candidates.length === 0 && googleApiKey && cseId) {
+    step(`[Google→mygov] 搜尋「${brand.name}」…`);
+    const gmResult = await googleSearchMygov(brand.name, googleApiKey, cseId);
+    if (gmResult) {
+      candidates = [gmResult];
+      resolvedTaxId = gmResult.Business_Accounting_NO;
+      source = "google_mygov";
+      step(`[Google→mygov] ✓ 命中 ${gmResult.Company_Name}（${resolvedTaxId}）`);
+    } else {
+      step(`[Google→mygov] 未找到`);
+    }
+  }
+
   // ── Step 2：twincn.com ─────────────────────────────
   if (candidates.length === 0) {
     step(`[twincn.com] 搜尋「${brand.name}」…`);
@@ -453,8 +540,6 @@ async function matchBrand(
   }
 
   // ── Step 4：Google CSE ──────────────────────────────
-  const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
-  const cseId = process.env.GOOGLE_CSE_ID;
   if (candidates.length === 0 && googleApiKey && cseId) {
     step(`[Google CSE] 漸進搜尋「${brand.name}」統編…`);
     const cseResult = await googleCseFind(brand.name, googleApiKey, cseId);

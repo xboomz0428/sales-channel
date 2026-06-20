@@ -1,0 +1,185 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+
+interface Msg {
+  id: string;
+  to_email: string | null;
+  subject: string | null;
+  body: string | null;
+  body_html: string | null;
+  status: string;
+  open_count: number;
+  click_count: number;
+  sent_at: string | null;
+  error_detail: string | null;
+  brands?: { name?: string } | null;
+}
+interface Daily {
+  day: string;
+  sent: number;
+  failed: number;
+  bounced: number;
+  opened: number;
+  clicked: number;
+}
+interface Data {
+  totals: Record<string, number>;
+  daily: Daily[];
+  messages: Msg[];
+}
+
+const STATUS: Record<string, { label: string; color: string }> = {
+  draft: { label: '草稿', color: '#9a9384' },
+  queued: { label: '排隊', color: '#b08d3f' },
+  sending: { label: '寄送中', color: '#b08d3f' },
+  sent: { label: '已寄出', color: '#4a6b3f' },
+  delivered: { label: '已送達', color: '#4a6b3f' },
+  read: { label: '已開信', color: '#2f7d6b' },
+  replied: { label: '已回覆', color: '#2f6bb0' },
+  failed: { label: '失敗', color: '#a4452f' },
+  bounced: { label: '退信', color: '#a4452f' },
+};
+
+export default function EmailDashboardPage() {
+  const [data, setData] = useState<Data | null>(null);
+  const [open, setOpen] = useState<Msg | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/outreach/email-dashboard')
+      .then((r) => r.json())
+      .then(setData)
+      .finally(() => setLoading(false));
+  }, []);
+
+  const t = data?.totals || {};
+  const maxSent = Math.max(1, ...(data?.daily || []).map((d) => d.sent));
+
+  const cards = [
+    { k: '寄送', v: t.sent || 0, sub: `失敗 ${t.failed || 0}` },
+    { k: '開信率', v: `${t.openRate || 0}%`, sub: `${t.opened || 0} 封` },
+    { k: '點擊率', v: `${t.clickRate || 0}%`, sub: `${t.clicked || 0} 封` },
+    { k: '退信', v: t.bounced || 0, sub: '需清名單' },
+    { k: '回覆', v: t.replied || 0, sub: '熱名單' },
+  ];
+
+  return (
+    <div className="wrap">
+      <header>
+        <h1>Email 儀表板</h1>
+        <p>近 14 日寄送成效 · 開信與點擊追蹤</p>
+      </header>
+
+      {loading ? (
+        <div className="muted">載入中…</div>
+      ) : (
+        <>
+          <div className="cards">
+            {cards.map((c) => (
+              <div key={c.k} className="card">
+                <div className="ck">{c.k}</div>
+                <div className="cv">{c.v}</div>
+                <div className="cs">{c.sub}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="chart card">
+            <div className="ck">每日寄送量</div>
+            <div className="bars">
+              {(data?.daily || []).slice().reverse().map((d) => (
+                <div key={d.day} className="barwrap" title={`${d.day.slice(5, 10)} 寄${d.sent} 開${d.opened} 點${d.clicked}`}>
+                  <div className="bar" style={{ height: `${(d.sent / maxSent) * 100}%` }} />
+                  <span>{d.day.slice(8, 10)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="ck">最近寄送</div>
+            <table>
+              <thead>
+                <tr>
+                  <th>名單</th><th>主旨</th><th>狀態</th><th>開信</th><th>點擊</th><th>時間</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data?.messages || []).map((m) => {
+                  const s = STATUS[m.status] || STATUS.draft;
+                  return (
+                    <tr key={m.id} onClick={() => setOpen(m)}>
+                      <td>{m.brands?.name || '—'}</td>
+                      <td className="subj">{m.subject || '(無主旨)'}</td>
+                      <td><span className="badge" style={{ background: s.color }}>{s.label}</span></td>
+                      <td>{m.open_count || 0}</td>
+                      <td>{m.click_count || 0}</td>
+                      <td className="muted">{m.sent_at ? m.sent_at.slice(5, 16).replace('T', ' ') : '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {open && (
+        <div className="overlay" onClick={() => setOpen(null)}>
+          <div className="drawer" onClick={(e) => e.stopPropagation()}>
+            <div className="dhead">
+              <div>
+                <div className="ck">{open.brands?.name || '—'} · {open.to_email}</div>
+                <strong>{open.subject || '(無主旨)'}</strong>
+              </div>
+              <button onClick={() => setOpen(null)}>✕</button>
+            </div>
+            <div className="dmeta">
+              開信 {open.open_count || 0} · 點擊 {open.click_count || 0}
+              {open.error_detail ? ` · 錯誤:${open.error_detail}` : ''}
+            </div>
+            {open.body_html ? (
+              <iframe title="content" srcDoc={open.body_html} className="cframe" />
+            ) : (
+              <pre className="ctext">{open.body || '(無內容)'}</pre>
+            )}
+          </div>
+        </div>
+      )}
+
+      <style jsx>{`
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@700&display=swap');
+        .wrap { font-family: 'Noto Sans TC', sans-serif; background: #f3f0e7; min-height: 100vh; padding: 22px; color: #2f3d2f; }
+        h1 { font-family: 'Noto Serif TC', serif; font-size: 23px; margin: 0; }
+        header p { margin: 4px 0 16px; font-size: 12px; color: #8a8472; }
+        .muted { color: #9a9384; }
+        .cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 14px; }
+        @media (max-width: 760px) { .cards { grid-template-columns: repeat(2, 1fr); } }
+        .card { background: #fffdf8; border: 1px solid #e3ded3; border-radius: 12px; padding: 15px; }
+        .ck { font-size: 12px; color: #8a8472; }
+        .cv { font-family: 'Noto Serif TC', serif; font-size: 26px; font-weight: 700; margin: 4px 0; }
+        .cs { font-size: 11px; color: #a59f8e; }
+        .chart { margin-bottom: 14px; }
+        .bars { display: flex; align-items: flex-end; gap: 6px; height: 110px; margin-top: 10px; }
+        .barwrap { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; }
+        .bar { width: 70%; background: linear-gradient(#6f8c5f, #4a6b3f); border-radius: 4px 4px 0 0; min-height: 2px; }
+        .barwrap span { font-size: 9px; color: #a59f8e; margin-top: 4px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        th { text-align: left; font-size: 11px; color: #8a8472; font-weight: 500; padding: 6px 8px; border-bottom: 1px solid #e3ded3; }
+        td { font-size: 13px; padding: 9px 8px; border-bottom: 1px solid #f0ece1; }
+        tbody tr { cursor: pointer; }
+        tbody tr:hover { background: #f8f6ee; }
+        .subj { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .badge { color: #fff; font-size: 11px; padding: 2px 9px; border-radius: 999px; }
+        .overlay { position: fixed; inset: 0; background: rgba(40, 44, 36, 0.4); display: flex; justify-content: flex-end; }
+        .drawer { width: min(520px, 92vw); background: #fffdf8; height: 100%; padding: 18px; overflow: auto; display: flex; flex-direction: column; }
+        .dhead { display: flex; justify-content: space-between; gap: 10px; }
+        .dhead button { border: none; background: #eee9dc; border-radius: 8px; width: 30px; height: 30px; cursor: pointer; }
+        .dmeta { font-size: 12px; color: #8a8472; margin: 8px 0 12px; }
+        .cframe { flex: 1; min-height: 460px; border: 1px solid #e3ded3; border-radius: 10px; background: #f3f0e7; }
+        .ctext { white-space: pre-wrap; font-size: 13px; line-height: 1.6; background: #fcfbf5; border: 1px solid #e3ded3; border-radius: 10px; padding: 14px; }
+      `}</style>
+    </div>
+  );
+}

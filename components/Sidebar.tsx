@@ -6,13 +6,22 @@ import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { C } from "@/lib/design";
 
-const NAV = [
+type NavItem =
+  | { kind?: undefined; id: string; label: string; sym: string; href: string }
+  | { kind: "section"; label: string };
+
+const NAV: NavItem[] = [
   { id: "dashboard", label: "儀表板", sym: "◈", href: "/" },
   { id: "brands", label: "名單總覽", sym: "≡", href: "/leads" },
   { id: "pipeline", label: "商機進度", sym: "↗", href: "/opportunities" },
   { id: "care", label: "今日跟進", sym: "♡", href: "/followups" },
   { id: "match", label: "比對中心", sym: "⟳", href: "/matching" },
   { id: "collect", label: "採集任務", sym: "⚡", href: "/matching?tab=collect" },
+  { kind: "section", label: "外發管道" },
+  { id: "email-dashboard", label: "郵件儀表板", sym: "✉", href: "/outreach/email-dashboard" },
+  { id: "newsletter", label: "電子報發送", sym: "◎", href: "/outreach/newsletter" },
+  { id: "email-editor", label: "郵件編輯器", sym: "✏", href: "/outreach/email-editor" },
+  { kind: "section", label: "系統" },
   { id: "settings", label: "API 設定", sym: "⚙", href: "/settings" },
 ];
 
@@ -26,7 +35,8 @@ export default function Sidebar() {
   const pathname = usePathname();
   const [logoError, setLogoError] = useState(false);
   // 比對中心 / 採集任務 共用頁面，只亮第一個符合項
-  const activeIdx = NAV.findIndex((item) => isActive(pathname, item.href));
+  const linkItems = NAV.filter((item): item is Extract<NavItem, { id: string }> => item.kind !== "section");
+  const activeIdx = linkItems.findIndex((item) => isActive(pathname, item.href));
 
   return (
     <nav
@@ -71,9 +81,16 @@ export default function Sidebar() {
         </div>
       </div>
 
-      <div style={{ flex: 1, padding: "10px 9px", display: "flex", flexDirection: "column", gap: 1 }}>
+      <div style={{ flex: 1, padding: "10px 9px", display: "flex", flexDirection: "column", gap: 1, overflowY: "auto" }}>
         {NAV.map((item, i) => {
-          const on = i === activeIdx;
+          if (item.kind === "section") {
+            return (
+              <div key={`sec-${i}`} style={{ padding: "10px 13px 3px", fontSize: 10, fontWeight: 700, letterSpacing: 1.4, textTransform: "uppercase", color: "rgba(255,255,255,.38)" }}>
+                {item.label}
+              </div>
+            );
+          }
+          const on = linkItems.indexOf(item) === activeIdx;
           return (
             <Link
               key={item.id}
