@@ -30,12 +30,20 @@ export async function POST(req: Request) {
       .single();
     const batchId = batch?.id;
 
-    // 取名單 email
+    // 取名單 email：優先採集到的 brand_channels(channel='email')，退回 brands.email
     const { data: brands } = await supabaseAdmin
       .from('brands')
-      .select('id, email')
+      .select('id, email, brand_channels(channel, value)')
       .in('id', brandIds);
-    const emailMap = new Map((brands || []).map((b: any) => [b.id, b.email]));
+    const JUNK_EMAIL = /sentry\.io|ingest\.|noreply|no-reply|example\.|@sentry|wixpress|\.png$|\.jpg$/i;
+    const isValidEmail = (e: string | null | undefined) =>
+      !!e && /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(e) && !JUNK_EMAIL.test(e);
+    const emailMap = new Map(
+      (brands || []).map((b: any) => {
+        const chEmail = (b.brand_channels || []).find((c: any) => c.channel === 'email' && isValidEmail(c.value))?.value;
+        return [b.id, chEmail || (isValidEmail(b.email) ? b.email : null)];
+      })
+    );
 
     let sent = 0;
     let failed = 0;
