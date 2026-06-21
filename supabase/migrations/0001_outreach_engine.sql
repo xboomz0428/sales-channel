@@ -167,9 +167,9 @@ security definer
 set search_path = public
 as $$
 begin
-  if new.stage is distinct from old.stage then
+  if new.status is distinct from old.status then
     insert into public.audit_log(entity, entity_id, field, old_value, new_value, actor)
-    values ('brand', new.id, 'stage', old.stage, new.stage,
+    values ('brand', new.id, 'status', old.status, new.status,
             coalesce(current_setting('app.actor', true), 'system'));
   end if;
   return new;
@@ -221,7 +221,7 @@ begin
     execute format('alter table public.%I enable row level security;', t);
     execute format($p$
       create policy %1$s_auth_all on public.%1$I
-        for all to authenticated using (true) with check (true);
+        for all using (true) with check (true);
     $p$, t);
   end loop;
 exception when duplicate_object then

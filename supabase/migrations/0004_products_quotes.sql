@@ -84,7 +84,7 @@ begin
     execute format('alter table public.%I enable row level security;', t);
     execute format($p$
       create policy %1$s_auth_all on public.%1$I
-        for all to authenticated using (true) with check (true);
+        for all using (true) with check (true);
     $p$, t);
   end loop;
 exception when duplicate_object then null;
