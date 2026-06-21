@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Noto_Sans_TC } from "next/font/google";
 import "./globals.css";
 import Sidebar from "@/components/Sidebar";
+import MobileNav from "@/components/MobileNav";
 
 const notoSans = Noto_Sans_TC({ subsets: ["latin"], weight: ["400", "500", "700"] });
 
@@ -34,6 +35,7 @@ export default function RootLayout({
             {children}
           </main>
         </div>
+        <MobileNav />
       </body>
     </html>
   );

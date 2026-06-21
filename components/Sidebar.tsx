@@ -5,35 +5,14 @@ import Image from "next/image";
 import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { C } from "@/lib/design";
-
-type NavItem =
-  | { kind?: undefined; id: string; label: string; sym: string; href: string }
-  | { kind: "section"; label: string };
-
-const NAV: NavItem[] = [
-  { id: "dashboard", label: "儀表板", sym: "◈", href: "/" },
-  { id: "brands", label: "名單總覽", sym: "≡", href: "/leads" },
-  { id: "pipeline", label: "商機進度", sym: "↗", href: "/opportunities" },
-  { id: "care", label: "今日跟進", sym: "♡", href: "/followups" },
-  { id: "match", label: "比對中心", sym: "⟳", href: "/matching" },
-  { id: "collect", label: "採集任務", sym: "⚡", href: "/matching?tab=collect" },
-  { kind: "section", label: "外發管道" },
-  { id: "email-dashboard", label: "郵件儀表板", sym: "✉", href: "/outreach/email-dashboard" },
-  { id: "newsletter", label: "電子報發送", sym: "◎", href: "/outreach/newsletter" },
-  { id: "email-editor", label: "郵件編輯器", sym: "✏", href: "/outreach/email-editor" },
-  { kind: "section", label: "系統" },
-  { id: "settings", label: "API 設定", sym: "⚙", href: "/settings" },
-];
-
-function isActive(pathname: string, href: string) {
-  const base = href.split("?")[0];
-  if (base === "/") return pathname === "/";
-  return pathname === base || pathname.startsWith(base + "/");
-}
+import { NAV, NavItem, isActive } from "@/lib/nav";
+import { APP_VERSION } from "@/lib/version";
+import ChangelogModal from "@/components/ChangelogModal";
 
 export default function Sidebar() {
   const pathname = usePathname();
   const [logoError, setLogoError] = useState(false);
+  const [showLog, setShowLog] = useState(false);
   // 比對中心 / 採集任務 共用頁面，只亮第一個符合項
   const linkItems = NAV.filter((item): item is Extract<NavItem, { id: string }> => item.kind !== "section");
   const activeIdx = linkItems.findIndex((item) => isActive(pathname, item.href));
@@ -139,7 +118,15 @@ export default function Sidebar() {
             <div style={{ color: "rgba(255,255,255,.62)", fontSize: 11 }}>創辦人</div>
           </div>
         </div>
+        <button
+          onClick={() => setShowLog(true)}
+          style={{ marginTop: 12, width: "100%", textAlign: "left", border: "none", background: "transparent", color: "rgba(255,255,255,.5)", fontSize: 11, cursor: "pointer", padding: 0 }}
+        >
+          v{APP_VERSION} · 更新紀錄
+        </button>
       </div>
+
+      {showLog && <ChangelogModal onClose={() => setShowLog(false)} />}
     </nav>
   );
 }
