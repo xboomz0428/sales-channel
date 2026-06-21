@@ -204,6 +204,10 @@ export default function EmailEditorPage() {
   const [msg, setMsg] = useState('');
   const [templates, setTemplates] = useState<SavedTemplate[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiIntent, setAiIntent] = useState('');
+  const [aiIndustry, setAiIndustry] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
 
   const html = useMemo(() => renderEmailHtml(blocks, subject), [blocks, subject]);
 
@@ -244,6 +248,40 @@ export default function EmailEditorPage() {
     setBlocks(STARTER.map((b) => ({ ...b, id: uid() })));
     setMsg('已開新模板');
   };
+
+  // AI 生成草稿：把主旨與內文段落帶進編輯器
+  async function aiGenerate() {
+    if (!aiIntent.trim()) return;
+    setAiBusy(true);
+    setMsg('');
+    try {
+      const res = await fetch('/api/outreach/draft', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ intent: aiIntent, industry: aiIndustry || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg(`✗ ${data.error === 'ANTHROPIC_API_KEY 未設定' ? '請先在環境變數設定 ANTHROPIC_API_KEY（見「使用說明」）' : data.error || 'AI 生成失敗'}`);
+        return;
+      }
+      const paras = (data.body || '').split(/\n{2,}/).map((s: string) => s.trim()).filter(Boolean);
+      setEditingId(null);
+      if (data.subject) setSubject(data.subject);
+      setName('AI 草稿');
+      setBlocks([
+        ...(data.subject ? [{ id: uid(), type: 'heading' as BlockType, text: data.subject }] : []),
+        ...paras.map((p: string) => ({ id: uid(), type: 'text' as BlockType, text: p })),
+        { id: uid(), type: 'button' as BlockType, text: '了解更多', url: 'https://heroherb.co' },
+      ]);
+      setAiOpen(false);
+      setMsg(data.complianceFlag ? `⚠ 已生成，但偵測到合規警示：${data.complianceNote}` : '✓ AI 草稿已生成，可再編輯');
+    } catch {
+      setMsg('✗ 連線失敗');
+    } finally {
+      setAiBusy(false);
+    }
+  }
 
   async function deleteTemplate() {
     if (!editingId) return;
@@ -331,6 +369,7 @@ export default function EmailEditorPage() {
           {editingId && (
             <button className="btn danger" onClick={deleteTemplate}>刪除</button>
           )}
+          <button className="btn ai" onClick={() => setAiOpen((v) => !v)}>✨ AI 生成</button>
           <button className="btn ghost" onClick={() => navigator.clipboard.writeText(html)}>
             匯出 HTML
           </button>
@@ -340,6 +379,25 @@ export default function EmailEditorPage() {
         </div>
       </header>
       {msg && <div className="toast">{msg}</div>}
+
+      {aiOpen && (
+        <div className="aibar">
+          <div className="airow">
+            <input
+              className="in"
+              value={aiIntent}
+              onChange={(e) => setAiIntent(e.target.value)}
+              placeholder="信件目的，例如：中秋節宮廟艾草淨化包優惠，邀請回購"
+              onKeyDown={(e) => { if (e.key === 'Enter') aiGenerate(); }}
+            />
+            <input className="in aiind" value={aiIndustry} onChange={(e) => setAiIndustry(e.target.value)} placeholder="產業(選填)" />
+            <button className="btn solid" onClick={aiGenerate} disabled={aiBusy || !aiIntent.trim()}>
+              {aiBusy ? '生成中…' : '生成'}
+            </button>
+          </div>
+          <div className="aihint">由 Claude 生成草稿並帶入編輯器。需設定 <code>ANTHROPIC_API_KEY</code>（見「使用說明」）。</div>
+        </div>
+      )}
 
       <div className="presets">
         <span className="plabel-inline">範本：</span>
@@ -470,6 +528,43 @@ export default function EmailEditorPage() {
         .btn.danger {
           background: #f0dcd6;
           color: #a4452f;
+        }
+        .btn.ai {
+          background: #efe7f4;
+          color: #6b4e8f;
+          border: 1px solid #d9cbe8;
+        }
+        .aibar {
+          background: #fffdf8;
+          border: 1px solid #d9cbe8;
+          border-radius: 12px;
+          padding: 12px 14px;
+          margin-bottom: 14px;
+        }
+        .airow {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+        .airow .in {
+          flex: 1;
+          min-width: 180px;
+        }
+        .aiind {
+          flex: 0 0 110px !important;
+          min-width: 90px !important;
+        }
+        .aihint {
+          font-size: 11px;
+          color: #9a8fae;
+          margin-top: 7px;
+        }
+        .aihint code {
+          background: #efe7f4;
+          padding: 1px 5px;
+          border-radius: 4px;
+          font-size: 11px;
         }
         .picker {
           width: auto;

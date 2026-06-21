@@ -19,6 +19,7 @@ export const NAV: NavItem[] = [
   { id: "email-editor", label: "郵件編輯器", sym: "✏", href: "/outreach/email-editor" },
   { kind: "section", label: "系統" },
   { id: "settings", label: "API 設定", sym: "⚙", href: "/settings" },
+  { id: "guide", label: "使用說明", sym: "?", href: "/guide" },
 ];
 
 export function isActive(pathname: string, href: string) {
