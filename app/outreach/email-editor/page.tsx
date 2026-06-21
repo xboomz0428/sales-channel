@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 type BlockType = 'heading' | 'text' | 'image' | 'button' | 'divider' | 'spacer';
 interface Block {
@@ -194,22 +194,69 @@ const BLOCK_LABEL: Record<BlockType, string> = {
   spacer: '間距',
 };
 
+interface SavedTemplate { id: string; name: string; subject: string | null; body: string | null; body_html: string | null }
+
 export default function EmailEditorPage() {
   const [subject, setSubject] = useState('來自好漢草的問候');
   const [name, setName] = useState('電子報母版');
   const [blocks, setBlocks] = useState<Block[]>(STARTER);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  const [templates, setTemplates] = useState<SavedTemplate[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const html = useMemo(() => renderEmailHtml(blocks, subject), [blocks, subject]);
 
+  const loadTemplates = () => {
+    fetch('/api/outreach/templates?channel=EM')
+      .then((r) => r.json())
+      .then((d) => setTemplates(d.templates || []))
+      .catch(() => {});
+  };
+  useEffect(loadTemplates, []);
+
   // 套用預設樣板：複製 blocks 並重新產生 id，避免共用參照
   const loadPreset = (p: Preset) => {
+    setEditingId(null);
     setSubject(p.subject);
     setName(`${p.name}範本`);
     setBlocks(p.blocks.map((b) => ({ ...b, id: uid() })));
-    setMsg(`已套用「${p.name}」樣板`);
+    setMsg(`已套用「${p.name}」樣板（另存為新模板）`);
   };
+
+  // 載入既有模板進編輯器：body 依空行切段還原為區塊
+  const loadTemplate = (t: SavedTemplate) => {
+    setEditingId(t.id);
+    setName(t.name);
+    setSubject(t.subject || '');
+    const paras = (t.body || '').split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
+    const blks: Block[] = paras.length
+      ? paras.map((p, i) => ({ id: uid(), type: i === 0 ? 'heading' : 'text', text: p }))
+      : [{ id: uid(), type: 'text', text: t.body || '' }];
+    setBlocks(blks);
+    setMsg(`正在編輯模板「${t.name}」`);
+  };
+
+  const newTemplate = () => {
+    setEditingId(null);
+    setName('新模板');
+    setSubject('');
+    setBlocks(STARTER.map((b) => ({ ...b, id: uid() })));
+    setMsg('已開新模板');
+  };
+
+  async function deleteTemplate() {
+    if (!editingId) return;
+    if (!confirm('確定要刪除這個模板嗎？')) return;
+    try {
+      await fetch(`/api/outreach/templates/${editingId}`, { method: 'DELETE' });
+      setMsg('✓ 已刪除模板');
+      newTemplate();
+      loadTemplates();
+    } catch {
+      setMsg('✗ 刪除失敗');
+    }
+  }
 
   const add = (type: BlockType) =>
     setBlocks((b) => [...b, { id: uid(), type, text: type === 'button' ? '按我' : '', url: '' }]);
@@ -230,19 +277,28 @@ export default function EmailEditorPage() {
     setSaving(true);
     setMsg('');
     try {
-      const res = await fetch('/api/outreach/templates', {
-        method: 'POST',
+      const payload = {
+        name,
+        channel: 'EM',
+        subject,
+        body: blocks.map((b) => b.text).filter(Boolean).join('\n\n') || '(圖文電子報)',
+        bodyHtml: html,
+      };
+      const url = editingId ? `/api/outreach/templates/${editingId}` : '/api/outreach/templates';
+      const method = editingId ? 'PATCH' : 'POST';
+      const res = await fetch(url, {
+        method,
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          name,
-          channel: 'EM',
-          subject,
-          body: blocks.map((b) => b.text).filter(Boolean).join('\n') || '(圖文電子報)',
-          bodyHtml: html,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
-      setMsg(res.ok ? '✓ 已存成模板' : `✗ ${data.error || '存檔失敗'}`);
+      if (res.ok) {
+        setMsg(editingId ? '✓ 已更新模板' : '✓ 已存成新模板');
+        if (!editingId && data.id) setEditingId(data.id);
+        loadTemplates();
+      } else {
+        setMsg(`✗ ${data.error || '存檔失敗'}`);
+      }
     } catch {
       setMsg('✗ 連線失敗');
     } finally {
@@ -258,12 +314,28 @@ export default function EmailEditorPage() {
           <p>圖文拖放排版 · 即時預覽 · 存成可寄送的 HTML 模板</p>
         </div>
         <div className="actions">
+          <select
+            className="in picker"
+            value={editingId || ''}
+            onChange={(e) => {
+              const t = templates.find((x) => x.id === e.target.value);
+              if (t) loadTemplate(t); else newTemplate();
+            }}
+          >
+            <option value="">＋ 新模板</option>
+            {templates.length > 0 && <optgroup label="我的模板">
+              {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </optgroup>}
+          </select>
           <input className="in name" value={name} onChange={(e) => setName(e.target.value)} placeholder="模板名稱" />
+          {editingId && (
+            <button className="btn danger" onClick={deleteTemplate}>刪除</button>
+          )}
           <button className="btn ghost" onClick={() => navigator.clipboard.writeText(html)}>
             匯出 HTML
           </button>
           <button className="btn solid" onClick={saveTemplate} disabled={saving}>
-            {saving ? '儲存中…' : '存成模板'}
+            {saving ? '儲存中…' : editingId ? '更新模板' : '存成新模板'}
           </button>
         </div>
       </header>
@@ -394,6 +466,15 @@ export default function EmailEditorPage() {
           background: #fffdf8;
           border: 1px solid #d9d3c4;
           color: #4a6b3f;
+        }
+        .btn.danger {
+          background: #f0dcd6;
+          color: #a4452f;
+        }
+        .picker {
+          width: auto;
+          min-width: 130px;
+          cursor: pointer;
         }
         .toast {
           background: #2f3d2f;

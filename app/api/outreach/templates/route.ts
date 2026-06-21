@@ -13,6 +13,7 @@ export async function GET(req: Request) {
     let q = supabaseAdmin
       .from('outreach_templates')
       .select('*')
+      .not('is_active', 'is', false) // 隱藏軟刪除（is_active=false）的模板
       .order('updated_at', { ascending: false });
 
     const channel = url.searchParams.get('channel');
