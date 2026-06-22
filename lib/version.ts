@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "1.7.0";
+export const APP_VERSION = "1.7.1";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.7.1",
+    date: "2026-06-22",
+    title: "寄信說明與狀態提示",
+    items: [
+      "電子報發送頁顯示「真實寄送 / 模擬寄出」狀態橫幅",
+      "使用說明新增「怎麼真正寄出 Email」完整流程（用 Resend，含環境變數與步驟）",
+      "新增寄信設定查詢端點 /api/outreach/email-config",
+    ],
+  },
   {
     version: "1.7.0",
     date: "2026-06-22",

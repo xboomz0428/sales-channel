@@ -88,9 +88,28 @@ function FlowGuide() {
       <Card title="④ 電子報外發" badge="郵件編輯器 / 電子報發送 / 郵件儀表板">
         <Step n={1}><b>郵件編輯器</b>：選 11 組情境範本（初次開發、報價、節慶…）或按「✨ AI 生成」用主題自動產生草稿，編輯後「存成模板」。</Step>
         <Step n={2}><b>電子報發送</b>：左側勾選收件名單（自動帶出採集到 Email 的客戶），右側選模板預覽，點「寄送」批次發出。</Step>
-        <Step n={3}><b>郵件儀表板</b>：追蹤寄送量、開信率、點擊率、退信與回覆，點單筆可看內容。</Step>
+        <Step n={3}><b>郵件儀表板</b>：追蹤寄送量、開信率、點擊率、退信與回覆，並有漏斗、依產業/模板分析。</Step>
+      </Card>
+
+      <Card title="📧 怎麼真正寄出 Email？" badge="重要">
+        <div style={{ fontSize: 13.5, color: C.text, lineHeight: 1.7, marginBottom: 10 }}>
+          系統用 <b>Resend</b>（email 寄送服務）送信。<b>未設定金鑰前是「模擬寄出」</b>——會標記已寄、但不會真的進對方信箱。
+          電子報發送頁上方會顯示目前是「真實寄送」或「模擬寄出」。
+        </div>
+        <Step n={1}>到 <b>resend.com</b> 註冊，到 <b>Domains</b> 新增並驗證你的寄件網域（依指示把 SPF/DKIM 記錄加到 DNS）。</Step>
+        <Step n={2}>到 <b>API Keys</b> 建立金鑰（以 <span style={code}>re_</span> 開頭）。</Step>
+        <Step n={3}>把以下環境變數填到 <span style={code}>.env.local</span>（本機）或 Vercel <b>Settings → Environment Variables</b>（線上），存檔後重啟/重新部署：</Step>
+        <div style={{ background: "#0e1a11", borderRadius: 9, padding: "11px 13px", margin: "8px 0", fontFamily: "ui-monospace, monospace", fontSize: 12.5, lineHeight: 1.8, color: "#9dbeaa", overflowX: "auto" }}>
+          <div>RESEND_API_KEY=re_xxxxxxxx</div>
+          <div>OUTREACH_FROM_EMAIL=hello@你的網域.com</div>
+          <div>OUTREACH_FROM_NAME=HeroHerb 好漢草</div>
+          <div>APP_BASE_URL=https://你的網址</div>
+        </div>
+        <Step n={4}>回到 <b>電子報發送</b>，確認上方變成「✅ 真實寄送模式」，勾選名單、選模板、按「寄送」即真正送出。</Step>
+        <Step n={5}>寄出後到 <b>郵件儀表板</b> 看送達、開信、點擊、退信、回覆。</Step>
         <div style={{ fontSize: 12.5, color: C.muted, marginTop: 8, lineHeight: 1.6, background: C.surf2, padding: "10px 12px", borderRadius: 9 }}>
-          💡 實際把信寄進對方信箱需要設定 <span style={code}>RESEND_API_KEY</span>；未設定時系統僅「模擬寄出」（標記已寄但不會真的送信）。設定方式見「API 申請與設定」。
+          🔌 用的 API：<b>Resend</b>（<span style={code}>POST https://api.resend.com/emails</span>，系統已內建串接，你只要填金鑰即可）。
+          報價單頁的「✉ 寄給客戶」、單筆寄送也都走同一條寄信管道。
         </div>
       </Card>
     </>

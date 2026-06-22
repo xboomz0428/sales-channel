@@ -46,6 +46,12 @@ export default function NewsletterPage() {
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<SendResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [cfg, setCfg] = useState<{ mode: string; fromEmail: string | null; missing: string[] } | null>(null);
+
+  // 寄信設定狀態（真實 / 模擬）
+  useEffect(() => {
+    fetch('/api/outreach/email-config').then((r) => r.json()).then(setCfg).catch(() => {});
+  }, []);
 
   // 載入名單(隨搜尋/篩選)
   useEffect(() => {
@@ -122,6 +128,17 @@ export default function NewsletterPage() {
         <h1>電子報發送</h1>
         <p>選名單 → 選模板 → 預覽 → 批量寄送</p>
       </header>
+
+      {cfg && (
+        <div className={`sendmode ${cfg.mode}`}>
+          {cfg.mode === 'live' ? (
+            <span>✅ <b>真實寄送模式</b>：透過 Resend 寄出{cfg.fromEmail ? `，寄件人 ${cfg.fromEmail}` : ''}。</span>
+          ) : (
+            <span>⚠️ <b>模擬寄出模式</b>：目前不會真的寄信。需設定 <code>RESEND_API_KEY</code>{cfg.missing.includes('OUTREACH_FROM_EMAIL') ? ' 與 OUTREACH_FROM_EMAIL' : ''} 才會真實寄出。</span>
+          )}
+          <a href="/guide">如何設定 →</a>
+        </div>
+      )}
 
       <div className="grid">
         {/* 收件名單 */}
@@ -257,6 +274,11 @@ export default function NewsletterPage() {
         .empty { color: #9a9384; text-align: center; padding: 20px 8px; font-size: 13px; }
         .empty .hint { font-size: 12px; margin-top: 8px; line-height: 1.6; color: #b0a892; }
         .rstage { font-size: 10px; color: #5b7c99; background: #e3ecf2; border-radius: 999px; padding: 1px 7px; margin-left: 5px; }
+        .sendmode { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; }
+        .sendmode.live { background: #e8f2e8; color: #3f6b3f; border: 1px solid #cdd6bf; }
+        .sendmode.simulate { background: #faf3df; color: #8a6d1f; border: 1px solid #e8dcae; }
+        .sendmode code { background: rgba(0,0,0,.06); padding: 1px 6px; border-radius: 5px; font-size: 12px; }
+        .sendmode a { margin-left: auto; color: inherit; font-weight: 700; text-decoration: underline; white-space: nowrap; }
         header p { margin: 4px 0 16px; font-size: 12px; color: #8a8472; }
         .muted { color: #9a9384; }
         .small { font-size: 12px; }
