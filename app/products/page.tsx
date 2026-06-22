@@ -483,6 +483,8 @@ function QuoteList({ quotes, onView }: { quotes: Quote[]; onView: (q: Quote) => 
 // ── 報價單檢視 ───────────────────────────────────────
 function QuoteView({ quote, onClose, onChanged }: { quote: Quote; onClose: () => void; onChanged: () => void }) {
   const [status, setStatus] = useState(quote.status);
+  const [sending, setSending] = useState(false);
+  const [sendMsg, setSendMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const items = quote.quote_items || [];
 
   const updateStatus = async (s: string) => {
@@ -492,6 +494,26 @@ function QuoteView({ quote, onClose, onChanged }: { quote: Quote; onClose: () =>
       body: JSON.stringify({ status: s }),
     });
     onChanged();
+  };
+
+  const sendEmail = async () => {
+    setSending(true);
+    setSendMsg(null);
+    try {
+      const res = await fetch(`/api/quotes/${quote.id}/send`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setStatus("sent");
+        setSendMsg({ ok: true, text: `已寄出至 ${data.to}` });
+        onChanged();
+      } else {
+        setSendMsg({ ok: false, text: data.error || "寄送失敗" });
+      }
+    } catch {
+      setSendMsg({ ok: false, text: "連線失敗" });
+    } finally {
+      setSending(false);
+    }
   };
 
   const copyText = () => {
@@ -563,9 +585,17 @@ function QuoteView({ quote, onClose, onChanged }: { quote: Quote; onClose: () =>
 
         {quote.note && <div style={{ marginTop: 14, padding: 12, background: C.surf2, borderRadius: 10, fontSize: 12, color: C.text, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{quote.note}</div>}
         <div style={{ fontSize: 11, color: C.muted, marginTop: 10 }}>報價有效 {quote.valid_days} 天</div>
+        {sendMsg && (
+          <div style={{ marginTop: 12, padding: "9px 12px", borderRadius: 9, fontSize: 12.5, background: sendMsg.ok ? C.successBg : C.dangerBg, color: sendMsg.ok ? C.success : C.danger }}>
+            {sendMsg.ok ? "✓ " : "✕ "}{sendMsg.text}
+          </div>
+        )}
       </div>
-      <div style={{ padding: "14px 20px", borderTop: `1px solid ${C.border}`, display: "flex", gap: 10, justifyContent: "flex-end" }}>
+      <div style={{ padding: "14px 20px", borderTop: `1px solid ${C.border}`, display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
         <button onClick={copyText} style={{ padding: "9px 18px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 13, cursor: "pointer" }}>📋 複製內容</button>
+        <button onClick={sendEmail} disabled={sending} style={{ padding: "9px 18px", borderRadius: 9, border: "none", background: sending ? C.surf2 : C.accent, color: sending ? C.muted : C.accentDk, fontSize: 13, fontWeight: 700, cursor: sending ? "default" : "pointer" }}>
+          {sending ? "寄送中…" : "✉ 寄給客戶"}
+        </button>
         <button onClick={onClose} style={{ padding: "9px 20px", borderRadius: 9, border: "none", background: C.primary, color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>關閉</button>
       </div>
     </Overlay>

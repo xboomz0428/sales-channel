@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "1.3.0";
+export const APP_VERSION = "1.4.0";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.4.0",
+    date: "2026-06-22",
+    title: "AI 草稿、報價寄送、使用說明",
+    items: [
+      "郵件編輯器新增「✨ AI 生成」：輸入目的即用 Claude 生成草稿並帶入編輯區",
+      "報價單可「✉ 寄給客戶」：用採集到的 Email 直接寄出並更新狀態",
+      "新增「使用說明」頁：頁面流程、API 申請與設定、常見問題",
+      "新增 SETUP.md 開發者設定指南（環境變數、金鑰、遷移）",
+      "電子報實際寄送、AI 生成需分別設定 RESEND_API_KEY、ANTHROPIC_API_KEY",
+    ],
+  },
   {
     version: "1.3.0",
     date: "2026-06-21",
