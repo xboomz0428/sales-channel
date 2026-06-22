@@ -229,14 +229,16 @@ function BrandList({
   selectedId,
   onSelect,
   onRunAll,
+  isMobile,
 }: {
   brands: ScrapeBrand[];
   selectedId: number | string | null;
   onSelect: (id: number | string) => void;
   onRunAll: () => void;
+  isMobile?: boolean;
 }) {
   return (
-    <div style={{ width: 280, flexShrink: 0, borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column", height: "100%" }}>
+    <div style={{ width: isMobile ? "100%" : 280, flexShrink: 0, borderRight: isMobile ? "none" : `1px solid ${C.border}`, display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ padding: "14px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>品牌名單</span>
         <button
@@ -719,24 +721,6 @@ function DetailPanel({
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-// ── 手機提示 ─────────────────────────────────────────
-function MobileBlock() {
-  return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 32, textAlign: "center", background: C.bg }}>
-      <div style={{ fontSize: 48, marginBottom: 16 }}>🖥</div>
-      <div style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 8 }}>請使用電腦操作</div>
-      <div style={{ fontSize: 14, color: C.muted, lineHeight: 1.7 }}>
-        採集任務與比對中心需要較大的螢幕空間，
-        <br />
-        請切換到桌機或平板橫向模式後再進入。
-      </div>
-      <Link href="/followups" style={{ marginTop: 28, padding: "11px 24px", borderRadius: 12, background: C.primary, color: "white", textDecoration: "none", fontSize: 15, fontWeight: 700 }}>
-        返回今日跟進
-      </Link>
     </div>
   );
 }
@@ -1649,6 +1633,7 @@ export default function MatchingPage() {
   useEffect(loadBrands, []);
   const [tab, setTab] = useState("tasks");
   const [isMobile, setIsMobile] = useState(false);
+  const [mobileDetail, setMobileDetail] = useState(false); // 手機：是否開啟品牌詳情
   const [jobPanelOpen, setJobPanelOpen] = useState(false);
   const [websitePanelOpen, setWebsitePanelOpen] = useState(false);
   const [placesRefreshOpen, setPlacesRefreshOpen] = useState(false);
@@ -1863,7 +1848,7 @@ export default function MatchingPage() {
   });
   const selected = selectedId != null ? visibleBrands.find((b) => b.id === selectedId) ?? visibleBrands[0] : visibleBrands[0];
 
-  if (isMobile) return <MobileBlock />;
+  // 手機改用單欄＋詳情覆蓋（不再整頁封鎖）
 
   if (loadingBrands) return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, color: C.muted }}>
@@ -1883,9 +1868,9 @@ export default function MatchingPage() {
   return (
     <>
       {/* Top bar */}
-      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0, flexWrap: "wrap" }}>
         <h1 style={{ fontSize: 17, fontWeight: 600, color: C.text, margin: 0 }}>採集 & 比對中心</h1>
-        <span style={{ fontSize: 13, color: C.muted }}>— 自動抓取各管道公開資料，與現有名單核對差異</span>
+        <span className="d-only" style={{ fontSize: 13, color: C.muted }}>— 自動抓取各管道公開資料，與現有名單核對差異</span>
         <button
           onClick={() => setJobPanelOpen(true)}
           className="pressable"
@@ -2122,13 +2107,17 @@ export default function MatchingPage() {
         );
       })()}
 
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+      <div style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
+        {/* 手機：選了品牌就隱藏名單（改顯示詳情覆蓋層） */}
+        {!(isMobile && mobileDetail) && (
         <BrandList
+          isMobile={isMobile}
           brands={visibleBrands}
           selectedId={selectedId}
           onSelect={(id) => {
             setSelectedId(id);
             setTab("tasks");
+            if (isMobile) setMobileDetail(true);
           }}
           onRunAll={async () => {
             if (usingApi) {
@@ -2141,7 +2130,25 @@ export default function MatchingPage() {
             setLastRunAll(`${now.getMonth() + 1}/${now.getDate()} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`);
           }}
         />
-        {selected && <DetailPanel brand={selected} tab={tab} onTabChange={setTab} onRunTask={runTask} onAcceptConflict={resolveConflict} onGovUpdated={loadBrands} />}
+        )}
+        {/* 桌機：右側固定顯示詳情；手機：選取後以全幅覆蓋層顯示，附返回鍵 */}
+        {selected && (!isMobile || mobileDetail) && (
+          isMobile ? (
+            <div style={{ position: "absolute", inset: 0, zIndex: 20, background: C.surface, display: "flex", flexDirection: "column" }}>
+              <button
+                onClick={() => setMobileDetail(false)}
+                style={{ flexShrink: 0, textAlign: "left", padding: "11px 16px", border: "none", borderBottom: `1px solid ${C.border}`, background: C.surf2, color: C.primary, fontSize: 14, fontWeight: 700, cursor: "pointer" }}
+              >
+                ← 返回名單
+              </button>
+              <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
+                <DetailPanel brand={selected} tab={tab} onTabChange={setTab} onRunTask={runTask} onAcceptConflict={resolveConflict} onGovUpdated={loadBrands} />
+              </div>
+            </div>
+          ) : (
+            <DetailPanel brand={selected} tab={tab} onTabChange={setTab} onRunTask={runTask} onAcceptConflict={resolveConflict} onGovUpdated={loadBrands} />
+          )
+        )}
       </div>
 
       {jobPanelOpen && <PlacesJobPanel onClose={() => setJobPanelOpen(false)} onDone={loadBrands} />}
