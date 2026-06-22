@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "1.4.0";
+export const APP_VERSION = "1.5.0";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,23 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.5.0",
+    date: "2026-06-22",
+    title: "採集去重、覆蓋率、多家 AI、手機比對中心",
+    items: [
+      "採集 AI 支援 Claude / OpenAI / Gemini（AI_PROVIDER 指定或自動挑選）",
+      "批次管道補齊自動剃除已採集完整的品牌，不重複採集",
+      "工商登記比對前先去除英文與符號（登記名為純中文）",
+      "找到 Facebook 時一併擷取 IG／電話／Email／地址，重複則不存",
+      "採集關鍵字會自動記錄到快速設定，可重複使用與移除",
+      "「地區」篩選需先選縣市才顯示，且只列該縣市實際有的行政區",
+      "篩選後顯示採集覆蓋率：缺工商／社群／地圖，及待採集縣市/地區清單",
+      "電子報名單串聯採集管道＋聯絡人＋名單 Email，並標示來源",
+      "品牌詳情輸入統編可「🔍 自動帶入」工商登記資料",
+      "比對中心支援手機操作（單欄＋詳情覆蓋），與桌機功能一致",
+    ],
+  },
   {
     version: "1.4.0",
     date: "2026-06-22",

@@ -123,11 +123,11 @@ function KeysGuide() {
         <div style={{ fontSize: 12.5, color: C.muted }}>未設定時：電子報只會「模擬寄出」，不會真的送信。</div>
       </Card>
 
-      <Card title="Anthropic Claude — AI 生成草稿" badge="AI 生成必需">
-        <Step n={1}>到 <b>console.anthropic.com</b> 註冊並儲值。</Step>
-        <Step n={2}>建立 API Key（Settings → API Keys）。</Step>
-        <KeyBlock vars={["ANTHROPIC_API_KEY=sk-ant-xxxxxxxx", "# 選填，預設 claude-sonnet-4-6", "CLAUDE_MODEL=claude-sonnet-4-6"]} />
-        <div style={{ fontSize: 12.5, color: C.muted }}>用於郵件編輯器的「✨ AI 生成」。未設定時點生成會提示設定金鑰。</div>
+      <Card title="AI 生成草稿 — Claude / OpenAI / Gemini" badge="AI 生成必需">
+        <Step n={1}>三家擇一即可：Anthropic（console.anthropic.com）、OpenAI（platform.openai.com）、或 Google Gemini（aistudio.google.com）。</Step>
+        <Step n={2}>建立 API Key，設定對應變數。要指定用哪家可加 <span style={code}>AI_PROVIDER</span>，否則自動挑選（Claude→OpenAI→Gemini）。</Step>
+        <KeyBlock vars={["# 三選一", "ANTHROPIC_API_KEY=sk-ant-xxxx", "OPENAI_API_KEY=sk-xxxx", "GEMINI_API_KEY=xxxx", "# 選填：指定供應商", "AI_PROVIDER=claude   # claude | openai | gemini"]} />
+        <div style={{ fontSize: 12.5, color: C.muted }}>用於郵件編輯器的「✨ AI 生成」。未設定任一金鑰時點生成會提示。</div>
       </Card>
 
       <Card title="Google Places / Custom Search — 採集" badge="採集必需">

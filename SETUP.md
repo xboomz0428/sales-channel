@@ -31,11 +31,24 @@ APP_BASE_URL=https://你的網址               # 追蹤像素/連結用絕對�
 ```
 > 未設定 `RESEND_API_KEY` 時，電子報只會「模擬寄出」（標記已寄、不真的送信）。
 
-### AI 生成草稿（Anthropic）
+### AI 生成草稿（Claude / OpenAI / Gemini 三選一）
+設定任一家金鑰即可；要指定用哪家可加 `AI_PROVIDER`，否則依設定的金鑰自動挑選（優先 Claude → OpenAI → Gemini）。
 ```
+# 方式一：Anthropic Claude
 ANTHROPIC_API_KEY=sk-ant-xxxxxxxx
-CLAUDE_MODEL=claude-sonnet-4-6        # 選填，預設值
-AI_DAILY_GENERATION_CAP=200           # 選填，每日生成上限
+CLAUDE_MODEL=claude-sonnet-4-6        # 選填
+
+# 方式二：OpenAI
+OPENAI_API_KEY=sk-xxxxxxxx
+OPENAI_MODEL=gpt-4o                   # 選填
+
+# 方式三：Google Gemini
+GEMINI_API_KEY=xxxxxxxx
+GEMINI_MODEL=gemini-1.5-pro           # 選填
+
+# 選填：指定供應商與每日生成上限
+AI_PROVIDER=claude                    # claude | openai | gemini
+AI_DAILY_GENERATION_CAP=200
 ```
 
 ### 選填 — Webhook / 排程
