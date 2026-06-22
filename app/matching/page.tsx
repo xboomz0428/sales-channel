@@ -2069,6 +2069,59 @@ export default function MatchingPage() {
         );
       })()}
 
+      {/* 採集覆蓋率：篩選後清楚看到哪些縣市/地區/工商尚未採集完成（項目 6、7） */}
+      {(() => {
+        const vb = visibleBrands;
+        if (vb.length === 0) return null;
+        const isDone = (b: ScrapeBrand) => completeness(b.tasks) === 100;
+        const complete = vb.filter(isDone).length;
+        const incomplete = vb.length - complete;
+        const noGov = vb.filter((b) => !b.tax_id).length;
+        const noMap = vb.filter((b) => b.tasks.map?.status !== "done").length;
+        const noChannel = vb.filter((b) => !["line", "fb", "ig"].some((c) => b.channels.includes(c))).length;
+
+        // 待採集地區彙整（選了縣市看地區、否則看縣市）；點擊可直接篩選
+        const useDistrict = !!filterCity;
+        const gapMap: Record<string, number> = {};
+        for (const b of vb) {
+          if (isDone(b)) continue;
+          const keys = useDistrict ? b.districts : b.cities;
+          for (const k of keys.length ? keys : ["（未標記）"]) gapMap[k] = (gapMap[k] || 0) + 1;
+        }
+        const gaps = Object.entries(gapMap).filter(([k]) => k !== "（未標記）").sort((a, z) => z[1] - a[1]).slice(0, 12);
+
+        const chip = (label: string, n: number, color: string, bg: string) => (
+          <span style={{ fontSize: 11, padding: "2px 9px", borderRadius: 999, background: bg, color, fontWeight: 600 }}>{label} {n}</span>
+        );
+        return (
+          <div style={{ display: "flex", gap: 8, padding: "8px 20px", background: C.warningBg, borderBottom: `1px solid ${C.border}`, flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ fontSize: 11, color: C.muted, fontWeight: 700, letterSpacing: 0.6 }}>採集進度：</span>
+            {chip("完整", complete, C.success, C.successBg)}
+            {chip("待採集", incomplete, "#92400E", "#FEF3C7")}
+            {chip("缺工商", noGov, "#7B6E99", "#EAE5F0")}
+            {chip("缺社群", noChannel, "#5B7C99", "#E3ECF2")}
+            {chip("缺地圖", noMap, "#9E7048", "#F5EDDD")}
+            {gaps.length > 0 && (
+              <>
+                <span style={{ fontSize: 11, color: C.muted, fontWeight: 700, marginLeft: 6, paddingLeft: 8, borderLeft: `1px solid ${C.border}` }}>
+                  待採集{useDistrict ? "地區" : "縣市"}：
+                </span>
+                {gaps.map(([area, n]) => (
+                  <button
+                    key={area}
+                    onClick={() => { if (useDistrict) setFilterDistrict(filterDistrict === area ? null : area); else { setFilterCity(filterCity === area ? null : area); setFilterDistrict(null); } }}
+                    title="點擊篩選此區待採集品牌"
+                    style={{ fontSize: 11, padding: "2px 9px", borderRadius: 999, border: `1px solid ${C.border}`, background: C.surface, color: C.text, cursor: "pointer" }}
+                  >
+                    {area} <b style={{ color: "#92400E" }}>{n}</b>
+                  </button>
+                ))}
+              </>
+            )}
+          </div>
+        );
+      })()}
+
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         <BrandList
           brands={visibleBrands}

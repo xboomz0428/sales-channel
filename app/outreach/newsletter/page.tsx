@@ -8,6 +8,7 @@ interface Recipient {
   industry: string | null;
   email: string | null;
   stage: string | null;
+  source?: string;
 }
 interface Template {
   id: string;
@@ -134,7 +135,7 @@ export default function NewsletterPage() {
               recipients.map((r) => (
                 <label key={r.id} className={`row ${selected.has(r.id) ? 'on' : ''}`}>
                   <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} />
-                  <span className="rname">{r.name}</span>
+                  <span className="rname">{r.name}{r.source && <span className="rsrc">{r.source}</span>}</span>
                   <span className="rmeta">{r.industry || '—'} · {r.email}</span>
                 </label>
               ))
@@ -239,6 +240,7 @@ export default function NewsletterPage() {
         .row.on { background: #eef0e6; border-color: #cdd6bf; }
         .row input { grid-row: span 2; align-self: center; }
         .rname { font-size: 14px; }
+        .rsrc { font-size: 10px; color: #6b8f71; background: #eef0e6; border-radius: 999px; padding: 1px 7px; margin-left: 6px; }
         .rmeta { font-size: 11px; color: #9a9384; grid-column: 2; }
         .subj { font-size: 13px; margin: 10px 0 8px; color: #4a4a40; }
         .previewbox { border: 1px solid #e3ded3; border-radius: 10px; overflow: hidden; height: 420px; background: #f3f0e7; margin-top: 10px; }

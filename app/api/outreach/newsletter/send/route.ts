@@ -30,18 +30,19 @@ export async function POST(req: Request) {
       .single();
     const batchId = batch?.id;
 
-    // 取名單 email：優先採集到的 brand_channels(channel='email')，退回 brands.email
+    // 取名單 email：採集 brand_channels → 聯絡人 contacts → brands.email（串聯所有原始資料）
     const { data: brands } = await supabaseAdmin
       .from('brands')
-      .select('id, email, brand_channels(channel, value)')
+      .select('id, email, brand_channels(channel, value), contacts(email)')
       .in('id', brandIds);
     const JUNK_EMAIL = /sentry\.io|ingest\.|noreply|no-reply|example\.|@sentry|wixpress|\.png$|\.jpg$/i;
-    const isValidEmail = (e: string | null | undefined) =>
+    const isValidEmail = (e: string | null | undefined): e is string =>
       !!e && /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(e) && !JUNK_EMAIL.test(e);
     const emailMap = new Map(
       (brands || []).map((b: any) => {
         const chEmail = (b.brand_channels || []).find((c: any) => c.channel === 'email' && isValidEmail(c.value))?.value;
-        return [b.id, chEmail || (isValidEmail(b.email) ? b.email : null)];
+        const contactEmail = (b.contacts || []).map((c: any) => c.email).find(isValidEmail);
+        return [b.id, chEmail || contactEmail || (isValidEmail(b.email) ? b.email : null)];
       })
     );
 
