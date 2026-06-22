@@ -310,7 +310,8 @@ async function enrichBrand(
         added.push("fb"); have.add("fb");
       }
       const stillMissing3 = TARGET_CHANNELS.filter((ch) => !have.has(ch));
-      if (stillMissing3.length > 0) {
+      // 即使五大管道齊全，仍嘗試從 FB 補地址
+      if (stillMissing3.length > 0 || !have.has("address")) {
         await emit({ type: "step", text: `${prefix}從 Facebook 頁面抓取聯絡資訊…` });
         const fbLinks = await scrapeFacebookPage(fbUrl);
         const fbFound = Object.entries(fbLinks).filter(([ch]) => !have.has(ch));
