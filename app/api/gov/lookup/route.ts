@@ -665,7 +665,13 @@ export async function POST(request: NextRequest) {
       let candidates: GcisCompany[] = [];
 
       if (body.tax_id) {
-        candidates = await searchByTaxId(String(body.tax_id));
+        const tid = String(body.tax_id).replace(/\D/g, "");
+        candidates = await searchByTaxId(tid);
+        // GCIS 公司查無（多為獨資/合夥商號）→ 改查 mygov.tw 統編
+        if (candidates.length === 0) {
+          const mygov = await fetchMygovSearch(tid);
+          if (mygov) candidates = [mygov];
+        }
       } else {
         // 漸進式（最多 8 字 → 去通路詞 → 3 字 → registry）；手動搜尋不限在籍狀態
         candidates = await searchByName(nameQ.slice(0, 8), false);
