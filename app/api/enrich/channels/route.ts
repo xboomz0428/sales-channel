@@ -161,6 +161,9 @@ async function scrapeFacebookPage(fbUrl: string): Promise<Record<string, string>
     // LINE
     const lineMatch = html.match(/https?:\/\/(?:line\.me\/(?:R\/)?(?:ti\/p\/|ti\/g2\/)[@%\w\-.]+|lin\.ee\/[A-Za-z0-9]+|page\.line\.me\/[A-Za-z0-9_.\-]+)/i);
     if (lineMatch) found.line = lineMatch[0];
+    // 地址：台灣地址格式（縣市+區+路街+號）
+    const addrMatch = html.match(/[一-鿿]{2,3}[市縣][一-鿿]{1,4}[區鄉鎮市][一-鿿0-9０-９]{0,30}?(?:路|街|大道|巷)[0-9０-９之\-]{1,8}號(?:[0-9０-９樓之\-]{0,8})?/);
+    if (addrMatch) found.address = addrMatch[0];
   } catch { /* FB 頁面讀取失敗 → 略過 */ }
   return found;
 }
@@ -354,8 +357,15 @@ export async function POST(request: NextRequest) {
 
   (async () => {
     const supabase = getSupabaseServerClient();
+    // 完整定義：五大管道齊全則視為已採集完成，批次時剃除不重複採集
+    const COMPLETE_CHANNELS = ["phone", "email", "line", "fb", "ig"];
+    const isComplete = (chs: { channel: string }[] | undefined) => {
+      const have = new Set((chs || []).map((c) => c.channel));
+      return COMPLETE_CHANNELS.every((c) => have.has(c) || (c === "line" && have.has("line_id")));
+    };
     try {
-      let brands: { id: string; name: string; registered_name?: string | null }[] = [];
+      let brands: { id: string; name: string; registered_name?: string | null; brand_channels?: { channel: string }[] }[] = [];
+      let isBatch = false;
 
       if (body.brand_id) {
         const { data: brand } = await supabase
@@ -366,12 +376,14 @@ export async function POST(request: NextRequest) {
         }
         brands = [brand];
       } else if (Array.isArray(body.brand_ids) && body.brand_ids.length > 0) {
+        isBatch = true;
         const ids = (body.brand_ids as string[]).slice(0, 50);
-        const { data } = await supabase.from("brands").select("id, name, registered_name").in("id", ids);
+        const { data } = await supabase.from("brands").select("id, name, registered_name, brand_channels(channel)").in("id", ids);
         brands = data || [];
       } else if (body.all) {
+        isBatch = true;
         const industry = body.industry ? String(body.industry) : null;
-        let q = supabase.from("brands").select("id, name, registered_name").limit(100000);
+        let q = supabase.from("brands").select("id, name, registered_name, brand_channels(channel)").limit(100000);
         if (industry) q = q.ilike("industry", `%${industry}%`);
         const { data } = await q;
         brands = data || [];
@@ -380,12 +392,20 @@ export async function POST(request: NextRequest) {
         return;
       }
 
+      // 批次：剃除已採集完整的品牌
+      let skipped = 0;
+      if (isBatch) {
+        const before = brands.length;
+        brands = brands.filter((b) => !isComplete(b.brand_channels));
+        skipped = before - brands.length;
+      }
+
       if (brands.length === 0) {
-        await emit({ type: "error", text: "找不到可採集的品牌" });
+        await emit({ type: "error", text: skipped > 0 ? `所選品牌皆已採集完整（剃除 ${skipped} 個）` : "找不到可採集的品牌" });
         return;
       }
 
-      await emit({ type: "step", text: `開始採集 ${brands.length} 個品牌的聯絡管道…` });
+      await emit({ type: "step", text: `開始採集 ${brands.length} 個品牌的聯絡管道${skipped > 0 ? `（已剃除 ${skipped} 個完整品牌）` : ""}…` });
 
       let enriched = 0;
       for (let i = 0; i < brands.length; i++) {
@@ -405,7 +425,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      await emit({ type: "done", data: { total: brands.length, enriched } });
+      await emit({ type: "done", data: { total: brands.length, enriched, skipped } });
     } catch (e) {
       await emit({ type: "error", text: e instanceof Error ? e.message : "採集失敗" });
     } finally {

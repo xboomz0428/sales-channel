@@ -83,6 +83,7 @@ export const CHANNELS: Record<string, { label: string; bg: string; abbr: string 
   phone: { label: "Tel", bg: "#D9B68C", abbr: "TEL" },
   website: { label: "Web", bg: "#5B7C99", abbr: "WWW" },
   map: { label: "Map", bg: "#D97706", abbr: "MAP" },
+  address: { label: "地址", bg: "#8A8678", abbr: "ADDR" },
 };
 
 export const CHANNEL_ORDER = ["line", "fb", "ig", "email", "phone", "website", "map"];

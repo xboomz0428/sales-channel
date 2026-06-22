@@ -302,7 +302,34 @@ function EditRegistrationModal({
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [loadingGov, setLoadingGov] = useState(false);
   const set = (k: keyof typeof form, v: string) => setForm((p) => ({ ...p, [k]: v }));
+
+  // 輸入統編後，自動查詢工商登記資料並填入表單
+  const autofillFromTaxId = async () => {
+    const tid = form.tax_id.replace(/\D/g, "");
+    if (tid.length !== 8) { setErr("請先輸入 8 碼統一編號"); return; }
+    setLoadingGov(true); setErr(null);
+    try {
+      const res = await fetch("/api/gov/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tax_id: tid }),
+      });
+      const json = await res.json();
+      const c = json.data?.candidates?.[0];
+      if (!c) { setErr("查無此統編的工商登記資料"); setLoadingGov(false); return; }
+      setForm((p) => ({
+        ...p,
+        registered_name: c.Company_Name || p.registered_name,
+        owner: c.Responsible_Name || p.owner,
+        capital: c.Capital_Stock_Amount != null ? String(c.Capital_Stock_Amount) : p.capital,
+        setup_date: c.Company_Setup_Date || p.setup_date,
+        company_address: c.Company_Location || p.company_address,
+      }));
+    } catch { setErr("查詢失敗，請稍後再試"); }
+    setLoadingGov(false);
+  };
   const inputStyle = { width: "100%", padding: "9px 12px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surf2, fontSize: 14, color: C.text, outline: "none", boxSizing: "border-box" as const };
 
   const save = async () => {
@@ -349,7 +376,16 @@ function EditRegistrationModal({
           </div>
           <div style={{ display: "flex", gap: 10 }}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>統一編號</div>
+              <div style={{ fontSize: 12, color: C.muted, marginBottom: 4, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span>統一編號</span>
+                <button
+                  onClick={autofillFromTaxId}
+                  disabled={loadingGov || form.tax_id.replace(/\D/g, "").length !== 8}
+                  style={{ border: "none", background: "none", color: form.tax_id.replace(/\D/g, "").length === 8 ? C.primary : C.muted, fontSize: 11, fontWeight: 700, cursor: loadingGov || form.tax_id.replace(/\D/g, "").length !== 8 ? "default" : "pointer", padding: 0 }}
+                >
+                  {loadingGov ? "查詢中…" : "🔍 自動帶入"}
+                </button>
+              </div>
               <input value={form.tax_id} onChange={(e) => set("tax_id", e.target.value)} placeholder="12345678" maxLength={8} style={inputStyle} />
             </div>
             <div style={{ flex: 1 }}>
