@@ -285,11 +285,22 @@ async function fetchMygovSearch(query: string): Promise<GcisCompany | null> {
 }
 
 // 共用：從品牌名產生漸進搜尋變體（全名 → 前10字 → 前7字 → 前5字 → 去通路詞）
+// 工商登記名為純中文，先去除英文、數字、符號（保留中文與全形括號）。
+function cleanGovName(s: string): string {
+  return s
+    .split(/[｜|│]/)[0]
+    .replace(/[A-Za-z0-9]/g, "")               // 去英文與數字
+    .replace(/[^一-鿿（）()]/g, "")     // 只保留中文與括號
+    .trim();
+}
 function getNameVariants(brandName: string): string[] {
-  const raw = brandName.split(/[｜|│]/)[0].trim();
+  const raw0 = brandName.split(/[｜|│]/)[0].trim();
+  const cjk = cleanGovName(brandName);
+  // 清乾淨後若太短（不足 2 字）則退回原字串，避免搜不到
+  const raw = cjk.length >= 2 ? cjk : raw0;
   const seen = new Set<string>();
-  const push = (s: string) => { if (s.length >= 2 && !seen.has(s)) { seen.add(s); result.push(s); } };
   const result: string[] = [];
+  const push = (s: string) => { const t = s.trim(); if (t.length >= 2 && !seen.has(t)) { seen.add(t); result.push(t); } };
   push(raw);
   if (raw.length > 10) push(raw.slice(0, 10));
   if (raw.length > 7) push(raw.slice(0, 7));

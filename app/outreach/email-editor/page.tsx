@@ -262,7 +262,7 @@ export default function EmailEditorPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setMsg(`✗ ${data.error === 'ANTHROPIC_API_KEY 未設定' ? '請先在環境變數設定 ANTHROPIC_API_KEY（見「使用說明」）' : data.error || 'AI 生成失敗'}`);
+        setMsg(`✗ ${(data.error || '').includes('AI 金鑰') ? data.error + '（見「使用說明」）' : data.error || 'AI 生成失敗'}`);
         return;
       }
       const paras = (data.body || '').split(/\n{2,}/).map((s: string) => s.trim()).filter(Boolean);

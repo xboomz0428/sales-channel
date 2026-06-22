@@ -855,6 +855,7 @@ const CITY_DISTRICTS: Record<string, string[]> = {
 const CITY_OPTIONS = Object.keys(CITY_DISTRICTS);
 const KEYWORD_SUGGEST = ["養生館", "越式洗髮", "宮廟", "長照中心", "禮儀公司", "SPA"];
 
+const KW_STORE = "collect_keywords";
 function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () => void }) {
   const [keyword, setKeyword] = useState("");
   const [city, setCity] = useState("台中市");
@@ -864,7 +865,38 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
   const [resultOk, setResultOk] = useState(false);
   const [jobs, setJobs] = useState<ScrapeJob[]>([]);
   const [steps, setSteps] = useState<{ type: string; text: string; ok?: boolean }[]>([]);
+  const [kwList, setKwList] = useState<string[]>(KEYWORD_SUGGEST);
   const logRef = useRef<HTMLDivElement>(null);
+
+  // 載入歷史關鍵字（localStorage）＋ 預設，去重
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(KW_STORE) || "[]") as string[];
+      setKwList([...new Set([...saved, ...KEYWORD_SUGGEST])]);
+    } catch { /* ignore */ }
+  }, []);
+  // 記住輸入過的關鍵字（自訂的存進 localStorage，最多 40 個）
+  const rememberKeyword = (k: string) => {
+    const t = k.trim();
+    if (!t) return;
+    setKwList((prev) => {
+      const merged = [t, ...prev.filter((x) => x !== t)];
+      try {
+        const custom = merged.filter((x) => !KEYWORD_SUGGEST.includes(x)).slice(0, 40);
+        localStorage.setItem(KW_STORE, JSON.stringify(custom));
+      } catch { /* ignore */ }
+      return [...new Set(merged)];
+    });
+  };
+  const removeKeyword = (k: string) => {
+    setKwList((prev) => {
+      const next = prev.filter((x) => x !== k);
+      try {
+        localStorage.setItem(KW_STORE, JSON.stringify(next.filter((x) => !KEYWORD_SUGGEST.includes(x)).slice(0, 40)));
+      } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   const loadJobs = () => {
     fetch("/api/scrape/places")
@@ -881,6 +913,7 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
 
   const run = async () => {
     if (!keyword.trim() || running) return;
+    rememberKeyword(keyword);
     setRunning(true);
     setResult(null);
     setResultOk(false);
@@ -981,15 +1014,29 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
             style={{ width: "100%", padding: "11px 14px", borderRadius: 11, border: `1px solid ${C.border}`, background: C.surf2, fontSize: 15, color: C.text, outline: "none", marginBottom: 8 }}
           />
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
-            {KEYWORD_SUGGEST.map((k) => (
-              <button
-                key={k}
-                onClick={() => setKeyword(k)}
-                style={{ padding: "4px 12px", borderRadius: 999, fontSize: 12, border: `1px solid ${keyword === k ? C.primary : C.border}`, background: keyword === k ? C.p50 : "transparent", color: keyword === k ? C.primary : C.muted, cursor: "pointer" }}
-              >
-                {k}
-              </button>
-            ))}
+            {kwList.map((k) => {
+              const isDefault = KEYWORD_SUGGEST.includes(k);
+              const active = keyword === k;
+              return (
+                <span key={k} style={{ display: "inline-flex", alignItems: "center", borderRadius: 999, border: `1px solid ${active ? C.primary : C.border}`, background: active ? C.p50 : "transparent", overflow: "hidden" }}>
+                  <button
+                    onClick={() => setKeyword(k)}
+                    style={{ padding: "4px 6px 4px 12px", fontSize: 12, border: "none", background: "transparent", color: active ? C.primary : C.muted, cursor: "pointer" }}
+                  >
+                    {k}
+                  </button>
+                  {!isDefault && (
+                    <button
+                      onClick={() => removeKeyword(k)}
+                      title="移除"
+                      style={{ padding: "4px 8px 4px 2px", fontSize: 12, border: "none", background: "transparent", color: C.muted, cursor: "pointer", lineHeight: 1 }}
+                    >
+                      ×
+                    </button>
+                  )}
+                </span>
+              );
+            })}
           </div>
 
           {/* 城市 */}
@@ -1982,13 +2029,17 @@ export default function MatchingPage() {
               </>
             )}
 
-            {/* 地區（選了縣市後顯示該縣市的行政區） */}
+            {/* 地區（僅在選了縣市後，顯示該縣市實際有資料的行政區） */}
             {(() => {
-              const cityKey = filterCity ? Object.keys(CITY_DISTRICTS).find((c) => c === filterCity) : null;
+              if (!filterCity) return null; // 未選縣市不顯示地區
+              const cityKey = Object.keys(CITY_DISTRICTS).find((c) => c === filterCity);
               const dists = cityKey ? CITY_DISTRICTS[cityKey] : [];
-              const availableDistricts = dists.length > 0
-                ? dists.filter((d) => brands.some((b) => b.districts.includes(d)))
-                : [...new Set(brands.flatMap((b) => b.districts))].sort((a, z) => a.localeCompare(z, "zh-TW"));
+              // 只顯示「該縣市品牌實際出現過」的行政區
+              const inCity = [...new Set(brands.filter((b) => b.cities.includes(filterCity)).flatMap((b) => b.districts))];
+              const availableDistricts = (dists.length > 0
+                ? dists.filter((d) => inCity.includes(d))
+                : inCity
+              ).sort((a, z) => a.localeCompare(z, "zh-TW"));
               if (availableDistricts.length === 0) return null;
               return (
                 <>
