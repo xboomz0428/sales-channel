@@ -44,6 +44,7 @@ export async function POST(req: Request) {
         subject: b.subject ?? null,
         body: b.body,
         body_html: b.bodyHtml ?? null,
+        blocks_json: b.blocksJson ?? null,
       })
       .select('id')
       .single();

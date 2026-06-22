@@ -69,6 +69,7 @@ export const templateCreateSchema: Schema = {
   productFocus: { type: "string" },
   subject: { type: "string" },
   bodyHtml: { type: "string" },
+  blocksJson: { type: "string" },
 };
 
 export const templateUpdateSchema: Schema = {
@@ -79,6 +80,7 @@ export const templateUpdateSchema: Schema = {
   productFocus: { type: "string" },
   subject: { type: "string" },
   bodyHtml: { type: "string" },
+  blocksJson: { type: "string" },
   isActive: { type: "boolean" },
 };
 

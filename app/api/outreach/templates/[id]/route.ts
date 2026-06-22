@@ -18,6 +18,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (b.subject !== undefined) patch.subject = b.subject;
     if (b.body !== undefined) patch.body = b.body;
     if (b.bodyHtml !== undefined) patch.body_html = b.bodyHtml;
+    if (b.blocksJson !== undefined) patch.blocks_json = b.blocksJson;
     if (b.isActive !== undefined) patch.is_active = b.isActive;
 
     const { error } = await supabaseAdmin

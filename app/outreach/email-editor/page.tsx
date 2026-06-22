@@ -2,16 +2,25 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
-type BlockType = 'heading' | 'text' | 'image' | 'button' | 'divider' | 'spacer';
+type BlockType = 'heading' | 'text' | 'image' | 'button' | 'divider' | 'spacer' | 'file';
+type FontSize = 'small' | 'normal' | 'large' | 'xlarge';
+type Align = 'left' | 'center' | 'right';
 interface Block {
   id: string;
   type: BlockType;
   text?: string;
-  url?: string; // image src / button link
+  url?: string;      // image src / button link / file url
   alt?: string;
+  fileName?: string; // 夾帶檔案顯示名稱
+  fontSize?: FontSize;
+  color?: string;
+  align?: Align;
+  bold?: boolean;
 }
 
 const uid = () => Math.random().toString(36).slice(2, 9);
+const FONT_PX: Record<FontSize, number> = { small: 13, normal: 15, large: 18, xlarge: 22 };
+const FONT_LABEL: Record<FontSize, string> = { small: '小', normal: '中', large: '大', xlarge: '特大' };
 
 const STARTER: Block[] = [
   { id: uid(), type: 'heading', text: 'HeroHerb 好漢草' },
@@ -150,20 +159,39 @@ const PRESETS: Preset[] = [
 function renderEmailHtml(blocks: Block[], subject: string): string {
   const esc = (s = '') =>
     s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  // 內文：支援 Markdown 超連結 [文字](網址) 與換行
+  const richText = (s = '') =>
+    esc(s)
+      .replace(/\[([^\]]+)\]\(((?:https?:\/\/|mailto:|tel:)[^)\s]+)\)/g,
+        '<a href="$2" style="color:#4a6b3f;text-decoration:underline;">$1</a>')
+      .replace(/\n/g, '<br/>');
+  // 區塊文字樣式（字級／顏色／對齊／粗體）
+  const textStyle = (b: Block) => {
+    const size = FONT_PX[b.fontSize || (b.type === 'heading' ? 'xlarge' : 'normal')];
+    const align = b.align || 'left';
+    const weight = b.bold || b.type === 'heading' ? 700 : 400;
+    const color = b.color || (b.type === 'heading' ? '#2f3d2f' : '#3a3a3a');
+    const font = b.type === 'heading' ? "'Noto Serif TC',serif" : "'Noto Sans TC',sans-serif";
+    return `font-family:${font};font-size:${size}px;line-height:1.7;color:${color};text-align:${align};font-weight:${weight};`;
+  };
 
   const rows = blocks
     .map((b) => {
       switch (b.type) {
         case 'heading':
-          return `<tr><td style="padding:8px 0;font-family:'Noto Serif TC',serif;font-size:24px;font-weight:700;color:#2f3d2f;">${esc(b.text)}</td></tr>`;
+          return `<tr><td style="padding:8px 0;${textStyle(b)}">${richText(b.text)}</td></tr>`;
         case 'text':
-          return `<tr><td style="padding:8px 0;font-family:'Noto Sans TC',sans-serif;font-size:15px;line-height:1.7;color:#3a3a3a;">${esc(b.text).replace(/\n/g, '<br/>')}</td></tr>`;
+          return `<tr><td style="padding:8px 0;${textStyle(b)}">${richText(b.text)}</td></tr>`;
         case 'image':
           return b.url
-            ? `<tr><td style="padding:10px 0;"><img src="${esc(b.url)}" alt="${esc(b.alt)}" style="width:100%;max-width:600px;border-radius:8px;display:block;"/></td></tr>`
+            ? `<tr><td style="padding:10px 0;text-align:${b.align || 'left'};"><img src="${esc(b.url)}" alt="${esc(b.alt)}" style="width:100%;max-width:600px;border-radius:8px;display:block;"/></td></tr>`
             : '';
         case 'button':
-          return `<tr><td style="padding:14px 0;"><a href="${esc(b.url) || '#'}" style="display:inline-block;background:#4a6b3f;color:#fff;text-decoration:none;padding:12px 26px;border-radius:999px;font-family:'Noto Sans TC',sans-serif;font-size:15px;">${esc(b.text)}</a></td></tr>`;
+          return `<tr><td style="padding:14px 0;text-align:${b.align || 'left'};"><a href="${esc(b.url) || '#'}" style="display:inline-block;background:#4a6b3f;color:#fff;text-decoration:none;padding:12px 26px;border-radius:999px;font-family:'Noto Sans TC',sans-serif;font-size:${FONT_PX[b.fontSize || 'normal']}px;">${esc(b.text)}</a></td></tr>`;
+        case 'file':
+          return b.url
+            ? `<tr><td style="padding:10px 0;"><a href="${esc(b.url)}" style="display:inline-block;background:#eef0e6;color:#4a6b3f;text-decoration:none;padding:10px 18px;border-radius:8px;border:1px solid #cdd6bf;font-family:'Noto Sans TC',sans-serif;font-size:14px;">📎 ${esc(b.fileName || '下載檔案')}</a></td></tr>`
+            : '';
         case 'divider':
           return `<tr><td style="padding:10px 0;"><hr style="border:none;border-top:1px solid #e3ded3;"/></td></tr>`;
         case 'spacer':
@@ -190,11 +218,12 @@ const BLOCK_LABEL: Record<BlockType, string> = {
   text: '內文',
   image: '圖片',
   button: '按鈕',
+  file: '檔案',
   divider: '分隔線',
   spacer: '間距',
 };
 
-interface SavedTemplate { id: string; name: string; subject: string | null; body: string | null; body_html: string | null }
+interface SavedTemplate { id: string; name: string; subject: string | null; body: string | null; body_html: string | null; blocks_json?: string | null }
 
 export default function EmailEditorPage() {
   const [subject, setSubject] = useState('來自好漢草的問候');
@@ -208,6 +237,7 @@ export default function EmailEditorPage() {
   const [aiIntent, setAiIntent] = useState('');
   const [aiIndustry, setAiIndustry] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
 
   const html = useMemo(() => renderEmailHtml(blocks, subject), [blocks, subject]);
 
@@ -228,15 +258,24 @@ export default function EmailEditorPage() {
     setMsg(`已套用「${p.name}」樣板（另存為新模板）`);
   };
 
-  // 載入既有模板進編輯器：body 依空行切段還原為區塊
+  // 載入既有模板進編輯器：優先用 blocks_json 還原完整格式，否則由 body 切段
   const loadTemplate = (t: SavedTemplate) => {
     setEditingId(t.id);
     setName(t.name);
     setSubject(t.subject || '');
-    const paras = (t.body || '').split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
-    const blks: Block[] = paras.length
-      ? paras.map((p, i) => ({ id: uid(), type: i === 0 ? 'heading' : 'text', text: p }))
-      : [{ id: uid(), type: 'text', text: t.body || '' }];
+    let blks: Block[] | null = null;
+    if (t.blocks_json) {
+      try {
+        const parsed = JSON.parse(t.blocks_json);
+        if (Array.isArray(parsed) && parsed.length) blks = parsed.map((b: Block) => ({ ...b, id: uid() }));
+      } catch { /* 解析失敗 → 退回 body */ }
+    }
+    if (!blks) {
+      const paras = (t.body || '').split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
+      blks = paras.length
+        ? paras.map((p, i) => ({ id: uid(), type: i === 0 ? 'heading' : 'text', text: p } as Block))
+        : [{ id: uid(), type: 'text', text: t.body || '' }];
+    }
     setBlocks(blks);
     setMsg(`正在編輯模板「${t.name}」`);
   };
@@ -310,6 +349,28 @@ export default function EmailEditorPage() {
       [next[i], next[j]] = [next[j], next[i]];
       return next;
     });
+  // 在文字區塊插入超連結語法 [文字](網址)
+  const insertLink = (id: string, current: string) =>
+    update(id, { text: `${current}${current && !current.endsWith('\n') ? ' ' : ''}[連結文字](https://)` });
+
+  // 上傳圖片 / 夾帶檔案到 Supabase Storage
+  const uploadFor = async (id: string, file: File, asFile: boolean) => {
+    setUploadingId(id);
+    setMsg('');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/upload', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.success) {
+        update(id, asFile ? { url: data.url, fileName: data.name } : { url: data.url });
+        setMsg('✓ 已上傳');
+      } else {
+        setMsg(`✗ ${data.error || '上傳失敗'}`);
+      }
+    } catch { setMsg('✗ 上傳失敗'); }
+    setUploadingId(null);
+  };
 
   async function saveTemplate() {
     setSaving(true);
@@ -321,6 +382,7 @@ export default function EmailEditorPage() {
         subject,
         body: blocks.map((b) => b.text).filter(Boolean).join('\n\n') || '(圖文電子報)',
         bodyHtml: html,
+        blocksJson: JSON.stringify(blocks),
       };
       const url = editingId ? `/api/outreach/templates/${editingId}` : '/api/outreach/templates';
       const method = editingId ? 'PATCH' : 'POST';
@@ -435,12 +497,30 @@ export default function EmailEditorPage() {
                     <button className="del" onClick={() => remove(b.id)}>✕</button>
                   </div>
                 </div>
+                {/* 文字格式工具列：字級／顏色／對齊／粗體／插入連結 */}
+                {(b.type === 'heading' || b.type === 'text') && (
+                  <div className="fmt">
+                    <select className="fmtsel" value={b.fontSize || (b.type === 'heading' ? 'xlarge' : 'normal')} onChange={(e) => update(b.id, { fontSize: e.target.value as FontSize })} title="字級">
+                      {(['small', 'normal', 'large', 'xlarge'] as FontSize[]).map((s) => <option key={s} value={s}>{FONT_LABEL[s]}</option>)}
+                    </select>
+                    {(['left', 'center', 'right'] as Align[]).map((a) => (
+                      <button key={a} className={`fmtbtn ${(b.align || 'left') === a ? 'on' : ''}`} onClick={() => update(b.id, { align: a })} title={`對齊${a === 'left' ? '左' : a === 'center' ? '中' : '右'}`}>
+                        {a === 'left' ? '⬅' : a === 'center' ? '↔' : '➡'}
+                      </button>
+                    ))}
+                    <button className={`fmtbtn ${b.bold ? 'on' : ''}`} onClick={() => update(b.id, { bold: !b.bold })} title="粗體"><b>B</b></button>
+                    <label className="fmtcolor" title="文字顏色">
+                      <input type="color" value={b.color || (b.type === 'heading' ? '#2f3d2f' : '#3a3a3a')} onChange={(e) => update(b.id, { color: e.target.value })} />
+                    </label>
+                    <button className="fmtbtn" onClick={() => insertLink(b.id, b.text || '')} title="插入超連結">🔗</button>
+                  </div>
+                )}
                 {(b.type === 'heading' || b.type === 'text' || b.type === 'button') && (
                   <textarea
                     className="in ta"
                     rows={b.type === 'text' ? 3 : 1}
                     value={b.text}
-                    placeholder={b.type === 'button' ? '按鈕文字' : '輸入文字'}
+                    placeholder={b.type === 'button' ? '按鈕文字' : '輸入文字，可用 [文字](網址) 加超連結'}
                     onChange={(e) => update(b.id, { text: e.target.value })}
                   />
                 )}
@@ -448,7 +528,7 @@ export default function EmailEditorPage() {
                   <input
                     className="in"
                     value={b.url}
-                    placeholder={b.type === 'image' ? '圖片網址 https://…' : '連結網址 https://…(會被追蹤)'}
+                    placeholder={b.type === 'image' ? '圖片網址 https://… 或下方上傳' : '連結網址 https://…(會被追蹤)'}
                     onChange={(e) => update(b.id, { url: e.target.value })}
                   />
                 )}
@@ -459,6 +539,26 @@ export default function EmailEditorPage() {
                     placeholder="圖片替代文字(alt)"
                     onChange={(e) => update(b.id, { alt: e.target.value })}
                   />
+                )}
+                {/* 圖片上傳 */}
+                {b.type === 'image' && (
+                  <label className="uploadbtn">
+                    {uploadingId === b.id ? '上傳中…' : '⬆ 上傳圖片'}
+                    <input type="file" accept="image/*" style={{ display: 'none' }} disabled={uploadingId === b.id}
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadFor(b.id, f, false); e.target.value = ''; }} />
+                  </label>
+                )}
+                {/* 夾帶檔案 */}
+                {b.type === 'file' && (
+                  <>
+                    {b.url && <div className="fileinfo">📎 {b.fileName || b.url}</div>}
+                    <input className="in" value={b.fileName || ''} placeholder="顯示名稱（例：產品型錄.pdf）" onChange={(e) => update(b.id, { fileName: e.target.value })} />
+                    <label className="uploadbtn">
+                      {uploadingId === b.id ? '上傳中…' : '⬆ 上傳檔案（PDF/圖片等，≤10MB）'}
+                      <input type="file" style={{ display: 'none' }} disabled={uploadingId === b.id}
+                        onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadFor(b.id, f, true); e.target.value = ''; }} />
+                    </label>
+                  </>
                 )}
               </div>
             ))}
@@ -660,6 +760,74 @@ export default function EmailEditorPage() {
         .ta {
           resize: vertical;
           margin-bottom: 6px;
+        }
+        .fmt {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 5px;
+          align-items: center;
+          margin-bottom: 7px;
+        }
+        .fmtsel {
+          border: 1px solid #d9d3c4;
+          border-radius: 7px;
+          padding: 4px 6px;
+          font-size: 12px;
+          font-family: inherit;
+          background: #fff;
+          cursor: pointer;
+        }
+        .fmtbtn {
+          border: 1px solid #d9d3c4;
+          background: #fff;
+          border-radius: 7px;
+          min-width: 28px;
+          height: 28px;
+          font-size: 12px;
+          cursor: pointer;
+          color: #5a6b4f;
+        }
+        .fmtbtn.on {
+          background: #4a6b3f;
+          color: #fff;
+          border-color: #4a6b3f;
+        }
+        .fmtcolor {
+          display: inline-flex;
+          align-items: center;
+          border: 1px solid #d9d3c4;
+          border-radius: 7px;
+          padding: 2px;
+          height: 28px;
+          background: #fff;
+        }
+        .fmtcolor input {
+          width: 24px;
+          height: 22px;
+          border: none;
+          background: none;
+          padding: 0;
+          cursor: pointer;
+        }
+        .uploadbtn {
+          display: inline-block;
+          margin-top: 6px;
+          border: 1px dashed #b9b29e;
+          color: #5a6b4f;
+          border-radius: 8px;
+          padding: 7px 12px;
+          font-size: 12px;
+          cursor: pointer;
+          background: #fcfbf5;
+        }
+        .uploadbtn:hover {
+          background: #eef0e6;
+        }
+        .fileinfo {
+          font-size: 12px;
+          color: #4a6b3f;
+          margin-bottom: 6px;
+          word-break: break-all;
         }
         .adders {
           display: flex;

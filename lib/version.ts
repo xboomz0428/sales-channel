@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "1.5.0";
+export const APP_VERSION = "1.6.0";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.6.0",
+    date: "2026-06-22",
+    title: "郵件編輯器：富文字編輯",
+    items: [
+      "文字區塊可調字級（小/中/大/特大）、顏色、對齊、粗體",
+      "支援超連結：內文用 [文字](網址) 即自動轉成可點連結",
+      "新增「檔案」區塊與圖片上傳：上傳至雲端儲存並插入下載連結（≤10MB）",
+      "模板儲存完整區塊格式（blocks_json），重新開啟可還原所有格式",
+      "桌機與手機皆可使用",
+    ],
+  },
   {
     version: "1.5.0",
     date: "2026-06-22",
