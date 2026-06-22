@@ -578,8 +578,12 @@ export default function EmailEditorPage() {
           font-family: 'Noto Sans TC', sans-serif;
           color: #2f3d2f;
           background: #f3f0e7;
-          min-height: 100vh;
+          flex: 1;
+          min-height: 0;
+          height: 100vh;
+          overflow-y: auto;
           padding: 20px;
+          box-sizing: border-box;
         }
         .bar {
           display: flex;

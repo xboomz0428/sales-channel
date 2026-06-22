@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "1.6.0";
+export const APP_VERSION = "1.7.0";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.7.0",
+    date: "2026-06-22",
+    title: "電子報分群與數據分析",
+    items: [
+      "郵件編輯器加上垂直捲軸，內容過長不再被裁切",
+      "電子報收件名單顯示「名單總數／有 Email 數」，並可依產業、階段、來源分群",
+      "收件名單三來源（採集／聯絡人／名單）分開查詢、分頁取回，避免整份名單變空",
+      "郵件儀表板新增轉換漏斗、依產業成效、依模板成效分析",
+      "空名單時提示如何補齊 Email（管道補齊／放寬篩選）",
+    ],
+  },
   {
     version: "1.6.0",
     date: "2026-06-22",

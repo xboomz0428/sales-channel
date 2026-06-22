@@ -24,14 +24,24 @@ interface SendResult {
   queued: number;
 }
 
+const STAGE_LABEL: Record<string, string> = {
+  new: '新名單', contacted: '已聯繫', sampling: '打樣中', quoting: '報價中',
+  negotiating: '議約中', won: '成交', lost: '流失',
+};
+
 export default function NewsletterPage() {
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [industries, setIndustries] = useState<string[]>([]);
+  const [stages, setStages] = useState<string[]>([]);
+  const [sources, setSources] = useState<string[]>([]);
+  const [totalBrands, setTotalBrands] = useState(0);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [tplId, setTplId] = useState<string>('');
   const [q, setQ] = useState('');
   const [industry, setIndustry] = useState('');
+  const [stage, setStage] = useState('');
+  const [source, setSource] = useState('');
   const [confirm, setConfirm] = useState(false);
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<SendResult | null>(null);
@@ -39,17 +49,23 @@ export default function NewsletterPage() {
 
   // 載入名單(隨搜尋/篩選)
   useEffect(() => {
+    setLoading(true);
     const p = new URLSearchParams();
     if (q) p.set('q', q);
     if (industry) p.set('industry', industry);
+    if (stage) p.set('stage', stage);
+    if (source) p.set('source', source);
     fetch(`/api/outreach/recipients?${p.toString()}`)
       .then((r) => r.json())
       .then((d) => {
         setRecipients(d.recipients || []);
         if (d.industries?.length) setIndustries(d.industries);
+        if (d.stages) setStages(d.stages);
+        if (d.sources) setSources(d.sources);
+        if (typeof d.totalBrands === 'number') setTotalBrands(d.totalBrands);
       })
       .finally(() => setLoading(false));
-  }, [q, industry]);
+  }, [q, industry, stage, source]);
 
   // 載入電子報模板(有 HTML 的)
   useEffect(() => {
@@ -112,15 +128,23 @@ export default function NewsletterPage() {
         <section className="panel">
           <div className="phead">
             <strong>收件名單</strong>
-            <span className="count">已選 {selected.size}</span>
+            <span className="count">名單 {totalBrands}・有 Email {recipients.length}・已選 {selected.size}</span>
           </div>
           <div className="filters">
             <input className="in" placeholder="搜尋名稱…" value={q} onChange={(e) => setQ(e.target.value)} />
             <select className="in" value={industry} onChange={(e) => setIndustry(e.target.value)}>
               <option value="">全部產業</option>
-              {industries.map((i) => (
-                <option key={i} value={i}>{i}</option>
-              ))}
+              {industries.map((i) => (<option key={i} value={i}>{i}</option>))}
+            </select>
+          </div>
+          <div className="filters">
+            <select className="in" value={stage} onChange={(e) => setStage(e.target.value)}>
+              <option value="">全部階段</option>
+              {stages.map((s) => (<option key={s} value={s}>{STAGE_LABEL[s] || s}</option>))}
+            </select>
+            <select className="in" value={source} onChange={(e) => setSource(e.target.value)}>
+              <option value="">全部來源</option>
+              {sources.map((s) => (<option key={s} value={s}>{s}</option>))}
             </select>
           </div>
           <button className="selall" onClick={toggleAll}>
@@ -130,12 +154,19 @@ export default function NewsletterPage() {
             {loading ? (
               <div className="muted">載入中…</div>
             ) : recipients.length === 0 ? (
-              <div className="muted">沒有符合條件且有 email 的名單</div>
+              <div className="empty">
+                <div>目前篩選沒有可寄送的 Email 名單</div>
+                <div className="hint">
+                  {totalBrands > 0
+                    ? `名單共 ${totalBrands} 筆，但符合此篩選的沒有 Email。可到「比對中心」用「管道補齊」採集 Email，或放寬上方篩選。`
+                    : '尚無名單資料，請先到「名單總覽」或「採集任務」建立。'}
+                </div>
+              </div>
             ) : (
               recipients.map((r) => (
                 <label key={r.id} className={`row ${selected.has(r.id) ? 'on' : ''}`}>
                   <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} />
-                  <span className="rname">{r.name}{r.source && <span className="rsrc">{r.source}</span>}</span>
+                  <span className="rname">{r.name}{r.source && <span className="rsrc">{r.source}</span>}{r.stage && <span className="rstage">{STAGE_LABEL[r.stage] || r.stage}</span>}</span>
                   <span className="rmeta">{r.industry || '—'} · {r.email}</span>
                 </label>
               ))
@@ -220,8 +251,12 @@ export default function NewsletterPage() {
 
       <style jsx>{`
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@700&display=swap');
-        .wrap { font-family: 'Noto Sans TC', sans-serif; background: #f3f0e7; min-height: 100vh; padding: 22px 22px 110px; color: #2f3d2f; }
+        .wrap { font-family: 'Noto Sans TC', sans-serif; background: #f3f0e7; height: 100vh; overflow-y: auto; box-sizing: border-box; padding: 22px 22px 110px; color: #2f3d2f; }
         h1 { font-family: 'Noto Serif TC', serif; font-size: 23px; margin: 0; }
+        .phead .count { font-size: 11px; }
+        .empty { color: #9a9384; text-align: center; padding: 20px 8px; font-size: 13px; }
+        .empty .hint { font-size: 12px; margin-top: 8px; line-height: 1.6; color: #b0a892; }
+        .rstage { font-size: 10px; color: #5b7c99; background: #e3ecf2; border-radius: 999px; padding: 1px 7px; margin-left: 5px; }
         header p { margin: 4px 0 16px; font-size: 12px; color: #8a8472; }
         .muted { color: #9a9384; }
         .small { font-size: 12px; }

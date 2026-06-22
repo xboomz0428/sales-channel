@@ -23,10 +23,25 @@ interface Daily {
   opened: number;
   clicked: number;
 }
+interface SegStat {
+  industry?: string;
+  template?: string;
+  sent: number;
+  opened: number;
+  clicked: number;
+  replied: number;
+  failed: number;
+  openRate: number;
+  clickRate: number;
+  replyRate: number;
+}
 interface Data {
   totals: Record<string, number>;
   daily: Daily[];
   messages: Msg[];
+  byIndustry?: SegStat[];
+  byTemplate?: SegStat[];
+  funnel?: { sent: number; opened: number; clicked: number; replied: number };
 }
 
 const STATUS: Record<string, { label: string; color: string }> = {
@@ -97,6 +112,59 @@ export default function EmailDashboardPage() {
             </div>
           </div>
 
+          {/* 轉換漏斗 */}
+          {data?.funnel && data.funnel.sent > 0 && (
+            <div className="card">
+              <div className="ck">轉換漏斗</div>
+              <div className="funnel">
+                {([['寄送', data.funnel.sent, '#6f8c5f'], ['開信', data.funnel.opened, '#2f7d6b'], ['點擊', data.funnel.clicked, '#b08d3f'], ['回覆', data.funnel.replied, '#2f6bb0']] as const).map(([label, n, color]) => {
+                  const pct = data.funnel!.sent ? Math.round((n / data.funnel!.sent) * 100) : 0;
+                  return (
+                    <div key={label} className="fstep">
+                      <div className="flabel">{label}<b>{n}</b></div>
+                      <div className="ftrack"><div className="ffill" style={{ width: `${pct}%`, background: color }} /></div>
+                      <div className="fpct">{pct}%</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* 依產業分析 */}
+          {(data?.byIndustry?.length || 0) > 0 && (
+            <div className="card">
+              <div className="ck">依產業成效</div>
+              <table>
+                <thead><tr><th>產業</th><th>寄送</th><th>開信率</th><th>點擊率</th><th>回覆率</th></tr></thead>
+                <tbody>
+                  {data!.byIndustry!.map((r) => (
+                    <tr key={r.industry}>
+                      <td>{r.industry}</td><td>{r.sent}</td><td>{r.openRate}%</td><td>{r.clickRate}%</td><td>{r.replyRate}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* 依模板分析 */}
+          {(data?.byTemplate?.length || 0) > 0 && (
+            <div className="card">
+              <div className="ck">依模板成效</div>
+              <table>
+                <thead><tr><th>模板</th><th>寄送</th><th>開信率</th><th>點擊率</th><th>回覆率</th></tr></thead>
+                <tbody>
+                  {data!.byTemplate!.map((r, i) => (
+                    <tr key={i}>
+                      <td className="subj">{r.template}</td><td>{r.sent}</td><td>{r.openRate}%</td><td>{r.clickRate}%</td><td>{r.replyRate}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           <div className="card">
             <div className="ck">最近寄送</div>
             <table>
@@ -150,7 +218,14 @@ export default function EmailDashboardPage() {
 
       <style jsx>{`
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@700&display=swap');
-        .wrap { font-family: 'Noto Sans TC', sans-serif; background: #f3f0e7; min-height: 100vh; padding: 22px; color: #2f3d2f; }
+        .wrap { font-family: 'Noto Sans TC', sans-serif; background: #f3f0e7; height: 100vh; overflow-y: auto; box-sizing: border-box; padding: 22px; color: #2f3d2f; }
+        .funnel { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+        .fstep { display: flex; align-items: center; gap: 10px; }
+        .flabel { width: 70px; font-size: 12px; color: #6e7a6d; display: flex; justify-content: space-between; }
+        .flabel b { color: #2f3d2f; }
+        .ftrack { flex: 1; height: 16px; background: #f0ece1; border-radius: 999px; overflow: hidden; }
+        .ffill { height: 100%; border-radius: 999px; transition: width 400ms; }
+        .fpct { width: 38px; text-align: right; font-size: 12px; color: #8a8472; }
         h1 { font-family: 'Noto Serif TC', serif; font-size: 23px; margin: 0; }
         header p { margin: 4px 0 16px; font-size: 12px; color: #8a8472; }
         .muted { color: #9a9384; }
