@@ -174,9 +174,12 @@ export default function SettingsPage() {
     loadSecrets();
   }, []);
 
+  const [fieldStatus, setFieldStatus] = useState<Record<string, { ok: boolean; error?: string }>>({});
+
   const saveSecrets = async () => {
     setSavingKeys(true);
     setSavedKeys(null);
+    setFieldStatus({});
     try {
       const res = await fetch("/api/settings/secrets", {
         method: "PATCH",
@@ -184,13 +187,22 @@ export default function SettingsPage() {
         body: JSON.stringify({ values: secretVals }),
       });
       const json = await res.json();
-      setSavedKeys(json.success ? "✓ 已儲存，立即生效" : `✗ ${json.error || "儲存失敗"}`);
-      if (json.success) { loadSecrets(); loadIntegrations(); }
+      if (json.fieldResults) setFieldStatus(json.fieldResults);
+      const failCount = json.fieldResults ? Object.values(json.fieldResults as Record<string, { ok: boolean }>).filter((r) => !r.ok).length : 0;
+      if (json.success) {
+        setSavedKeys(`✓ 已儲存 ${json.saved || 0} 項設定，立即生效`);
+        loadSecrets();
+        loadIntegrations();
+      } else if (failCount > 0) {
+        setSavedKeys(`✗ ${failCount} 個欄位儲存失敗（已標示紅色），其餘 ${json.saved || 0} 個成功`);
+      } else {
+        setSavedKeys(`✗ ${json.error || "儲存失敗"}`);
+      }
     } catch {
       setSavedKeys("✗ 連線失敗");
     }
     setSavingKeys(false);
-    setTimeout(() => setSavedKeys(null), 4000);
+    setTimeout(() => { setSavedKeys(null); setFieldStatus({}); }, 8000);
   };
 
   const setSetting = (key: keyof UsageData["settings"], val: number | boolean) => {
@@ -284,18 +296,23 @@ export default function SettingsPage() {
               <div key={g.group} style={{ marginBottom: 18 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 4 }}>{g.group}</div>
                 {g.note && <div style={{ fontSize: 11, color: C.muted, marginBottom: 10 }}>{g.note}</div>}
-                {g.fields.map((f) => (
+                {g.fields.map((f) => {
+                  const fs = fieldStatus[f.key];
+                  const borderColor = fs ? (fs.ok ? C.success : C.danger) : C.border;
+                  return (
                   <div key={f.key} style={{ marginBottom: 11 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>{f.label}</span>
                       {f.set && <span style={{ fontSize: 10, color: C.success, background: C.successBg, borderRadius: 999, padding: "1px 7px" }}>已設定{f.source === "env" ? "（環境變數）" : ""}</span>}
                       {f.secret && f.masked && <span style={{ fontSize: 10, color: C.muted, fontFamily: "monospace" }}>{f.masked}</span>}
+                      {fs && fs.ok && <span style={{ fontSize: 10, color: C.success }}>✓ 已儲存</span>}
+                      {fs && !fs.ok && <span style={{ fontSize: 10, color: C.danger }}>✗ {fs.error || "儲存失敗"}</span>}
                     </div>
                     {f.type === "select" ? (
                       <select
                         value={secretVals[f.key] ?? ""}
                         onChange={(e) => setSecretVals((p) => ({ ...p, [f.key]: e.target.value }))}
-                        style={{ width: "100%", padding: "9px 11px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surf2, fontSize: 14, color: C.text, boxSizing: "border-box" }}
+                        style={{ width: "100%", padding: "9px 11px", borderRadius: 9, border: `2px solid ${borderColor}`, background: C.surf2, fontSize: 14, color: C.text, boxSizing: "border-box", transition: "border-color 300ms" }}
                       >
                         {(f.options || []).map((o) => <option key={o} value={o}>{o === "" ? "（自動 / 未指定）" : o}</option>)}
                       </select>
@@ -306,11 +323,12 @@ export default function SettingsPage() {
                         placeholder={f.secret && f.set ? "已設定，留空不變更" : (f.placeholder || "")}
                         autoComplete="off"
                         onChange={(e) => setSecretVals((p) => ({ ...p, [f.key]: e.target.value }))}
-                        style={{ width: "100%", padding: "9px 11px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surf2, fontSize: 14, color: C.text, boxSizing: "border-box", fontFamily: f.type === "password" ? "monospace" : "inherit" }}
+                        style={{ width: "100%", padding: "9px 11px", borderRadius: 9, border: `2px solid ${borderColor}`, background: C.surf2, fontSize: 14, color: C.text, boxSizing: "border-box", fontFamily: f.type === "password" ? "monospace" : "inherit", transition: "border-color 300ms" }}
                       />
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             ))}
             {savedKeys && <div style={{ fontSize: 13, color: savedKeys.startsWith("✓") ? C.success : C.danger, marginBottom: 10 }}>{savedKeys}</div>}

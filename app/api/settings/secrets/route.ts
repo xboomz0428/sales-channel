@@ -81,17 +81,39 @@ export async function PATCH(req: Request) {
     const body = await req.json();
     const incoming: Record<string, string> = body.values || {};
     const toSave: Record<string, string> = {};
+    const fieldResults: Record<string, { ok: boolean; error?: string }> = {};
+
     for (const [k, v] of Object.entries(incoming)) {
       if (!ALL_KEYS.includes(k)) continue;
       const field = GROUPS.flatMap((g) => g.fields).find((f) => f.key === k)!;
-      const val = typeof v === "string" ? v : "";
-      // 機密欄位留空 = 不變更（避免清掉既有金鑰）；非機密可寫入空值
-      if (field.secret && val.trim() === "") continue;
-      toSave[k] = val.trim();
+      const val = typeof v === "string" ? v.trim() : "";
+      // 機密欄位留空 = 不變更；非機密欄位留空 = 清除
+      if (field.secret && val === "") continue;
+      // 非機密欄位留空也跳過（不送空值佔位）
+      if (!field.secret && val === "") continue;
+      toSave[k] = val;
     }
-    const r = await saveSettings(toSave);
-    if (!r.ok) return NextResponse.json({ success: false, error: r.error }, { status: 500 });
-    return NextResponse.json({ success: true, saved: Object.keys(toSave).length });
+
+    // 逐筆儲存，回報每個欄位結果
+    let savedCount = 0;
+    let hasError = false;
+    for (const [key, value] of Object.entries(toSave)) {
+      const r = await saveSettings({ [key]: value });
+      if (r.ok) {
+        fieldResults[key] = { ok: true };
+        savedCount++;
+      } else {
+        fieldResults[key] = { ok: false, error: r.error };
+        hasError = true;
+      }
+    }
+
+    return NextResponse.json({
+      success: !hasError,
+      saved: savedCount,
+      fieldResults,
+      ...(hasError ? { error: `${savedCount} 個成功，${Object.values(fieldResults).filter(r => !r.ok).length} 個失敗` } : {}),
+    });
   } catch (e) {
     return NextResponse.json({ success: false, error: e instanceof Error ? e.message : "儲存失敗" }, { status: 500 });
   }
