@@ -438,6 +438,7 @@ export async function POST(request: NextRequest) {
         return;
       }
 
+      await emit({ type: "init", total: brands.length, skipped });
       await emit({ type: "step", text: `開始採集 ${brands.length} 個品牌的聯絡管道${skipped > 0 ? `（已剃除 ${skipped} 個完整品牌）` : ""}…` });
 
       let enriched = 0;

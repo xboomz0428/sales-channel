@@ -1640,6 +1640,7 @@ export default function MatchingPage() {
   const [govBatchOpen, setGovBatchOpen] = useState(false);
   const [bulkRunning, setBulkRunning] = useState<string | null>(null);
   const [bulkMsg, setBulkMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [bulkProgress, setBulkProgress] = useState<{ total: number; done: number; current: string; skipped: number } | null>(null);
   const [lastRunAll, setLastRunAll] = useState<string | null>(null);
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
@@ -1648,37 +1649,85 @@ export default function MatchingPage() {
     if (bulkRunning) return;
     setBulkRunning(kind);
     setBulkMsg(null);
+    setBulkProgress(null);
+
+    const filterSuffix = [filterIndustry ? `「${filterIndustry}」類` : "", filterCity || "", filterDistrict || ""].filter(Boolean).join("·");
+
+    if (kind === "chains") {
+      // 連鎖偵測（非串流，json 回傳）
+      try {
+        const res = await fetch("/api/brands/detect-chains", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ all: true }) });
+        const json = await res.json();
+        if (json.success) {
+          const d = json.data;
+          setBulkMsg({ ok: true, text: `連鎖偵測完成：掃描 ${d.total_brands} 個品牌，識別 ${d.chains_found} 個連鎖品牌` });
+          loadBrands();
+        } else { setBulkMsg({ ok: false, text: json.error || "執行失敗" }); }
+      } catch { setBulkMsg({ ok: false, text: "網路錯誤" }); }
+      setBulkRunning(null);
+      return;
+    }
+
+    // 管道補齊（串流 NDJSON，即時顯示進度）
     try {
-      const url = kind === "chains" ? "/api/brands/detect-chains" : "/api/enrich/channels";
-      // channels：傳已篩選品牌 IDs（含縣市+類別過濾），chains：仍用 all:true
-      const reqBody: Record<string, unknown> =
-        kind === "channels"
-          ? { brand_ids: visibleBrands.map((b) => String(b.id)) }
-          : { all: true };
-      const res = await fetch(url, {
+      const res = await fetch("/api/enrich/channels", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(reqBody),
+        body: JSON.stringify({ brand_ids: visibleBrands.map((b) => String(b.id)) }),
       });
-      const json = await res.json();
-      if (json.success) {
-        const d = json.data;
-        const filterSuffix = [filterIndustry ? `「${filterIndustry}」類` : "", filterCity ? filterCity : "", filterDistrict ? filterDistrict : ""].filter(Boolean).join("·");
-        setBulkMsg({
-          ok: true,
-          text:
-            kind === "chains"
-              ? `連鎖偵測完成：掃描 ${d.total_brands} 個品牌，識別 ${d.chains_found} 個連鎖品牌（全國連鎖 ${d.groups["全國連鎖"]}、區域連鎖 ${d.groups["區域連鎖"]}、多據點 ${d.groups["多據點"]}），已提升優先分`
-              : `管道補齊完成${filterSuffix ? `（${filterSuffix}）` : ""}：${d.total} 個品牌中 ${d.enriched} 個取得官網/電話/地圖/社群連結`,
-        });
-        loadBrands();
-      } else {
-        setBulkMsg({ ok: false, text: json.error || "執行失敗" });
+      if (!res.ok || !res.body) {
+        const text = await res.text().catch(() => "");
+        let errMsg = "執行失敗"; try { errMsg = JSON.parse(text).error || errMsg; } catch {}
+        setBulkMsg({ ok: false, text: errMsg });
+        setBulkRunning(null);
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let total = 0;
+      let done = 0;
+      let enriched = 0;
+      let skipped = 0;
+      while (true) {
+        const { done: eof, value } = await reader.read();
+        if (eof) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n"); buf = lines.pop() ?? "";
+        for (const line of lines) {
+          const t = line.trim(); if (!t) continue;
+          try {
+            const evt = JSON.parse(t);
+            if (evt.type === "init") {
+              total = evt.total || 0;
+              skipped = evt.skipped || 0;
+              setBulkProgress({ total, done, current: `準備開始（${total} 個品牌）…`, skipped });
+            } else if (evt.type === "step") {
+              setBulkProgress({ total, done, current: evt.text || "", skipped });
+            } else if (evt.type === "brand") {
+              setBulkProgress({ total, done, current: evt.text || "", skipped });
+            } else if (evt.type === "store") {
+              done++;
+              if (evt.ok) enriched++;
+              setBulkProgress({ total, done, current: evt.text || "", skipped });
+            } else if (evt.type === "done") {
+              const d = evt.data;
+              setBulkMsg({
+                ok: true,
+                text: `管道補齊完成${filterSuffix ? `（${filterSuffix}）` : ""}：${d.total} 個品牌中 ${d.enriched} 個取得新管道${d.skipped ? `，${d.skipped} 個已完整跳過` : ""}`,
+              });
+              loadBrands();
+            } else if (evt.type === "error") {
+              setBulkMsg({ ok: false, text: evt.text || "執行失敗" });
+            }
+          } catch { /* 解析失敗略過 */ }
+        }
       }
     } catch {
       setBulkMsg({ ok: false, text: "網路錯誤" });
     }
     setBulkRunning(null);
+    setBulkProgress(null);
   };
 
   useEffect(() => {
@@ -1923,6 +1972,19 @@ export default function MatchingPage() {
           ↓ CSV
         </button>
       </div>
+      {/* 管道補齊即時進度條 */}
+      {bulkProgress && (
+        <div style={{ padding: "8px 20px", background: "#E0F2FE", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "#0369A1", marginBottom: 4 }}>
+            <span className="spin" style={{ display: "inline-block" }}>↻</span>
+            <span>管道補齊中… {bulkProgress.done}/{bulkProgress.total}{bulkProgress.skipped > 0 ? `（已跳過 ${bulkProgress.skipped} 個完整品牌）` : ""}</span>
+          </div>
+          <div style={{ height: 6, borderRadius: 3, background: "#BAE6FD", overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${bulkProgress.total ? Math.round((bulkProgress.done / bulkProgress.total) * 100) : 0}%`, background: "#0284C7", borderRadius: 3, transition: "width 300ms" }} />
+          </div>
+          {bulkProgress.current && <div style={{ fontSize: 11, color: "#0369A1", marginTop: 3, opacity: 0.8 }}>{bulkProgress.current}</div>}
+        </div>
+      )}
       {bulkMsg && (
         <div style={{ padding: "8px 20px", background: bulkMsg.ok ? C.successBg : C.dangerBg, borderBottom: `1px solid ${C.border}`, fontSize: 13, color: bulkMsg.ok ? C.success : C.danger, display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           {bulkMsg.ok ? "✓" : "✕"} {bulkMsg.text}
@@ -1955,13 +2017,20 @@ export default function MatchingPage() {
         })}
       </div>
 
-      {/* 工商 / 管道 / 縣市篩選欄 */}
+      {/* 工商 / 管道 / 縣市篩選欄（數字依篩選後的名單動態計算） */}
       {(() => {
+        // 先依類別/縣市/地區篩選（不含工商/管道本身，避免循環）
+        const baseFiltered = brands.filter((b) => {
+          if (filterIndustry && b.industry !== filterIndustry) return false;
+          if (filterCity && !b.cities.includes(filterCity)) return false;
+          if (filterDistrict && !b.districts.includes(filterDistrict)) return false;
+          return true;
+        });
         const availableCities = [...new Set(brands.flatMap((b) => b.cities))].sort((a, z) => a.localeCompare(z, "zh-TW"));
-        const govCount = brands.filter((b) => b.tax_id).length;
+        const govCount = baseFiltered.filter((b) => b.tax_id).length;
         const chCounts: Record<string, number> = {};
         for (const ch of CHANNEL_ORDER) {
-          chCounts[ch] = brands.filter((b) => b.channels.includes(ch) || (ch === "line" && b.channels.includes("line_id"))).length;
+          chCounts[ch] = baseFiltered.filter((b) => b.channels.includes(ch) || (ch === "line" && b.channels.includes("line_id"))).length;
         }
         const hasAnyExtra = filterGov !== null || filterChannel !== null || filterCity !== null || filterDistrict !== null;
         return (
@@ -1969,7 +2038,7 @@ export default function MatchingPage() {
             {/* 工商登記 */}
             <span style={{ fontSize: 11, color: C.muted, fontWeight: 700, letterSpacing: 0.6 }}>工商：</span>
             {([true, false] as const).map((v) => {
-              const cnt = v ? govCount : brands.length - govCount;
+              const cnt = v ? govCount : baseFiltered.length - govCount;
               return (
                 <button
                   key={String(v)}

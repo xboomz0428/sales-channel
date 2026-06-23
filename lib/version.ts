@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "1.9.1";
+export const APP_VERSION = "2.0.0";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.0.0",
+    date: "2026-06-23",
+    title: "篩選動態計數 + 管道補齊串流進度",
+    items: [
+      "篩選類別/縣市/地區後，工商登記與所有管道數字依篩選結果動態更新",
+      "管道補齊按下後以進度條即時顯示：總數/已完成/跳過/目前品牌",
+      "管道補齊改為串流 NDJSON 讀取，不再等全部跑完才顯示結果",
+    ],
+  },
   {
     version: "1.9.1",
     date: "2026-06-23",
