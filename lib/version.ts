@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "1.9.0";
+export const APP_VERSION = "1.9.1";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.9.1",
+    date: "2026-06-23",
+    title: "交叉搜尋管道 + 篩選器修正",
+    items: [
+      "管道補齊新增「交叉搜尋」：用已登陸的官網/FB/IG 互找還沒登陸的管道，且優先於 Google 搜尋（更快、省 API）",
+      "修正比對中心篩選器 Email/Mail 重複出現兩次",
+      "修正 LINE 管道篩選：含 line_id 的品牌也會正確被篩出（與計數一致）",
+    ],
+  },
   {
     version: "1.9.0",
     date: "2026-06-23",

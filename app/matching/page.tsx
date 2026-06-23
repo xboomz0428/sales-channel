@@ -1841,7 +1841,7 @@ export default function MatchingPage() {
     if (filterStatus === "pending" && !b.conflicts.some((c) => c.accepted === null)) return false;
     if (filterGov === true && !b.tax_id) return false;
     if (filterGov === false && !!b.tax_id) return false;
-    if (filterChannel && !b.channels.includes(filterChannel)) return false;
+    if (filterChannel && !(b.channels.includes(filterChannel) || (filterChannel === "line" && b.channels.includes("line_id")))) return false;
     if (filterCity && !b.cities.includes(filterCity)) return false;
     if (filterDistrict && !b.districts.includes(filterDistrict)) return false;
     return true;
@@ -1960,7 +1960,7 @@ export default function MatchingPage() {
         const availableCities = [...new Set(brands.flatMap((b) => b.cities))].sort((a, z) => a.localeCompare(z, "zh-TW"));
         const govCount = brands.filter((b) => b.tax_id).length;
         const chCounts: Record<string, number> = {};
-        for (const ch of [...CHANNEL_ORDER, "email"]) {
+        for (const ch of CHANNEL_ORDER) {
           chCounts[ch] = brands.filter((b) => b.channels.includes(ch) || (ch === "line" && b.channels.includes("line_id"))).length;
         }
         const hasAnyExtra = filterGov !== null || filterChannel !== null || filterCity !== null || filterDistrict !== null;
@@ -1983,7 +1983,7 @@ export default function MatchingPage() {
 
             {/* 管道 */}
             <span style={{ fontSize: 11, color: C.muted, fontWeight: 700, letterSpacing: 0.6, marginLeft: 8, paddingLeft: 8, borderLeft: `1px solid ${C.border}` }}>管道：</span>
-            {[...CHANNEL_ORDER, "email"].map((ch) => {
+            {CHANNEL_ORDER.map((ch) => {
               const cfg = CHANNELS[ch];
               if (!cfg) return null;
               const cnt = chCounts[ch] || 0;

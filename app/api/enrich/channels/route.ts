@@ -245,6 +245,37 @@ async function enrichBrand(
     await emit({ type: "step", text: `${prefix}此品牌無門市資料（請先執行 Google Maps 採集）` });
   }
 
+  // ── 2.5 交叉搜尋：用「已登陸的管道」互找「還沒登陸的管道」（先做，能省下 Google API）──
+  // 例：已有 FB → 爬 FB 找 IG/電話/Email/LINE/地址；已有 IG/官網 → 互相補齊。
+  {
+    const knownPages: { label: string; url: string }[] = [];
+    const seenUrl = new Set<string>();
+    const pushUrl = (label: string, url?: string | null) => {
+      if (url && /^https?:\/\//i.test(url) && !seenUrl.has(url)) { seenUrl.add(url); knownPages.push({ label, url }); }
+    };
+    // 來源：本次門市官網 + 既有 brand_channels 的 website/fb/ig
+    pushUrl("官網", website || undefined);
+    for (const c of existingChannels || []) {
+      if (c.channel === "website") pushUrl("官網", c.value);
+      if (c.channel === "fb") pushUrl("FB", c.value);
+      if (c.channel === "ig") pushUrl("IG", c.value);
+    }
+    for (const pg of knownPages) {
+      const missingNow = TARGET_CHANNELS.filter((ch) => !have.has(ch));
+      if (missingNow.length === 0) break;
+      await emit({ type: "step", text: `${prefix}交叉搜尋 ${pg.label} 找缺漏管道…` });
+      // fetchSiteLinks：fb/ig/line/email；scrapeFacebookPage：phone/email/ig/line/address（對任何 HTML 皆可）
+      let found: Record<string, string> = {};
+      try { found = { ...(await fetchSiteLinks(pg.url)), ...(await scrapeFacebookPage(pg.url)) }; } catch { /* 略過 */ }
+      const newFound = Object.entries(found).filter(([ch]) => !have.has(ch));
+      for (const [ch, value] of newFound) {
+        await upsertChannel(supabase, brandId, ch, value, pg.url);
+        added.push(ch); have.add(ch);
+      }
+      if (newFound.length) await emit({ type: "step", text: `${prefix}交叉搜尋從 ${pg.label} 補到 ${newFound.map(([c]) => c).join("、")}` });
+    }
+  }
+
   // ── 3. Google CSE 搜尋品牌聯絡資訊 ────────────────────────────────────
   const stillMissing1 = TARGET_CHANNELS.filter((ch) => !have.has(ch));
   if (stillMissing1.length > 0) {
