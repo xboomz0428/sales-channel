@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "1.8.0";
+export const APP_VERSION = "1.8.1";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.1",
+    date: "2026-06-23",
+    title: "整合狀態總覽 + 完整寄信申請說明",
+    items: [
+      "「API 設定」頁新增整合狀態總覽：一覽寄信/AI/Google/資料庫/Webhook 是否已設定",
+      "使用說明補齊四種寄信通道（Gmail SMTP、Resend、SendGrid、自訂 SMTP）的申請與設定步驟",
+      "新增 /api/settings/integrations 狀態查詢端點（不外洩金鑰）",
+    ],
+  },
   {
     version: "1.8.0",
     date: "2026-06-23",

@@ -101,12 +101,18 @@ function LimitInput({ label, value, onChange }: { label: string; value: number; 
   );
 }
 
+interface IntegrationGroup {
+  group: string;
+  items: { key: string; label: string; configured: boolean; detail: string; docs: string }[];
+}
+
 export default function SettingsPage() {
   const [data, setData] = useState<UsageData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [localSettings, setLocalSettings] = useState<UsageData["settings"] | null>(null);
+  const [integrations, setIntegrations] = useState<IntegrationGroup[]>([]);
 
   useEffect(() => {
     fetch("/api/settings/api-usage")
@@ -119,6 +125,10 @@ export default function SettingsPage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+    fetch("/api/settings/integrations")
+      .then((r) => r.json())
+      .then((res) => setIntegrations(res.groups || []))
+      .catch(() => {});
   }, []);
 
   const setSetting = (key: keyof UsageData["settings"], val: number | boolean) => {
@@ -171,11 +181,37 @@ export default function SettingsPage() {
     <>
       {/* Top bar */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-        <h1 style={{ fontSize: 17, fontWeight: 600, color: C.text, margin: 0 }}>API 使用設定</h1>
-        <span style={{ fontSize: 13, color: C.muted }}>Google API 用量監控與提醒</span>
+        <h1 style={{ fontSize: 17, fontWeight: 600, color: C.text, margin: 0 }}>API 設定</h1>
+        <span style={{ fontSize: 13, color: C.muted }}>整合狀態 · Google API 用量監控</span>
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "20px", paddingBottom: 100, maxWidth: 780, margin: "0 auto", width: "100%" }}>
+        {/* 整合狀態總覽 */}
+        {integrations.length > 0 && (
+          <Section title="整合狀態">
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 14 }}>
+              各項 API / 金鑰是否已設定。設定方式見 <a href="/guide" style={{ color: C.primary, fontWeight: 600 }}>使用說明</a>（金鑰填在環境變數，本頁不顯示金鑰內容）。
+            </div>
+            {integrations.map((g) => (
+              <div key={g.group} style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, marginBottom: 7 }}>{g.group}</div>
+                {g.items.map((it) => (
+                  <div key={it.key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 10, background: C.surf2, marginBottom: 6 }}>
+                    <span style={{ width: 9, height: 9, borderRadius: "50%", background: it.configured ? C.success : "#D9B68C", flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{it.label}</div>
+                      <div style={{ fontSize: 11, color: C.muted }}>{it.detail}</div>
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: it.configured ? C.successBg : "#F5EDDD", color: it.configured ? C.success : C.accentDk, flexShrink: 0 }}>
+                      {it.configured ? "已設定" : "未設定"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </Section>
+        )}
+
         {loading ? (
           <div style={{ textAlign: "center", padding: "80px 0", color: C.muted }}>
             <div className="spin" style={{ width: 28, height: 28, border: `3px solid ${C.border}`, borderTopColor: C.primary, borderRadius: "50%", margin: "0 auto 14px" }} />

@@ -108,11 +108,21 @@ function FlowGuide() {
         <Step n={2}>填入環境變數：</Step>
         <KeyBlock vars={["EMAIL_PROVIDER=resend", "RESEND_API_KEY=re_xxxxxxxx", "OUTREACH_FROM_EMAIL=hello@你的網域.com", "OUTREACH_FROM_NAME=HeroHerb 好漢草", "APP_BASE_URL=https://你的網址"]} />
 
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: C.text, marginTop: 6, marginBottom: 4 }}>方案 C — SendGrid</div>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: C.text, marginTop: 6, marginBottom: 4 }}>方案 C — SendGrid（每日免費額度較高）</div>
+        <Step n={1}>到 <b>sendgrid.com</b> 註冊 → Settings → <b>Sender Authentication</b> 驗證寄件人或網域。</Step>
+        <Step n={2}>Settings → <b>API Keys</b> → Create API Key（權限選 Mail Send），複製 <span style={code}>SG.</span> 開頭金鑰。</Step>
         <KeyBlock vars={["EMAIL_PROVIDER=sendgrid", "SENDGRID_API_KEY=SG.xxxxxxxx", "OUTREACH_FROM_EMAIL=hello@你的網域.com"]} />
+
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: C.text, marginTop: 6, marginBottom: 4 }}>方案 D — 自訂 SMTP（自有郵件主機 / 其他服務商）</div>
+        <Step n={1}>向你的郵件服務商（公司信箱、Mailgun、Postmark、Zoho…）取得 SMTP 主機、連接埠、帳號、密碼。</Step>
+        <Step n={2}>填入環境變數（port 587 用 STARTTLS、465 用 SSL 則 <span style={code}>SMTP_SECURE=true</span>）：</Step>
+        <KeyBlock vars={["EMAIL_PROVIDER=smtp", "SMTP_HOST=smtp.example.com", "SMTP_PORT=587", "SMTP_SECURE=false", "SMTP_USER=帳號", "SMTP_PASS=密碼", "OUTREACH_FROM_EMAIL=hello@你的網域.com"]} />
 
         <Step n={3}>存檔後重啟（本機）或重新部署（Vercel）。回 <b>電子報發送</b> 確認上方變「✅ 真實寄送模式」，選名單、選模板、按「寄送」。</Step>
         <Step n={4}>到 <b>郵件儀表板</b> 看送達、開信、點擊、退信、回覆。報價單「✉ 寄給客戶」也走同一條寄信管道。</Step>
+        <div style={{ fontSize: 12.5, color: C.muted, marginTop: 8, lineHeight: 1.6, background: C.surf2, padding: "10px 12px", borderRadius: 9 }}>
+          🔌 內部已串接：Resend／SendGrid 走 HTTP API、Gmail／自訂 SMTP 走 nodemailer。你只要填金鑰/密碼，系統自動依 <span style={code}>EMAIL_PROVIDER</span> 或已設定的金鑰挑選。「API 設定」頁可看到哪些已設定。
+        </div>
       </Card>
     </>
   );
