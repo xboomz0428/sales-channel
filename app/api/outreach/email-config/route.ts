@@ -16,7 +16,7 @@ const PROVIDER_LABEL: Record<string, string> = {
  * 回報目前的寄信設定狀態（不外洩金鑰），供前端顯示「真實寄送 / 模擬寄出」與供應商。
  */
 export async function GET() {
-  const { provider, fromEmail, fromName } = resolveEmailProvider();
+  const { provider, fromEmail, fromName } = await resolveEmailProvider();
   const configured = provider !== "none";
 
   return NextResponse.json({

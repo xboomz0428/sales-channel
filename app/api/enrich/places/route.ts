@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
-import { cleanEnv } from "@/lib/env";
+import { getCfg } from "@/lib/settings";
 import { logApiUsage } from "@/lib/api-usage";
 
 /**
@@ -55,7 +55,7 @@ async function upsertChannel(sb: SB, brandId: string, channel: string, value: st
 }
 
 export async function POST(request: NextRequest) {
-  const apiKey = cleanEnv("GOOGLE_PLACES_API_KEY");
+  const apiKey = await getCfg("GOOGLE_PLACES_API_KEY");
   if (!apiKey) {
     return NextResponse.json(
       { success: false, error: "GOOGLE_PLACES_API_KEY 未設定" },

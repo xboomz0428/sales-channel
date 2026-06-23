@@ -1,5 +1,5 @@
 import { HttpError } from "@/lib/auth";
-import { cleanEnv } from "@/lib/env";
+import { getCfgMany } from "@/lib/settings";
 
 interface AIResult {
   text: string;
@@ -10,20 +10,24 @@ interface AIResult {
 
 type Provider = "claude" | "openai" | "gemini";
 
-// 決定使用哪家 AI：優先 AI_PROVIDER 指定，否則依已設定的金鑰自動挑選
-function resolveProvider(): { provider: Provider; apiKey: string; model: string } | null {
-  const explicit = (cleanEnv("AI_PROVIDER") || "").toLowerCase() as Provider | "";
-  const anthropicKey = cleanEnv("ANTHROPIC_API_KEY");
-  const openaiKey = cleanEnv("OPENAI_API_KEY");
-  const geminiKey = cleanEnv("GEMINI_API_KEY") || cleanEnv("GOOGLE_AI_API_KEY");
+// 決定使用哪家 AI（DB 設定優先，其次環境變數）：優先 AI_PROVIDER 指定，否則自動挑選
+async function resolveProvider(): Promise<{ provider: Provider; apiKey: string; model: string } | null> {
+  const c = await getCfgMany([
+    "AI_PROVIDER", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_AI_API_KEY",
+    "CLAUDE_MODEL", "OPENAI_MODEL", "GEMINI_MODEL",
+  ]);
+  const explicit = (c.AI_PROVIDER || "").toLowerCase() as Provider | "";
+  const anthropicKey = c.ANTHROPIC_API_KEY;
+  const openaiKey = c.OPENAI_API_KEY;
+  const geminiKey = c.GEMINI_API_KEY || c.GOOGLE_AI_API_KEY;
 
   const pick = (p: Provider): { provider: Provider; apiKey: string; model: string } | null => {
     if (p === "claude" && anthropicKey)
-      return { provider: "claude", apiKey: anthropicKey, model: cleanEnv("CLAUDE_MODEL") || "claude-sonnet-4-6" };
+      return { provider: "claude", apiKey: anthropicKey, model: c.CLAUDE_MODEL || "claude-sonnet-4-6" };
     if (p === "openai" && openaiKey)
-      return { provider: "openai", apiKey: openaiKey, model: cleanEnv("OPENAI_MODEL") || "gpt-4o" };
+      return { provider: "openai", apiKey: openaiKey, model: c.OPENAI_MODEL || "gpt-4o" };
     if (p === "gemini" && geminiKey)
-      return { provider: "gemini", apiKey: geminiKey, model: cleanEnv("GEMINI_MODEL") || "gemini-1.5-pro" };
+      return { provider: "gemini", apiKey: geminiKey, model: c.GEMINI_MODEL || "gemini-1.5-pro" };
     return null;
   };
 
@@ -80,7 +84,7 @@ async function callGemini(system: string, user: string, apiKey: string, model: s
  * 設定 AI_PROVIDER=claude|openai|gemini 可指定；否則依已設定的金鑰自動挑選。
  */
 export async function callAI(system: string, user: string): Promise<AIResult> {
-  const cfg = resolveProvider();
+  const cfg = await resolveProvider();
   if (!cfg) {
     throw new HttpError(500, "未設定 AI 金鑰（請設定 ANTHROPIC_API_KEY、OPENAI_API_KEY 或 GEMINI_API_KEY 其一）");
   }

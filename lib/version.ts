@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "1.8.1";
+export const APP_VERSION = "1.9.0";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.9.0",
+    date: "2026-06-23",
+    title: "可在介面直接輸入 API 金鑰 + 比對排序",
+    items: [
+      "「API 設定」頁新增金鑰輸入欄位：寄信/AI/Google 都能直接填，存進資料庫立即生效（不必改環境變數）",
+      "金鑰讀取改為資料庫優先、環境變數其次；機密欄位只顯示遮罩、留空不變更",
+      "工商登記批次比對改為優先處理沒比對過的品牌，已比對過的（即使未命中）排到最後，避免重複比對浪費 API",
+    ],
+  },
   {
     version: "1.8.1",
     date: "2026-06-23",

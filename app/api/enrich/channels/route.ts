@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 import { logApiUsage } from "@/lib/api-usage";
+import { getCfg } from "@/lib/settings";
 
 /**
  * POST /api/enrich/channels
@@ -247,8 +248,8 @@ async function enrichBrand(
   // ── 3. Google CSE 搜尋品牌聯絡資訊 ────────────────────────────────────
   const stillMissing1 = TARGET_CHANNELS.filter((ch) => !have.has(ch));
   if (stillMissing1.length > 0) {
-    const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-    const cseId = process.env.GOOGLE_CSE_ID;
+    const apiKey = await getCfg("GOOGLE_PLACES_API_KEY");
+    const cseId = await getCfg("GOOGLE_CSE_ID");
     if (apiKey && cseId) {
       // 搜尋品牌聯絡資訊（品牌名 + 公司名都搜）
       for (const sn of searchNames) {
@@ -284,8 +285,8 @@ async function enrichBrand(
     let fbUrl: string | null = (existingChannels || []).find((c) => c.channel === "fb")?.value || null;
 
     if (!fbUrl) {
-      const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-      const cseId = process.env.GOOGLE_CSE_ID;
+      const apiKey = await getCfg("GOOGLE_PLACES_API_KEY");
+      const cseId = await getCfg("GOOGLE_CSE_ID");
       if (apiKey && cseId) {
         // 用品牌名+公司名依序搜尋 FB 粉專
         let cseResult: { fbUrl: string | null; snippetLinks: Record<string, string> } = { fbUrl: null, snippetLinks: {} };

@@ -101,9 +101,34 @@ function LimitInput({ label, value, onChange }: { label: string; value: number; 
   );
 }
 
+interface IntegrationItem {
+  key: string;
+  label: string;
+  configured: boolean;
+  detail: string;
+  where?: string;
+  vars?: string[];
+}
 interface IntegrationGroup {
   group: string;
-  items: { key: string; label: string; configured: boolean; detail: string; docs: string }[];
+  items: IntegrationItem[];
+}
+interface SecretField {
+  key: string;
+  label: string;
+  type?: "text" | "password" | "select";
+  placeholder?: string;
+  options?: string[];
+  secret?: boolean;
+  set?: boolean;
+  source?: string | null;
+  value?: string;
+  masked?: string;
+}
+interface SecretGroup {
+  group: string;
+  note?: string;
+  fields: SecretField[];
 }
 
 export default function SettingsPage() {
@@ -113,6 +138,26 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [localSettings, setLocalSettings] = useState<UsageData["settings"] | null>(null);
   const [integrations, setIntegrations] = useState<IntegrationGroup[]>([]);
+  // API 金鑰可編輯欄位
+  const [secretGroups, setSecretGroups] = useState<SecretGroup[]>([]);
+  const [secretVals, setSecretVals] = useState<Record<string, string>>({});
+  const [savingKeys, setSavingKeys] = useState(false);
+  const [savedKeys, setSavedKeys] = useState<string | null>(null);
+
+  const loadSecrets = () => {
+    fetch("/api/settings/secrets")
+      .then((r) => r.json())
+      .then((res) => {
+        setSecretGroups(res.groups || []);
+        const init: Record<string, string> = {};
+        for (const g of res.groups || []) for (const f of g.fields) init[f.key] = f.secret ? "" : (f.value || "");
+        setSecretVals(init);
+      })
+      .catch(() => {});
+  };
+  const loadIntegrations = () => {
+    fetch("/api/settings/integrations").then((r) => r.json()).then((res) => setIntegrations(res.groups || [])).catch(() => {});
+  };
 
   useEffect(() => {
     fetch("/api/settings/api-usage")
@@ -125,11 +170,28 @@ export default function SettingsPage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-    fetch("/api/settings/integrations")
-      .then((r) => r.json())
-      .then((res) => setIntegrations(res.groups || []))
-      .catch(() => {});
+    loadIntegrations();
+    loadSecrets();
   }, []);
+
+  const saveSecrets = async () => {
+    setSavingKeys(true);
+    setSavedKeys(null);
+    try {
+      const res = await fetch("/api/settings/secrets", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ values: secretVals }),
+      });
+      const json = await res.json();
+      setSavedKeys(json.success ? "✓ 已儲存，立即生效" : `✗ ${json.error || "儲存失敗"}`);
+      if (json.success) { loadSecrets(); loadIntegrations(); }
+    } catch {
+      setSavedKeys("✗ 連線失敗");
+    }
+    setSavingKeys(false);
+    setTimeout(() => setSavedKeys(null), 4000);
+  };
 
   const setSetting = (key: keyof UsageData["settings"], val: number | boolean) => {
     setLocalSettings((prev) => prev ? { ...prev, [key]: val } : null);
@@ -209,6 +271,57 @@ export default function SettingsPage() {
                 ))}
               </div>
             ))}
+          </Section>
+        )}
+
+        {/* API 金鑰設定（可直接輸入，存進資料庫立即生效） */}
+        {secretGroups.length > 0 && (
+          <Section title="API 金鑰設定">
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 16, lineHeight: 1.6 }}>
+              直接在此輸入並儲存，立即生效（存在資料庫，不需改環境變數）。機密欄位已設定者顯示遮罩，<b>留空表示不變更</b>；要更換才輸入新值。申請方式見 <a href="/guide" style={{ color: C.primary, fontWeight: 600 }}>使用說明</a>。
+            </div>
+            {secretGroups.map((g) => (
+              <div key={g.group} style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 4 }}>{g.group}</div>
+                {g.note && <div style={{ fontSize: 11, color: C.muted, marginBottom: 10 }}>{g.note}</div>}
+                {g.fields.map((f) => (
+                  <div key={f.key} style={{ marginBottom: 11 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>{f.label}</span>
+                      {f.set && <span style={{ fontSize: 10, color: C.success, background: C.successBg, borderRadius: 999, padding: "1px 7px" }}>已設定{f.source === "env" ? "（環境變數）" : ""}</span>}
+                      {f.secret && f.masked && <span style={{ fontSize: 10, color: C.muted, fontFamily: "monospace" }}>{f.masked}</span>}
+                    </div>
+                    {f.type === "select" ? (
+                      <select
+                        value={secretVals[f.key] ?? ""}
+                        onChange={(e) => setSecretVals((p) => ({ ...p, [f.key]: e.target.value }))}
+                        style={{ width: "100%", padding: "9px 11px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surf2, fontSize: 14, color: C.text, boxSizing: "border-box" }}
+                      >
+                        {(f.options || []).map((o) => <option key={o} value={o}>{o === "" ? "（自動 / 未指定）" : o}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        type={f.type === "password" ? "password" : "text"}
+                        value={secretVals[f.key] ?? ""}
+                        placeholder={f.secret && f.set ? "已設定，留空不變更" : (f.placeholder || "")}
+                        autoComplete="off"
+                        onChange={(e) => setSecretVals((p) => ({ ...p, [f.key]: e.target.value }))}
+                        style={{ width: "100%", padding: "9px 11px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surf2, fontSize: 14, color: C.text, boxSizing: "border-box", fontFamily: f.type === "password" ? "monospace" : "inherit" }}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            ))}
+            {savedKeys && <div style={{ fontSize: 13, color: savedKeys.startsWith("✓") ? C.success : C.danger, marginBottom: 10 }}>{savedKeys}</div>}
+            <button
+              onClick={saveSecrets}
+              disabled={savingKeys}
+              className="pressable"
+              style={{ width: "100%", padding: "12px 0", borderRadius: 12, border: "none", background: C.primary, color: "white", fontWeight: 700, fontSize: 15, cursor: savingKeys ? "default" : "pointer" }}
+            >
+              {savingKeys ? "儲存中…" : "儲存 API 金鑰"}
+            </button>
           </Section>
         )}
 

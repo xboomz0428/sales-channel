@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { cleanEnv } from "@/lib/env";
 import crypto from "node:crypto";
+import { getCfg } from "@/lib/settings";
 import { resolveEmailProvider, sendViaResend, sendViaSendgrid, sendViaSmtp } from "@/lib/outreach/emailProvider";
 
 interface DispatchResult {
@@ -19,8 +19,8 @@ export async function dispatchEmail(messageId: string): Promise<DispatchResult> 
     return { ok: false, error: "訊息不存在或無收件人 email" };
   }
 
-  const { provider, fromEmail, fromName } = resolveEmailProvider();
-  const appBase = cleanEnv("APP_BASE_URL") || "https://localhost:3000";
+  const { provider, fromEmail, fromName } = await resolveEmailProvider();
+  const appBase = (await getCfg("APP_BASE_URL")) || "https://localhost:3000";
 
   // 產生追蹤 ID + 注入開信追蹤像素
   const trackingId = crypto.randomUUID();

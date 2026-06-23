@@ -1,4 +1,4 @@
-import { cleanEnv } from "@/lib/env";
+import { getCfgMany } from "@/lib/settings";
 
 export type EmailProvider = "resend" | "gmail" | "smtp" | "sendgrid" | "none";
 
@@ -8,26 +8,29 @@ export interface ResolvedEmailProvider {
   fromName: string;
 }
 
-/**
- * 決定使用哪家寄信服務：
- * 優先 EMAIL_PROVIDER 指定；否則依已設定的金鑰自動挑選
- * （Resend → SendGrid → Gmail/SMTP）。
- */
-export function resolveEmailProvider(): ResolvedEmailProvider {
-  const explicit = (cleanEnv("EMAIL_PROVIDER") || "").toLowerCase();
-  const fromName = cleanEnv("OUTREACH_FROM_NAME") || "HeroHerb 好漢草";
+const EMAIL_KEYS = [
+  "EMAIL_PROVIDER", "OUTREACH_FROM_NAME", "OUTREACH_FROM_EMAIL",
+  "RESEND_API_KEY", "SENDGRID_API_KEY",
+  "GMAIL_USER", "GMAIL_APP_PASSWORD",
+  "SMTP_HOST", "SMTP_PORT", "SMTP_SECURE", "SMTP_USER", "SMTP_PASS",
+];
 
-  const hasResend = !!cleanEnv("RESEND_API_KEY");
-  const hasSendgrid = !!cleanEnv("SENDGRID_API_KEY");
-  const gmailUser = cleanEnv("GMAIL_USER");
-  const hasGmail = !!gmailUser && !!cleanEnv("GMAIL_APP_PASSWORD");
-  const hasSmtp = !!cleanEnv("SMTP_HOST") && !!cleanEnv("SMTP_USER") && !!cleanEnv("SMTP_PASS");
+/**
+ * 決定使用哪家寄信服務（DB 設定優先，其次環境變數）：
+ * 優先 EMAIL_PROVIDER 指定；否則依已設定的金鑰自動挑選（Resend → SendGrid → Gmail/SMTP）。
+ */
+export async function resolveEmailProvider(): Promise<ResolvedEmailProvider> {
+  const c = await getCfgMany(EMAIL_KEYS);
+  const explicit = (c.EMAIL_PROVIDER || "").toLowerCase();
+  const fromName = c.OUTREACH_FROM_NAME || "HeroHerb 好漢草";
+
+  const hasResend = !!c.RESEND_API_KEY;
+  const hasSendgrid = !!c.SENDGRID_API_KEY;
+  const hasGmail = !!c.GMAIL_USER && !!c.GMAIL_APP_PASSWORD;
+  const hasSmtp = !!c.SMTP_HOST && !!c.SMTP_USER && !!c.SMTP_PASS;
 
   const defaultFrom = (p: EmailProvider) =>
-    cleanEnv("OUTREACH_FROM_EMAIL") ||
-    (p === "gmail" ? gmailUser : undefined) ||
-    cleanEnv("SMTP_USER") ||
-    "noreply@heroherb.co";
+    c.OUTREACH_FROM_EMAIL || (p === "gmail" ? c.GMAIL_USER : undefined) || c.SMTP_USER || "noreply@heroherb.co";
 
   const pick = (p: EmailProvider): ResolvedEmailProvider | null => {
     if (p === "resend" && hasResend) return { provider: "resend", fromEmail: defaultFrom("resend")!, fromName };
@@ -51,7 +54,7 @@ interface SendArgs {
   to: string;
   subject: string;
   html: string;
-  from: string;     // "Name <email>"
+  from: string;
   fromEmail: string;
   fromName: string;
 }
@@ -62,10 +65,10 @@ interface SendResult {
 }
 
 export async function sendViaResend(a: SendArgs): Promise<SendResult> {
-  const key = cleanEnv("RESEND_API_KEY")!;
+  const { RESEND_API_KEY } = await getCfgMany(["RESEND_API_KEY"]);
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({ from: a.from, to: [a.to], subject: a.subject, html: a.html }),
   });
   if (!res.ok) return { ok: false, error: `Resend 錯誤 (${res.status}): ${(await res.text().catch(() => "")).slice(0, 300)}` };
@@ -74,10 +77,10 @@ export async function sendViaResend(a: SendArgs): Promise<SendResult> {
 }
 
 export async function sendViaSendgrid(a: SendArgs): Promise<SendResult> {
-  const key = cleanEnv("SENDGRID_API_KEY")!;
+  const { SENDGRID_API_KEY } = await getCfgMany(["SENDGRID_API_KEY"]);
   const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
     method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${SENDGRID_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       personalizations: [{ to: [{ email: a.to }] }],
       from: { email: a.fromEmail, name: a.fromName },
@@ -91,19 +94,16 @@ export async function sendViaSendgrid(a: SendArgs): Promise<SendResult> {
 }
 
 export async function sendViaSmtp(a: SendArgs, provider: "gmail" | "smtp"): Promise<SendResult> {
-  // 動態載入 nodemailer，避免在不需要時被打包進 edge 等環境
+  const c = await getCfgMany(["GMAIL_USER", "GMAIL_APP_PASSWORD", "SMTP_HOST", "SMTP_PORT", "SMTP_SECURE", "SMTP_USER", "SMTP_PASS"]);
   const nodemailer = (await import("nodemailer")).default;
   const transport =
     provider === "gmail"
-      ? nodemailer.createTransport({
-          service: "gmail",
-          auth: { user: cleanEnv("GMAIL_USER"), pass: cleanEnv("GMAIL_APP_PASSWORD") },
-        })
+      ? nodemailer.createTransport({ service: "gmail", auth: { user: c.GMAIL_USER, pass: c.GMAIL_APP_PASSWORD } })
       : nodemailer.createTransport({
-          host: cleanEnv("SMTP_HOST"),
-          port: Number(cleanEnv("SMTP_PORT") || 587),
-          secure: cleanEnv("SMTP_SECURE") === "true",
-          auth: { user: cleanEnv("SMTP_USER"), pass: cleanEnv("SMTP_PASS") },
+          host: c.SMTP_HOST,
+          port: Number(c.SMTP_PORT || 587),
+          secure: c.SMTP_SECURE === "true",
+          auth: { user: c.SMTP_USER, pass: c.SMTP_PASS },
         });
   try {
     const info = await transport.sendMail({ from: a.from, to: a.to, subject: a.subject, html: a.html });

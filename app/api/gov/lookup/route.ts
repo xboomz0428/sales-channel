@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 import { logApiUsage } from "@/lib/api-usage";
+import { getCfg } from "@/lib/settings";
 
 /**
  * 經濟部商工登記公示資料串接（GCIS OData，免 token）
@@ -485,8 +486,8 @@ async function matchBrand(
   }
 
   // ── Step 1.5：Google → mygov.tw（mygov 直搜失敗時，改透過 Google 找 mygov 頁面）──
-  const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
-  const cseId = process.env.GOOGLE_CSE_ID;
+  const googleApiKey = await getCfg("GOOGLE_PLACES_API_KEY");
+  const cseId = await getCfg("GOOGLE_CSE_ID");
   if (candidates.length === 0 && googleApiKey && cseId) {
     step(`[Google→mygov] 搜尋「${brand.name}」…`);
     const gmResult = await googleSearchMygov(brand.name, googleApiKey, cseId);
@@ -594,6 +595,8 @@ async function matchBrand(
   }
 
   if (candidates.length === 0) {
+    // 記錄已比對過（即使未命中），下次批次會排到最後、優先處理沒比對過的
+    await supabase.from("brands").update({ gov_checked_at: new Date().toISOString() }).eq("id", brand.id);
     return { brand: brand.name, matched: false, candidates: 0 };
   }
 
@@ -622,7 +625,7 @@ async function matchBrand(
 
   // ── 回寫品牌 ─────────────────────────────────────────
   {
-    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    const patch: Record<string, unknown> = { updated_at: new Date().toISOString(), gov_checked_at: new Date().toISOString() };
     if (conf === "high") {
       if (!brand.tax_id) patch.tax_id = best.Business_Accounting_NO;
       patch.registered_name = best.Company_Name;
@@ -781,26 +784,37 @@ export async function POST(request: NextRequest) {
 
     // 批次比對（串流 NDJSON）— 支援 brand_ids（篩選後）或 all（全部缺統編）
     if (body.all || (Array.isArray(body.brand_ids) && (body.brand_ids as string[]).length > 0)) {
-      let brands: { id: string; name: string; brand_key?: string | null; tax_id?: string | null; brand_channels?: { channel: string; value: string }[]; stores?: { website?: string | null }[] }[] = [];
+      type BatchBrand = { id: string; name: string; brand_key?: string | null; tax_id?: string | null; gov_checked_at?: string | null; brand_channels?: { channel: string; value: string }[]; stores?: { website?: string | null }[] };
+      let brands: BatchBrand[] = [];
+      const SELECT = "id, name, brand_key, tax_id, gov_checked_at, brand_channels(channel, value), stores(website)";
+      // 排序：沒比對過(null)優先，其次最久沒比對的；本次最多處理 200 個
+      const BATCH_LIMIT = 200;
+      const byChecked = (a: BatchBrand, b: BatchBrand) =>
+        (a.gov_checked_at ? new Date(a.gov_checked_at).getTime() : 0) - (b.gov_checked_at ? new Date(b.gov_checked_at).getTime() : 0);
 
       if (Array.isArray(body.brand_ids) && (body.brand_ids as string[]).length > 0) {
-        // 前端傳入指定 ID 清單（篩選後的品牌）— 不限 tax_id 是否存在
-        const ids = (body.brand_ids as string[]).slice(0, 200);
-        const { data } = await supabase
-          .from("brands")
-          .select("id, name, brand_key, tax_id, brand_channels(channel, value), stores(website)")
-          .in("id", ids)
-          .is("tax_id", null); // 仍只對缺統編的執行
-        brands = data ?? [];
+        // 前端傳入篩選後的 ID 清單；分批查避免 URL 過長，僅取缺統編者
+        const allIds = body.brand_ids as string[];
+        const CHUNK = 400;
+        let fetched: BatchBrand[] = [];
+        for (let i = 0; i < allIds.length; i += CHUNK) {
+          const part = allIds.slice(i, i + CHUNK);
+          const { data } = await supabase.from("brands").select(SELECT).in("id", part).is("tax_id", null);
+          if (data) fetched = fetched.concat(data as unknown as BatchBrand[]);
+        }
+        fetched.sort(byChecked);
+        brands = fetched.slice(0, BATCH_LIMIT);
       } else {
         const industry = body.industry ? String(body.industry) : null;
         let q = supabase
           .from("brands")
-          .select("id, name, brand_key, tax_id, brand_channels(channel, value), stores(website)")
-          .is("tax_id", null);
+          .select(SELECT)
+          .is("tax_id", null)
+          .order("gov_checked_at", { ascending: true, nullsFirst: true })
+          .limit(BATCH_LIMIT);
         if (industry) q = q.ilike("industry", `%${industry}%`);
         const { data } = await q;
-        brands = data ?? [];
+        brands = (data as unknown as BatchBrand[]) ?? [];
       }
 
       const stream = new TransformStream();
@@ -810,7 +824,8 @@ export async function POST(request: NextRequest) {
 
       (async () => {
         const list = brands;
-        send({ type: "step", text: `共 ${list.length} 個品牌待比對（缺統編）…` });
+        const neverChecked = list.filter((b) => !b.gov_checked_at).length;
+        send({ type: "step", text: `本次處理 ${list.length} 個（優先未比對過的 ${neverChecked} 個，已比對過的排後面）…` });
         const results = [];
         for (let i = 0; i < list.length; i++) {
           const b = list[i];
