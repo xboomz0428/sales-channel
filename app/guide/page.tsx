@@ -93,24 +93,26 @@ function FlowGuide() {
 
       <Card title="📧 怎麼真正寄出 Email？" badge="重要">
         <div style={{ fontSize: 13.5, color: C.text, lineHeight: 1.7, marginBottom: 10 }}>
-          系統用 <b>Resend</b>（email 寄送服務）送信。<b>未設定金鑰前是「模擬寄出」</b>——會標記已寄、但不會真的進對方信箱。
-          電子報發送頁上方會顯示目前是「真實寄送」或「模擬寄出」。
+          支援三家寄信服務，<b>設定其中一家即可</b>。<b>未設定前是「模擬寄出」</b>——會標記已寄、但不會真的進對方信箱。
+          電子報發送頁上方會顯示目前模式與使用的服務。可用 <span style={code}>EMAIL_PROVIDER</span>（gmail / resend / sendgrid）指定，否則自動挑選。
         </div>
-        <Step n={1}>到 <b>resend.com</b> 註冊，到 <b>Domains</b> 新增並驗證你的寄件網域（依指示把 SPF/DKIM 記錄加到 DNS）。</Step>
-        <Step n={2}>到 <b>API Keys</b> 建立金鑰（以 <span style={code}>re_</span> 開頭）。</Step>
-        <Step n={3}>把以下環境變數填到 <span style={code}>.env.local</span>（本機）或 Vercel <b>Settings → Environment Variables</b>（線上），存檔後重啟/重新部署：</Step>
-        <div style={{ background: "#0e1a11", borderRadius: 9, padding: "11px 13px", margin: "8px 0", fontFamily: "ui-monospace, monospace", fontSize: 12.5, lineHeight: 1.8, color: "#9dbeaa", overflowX: "auto" }}>
-          <div>RESEND_API_KEY=re_xxxxxxxx</div>
-          <div>OUTREACH_FROM_EMAIL=hello@你的網域.com</div>
-          <div>OUTREACH_FROM_NAME=HeroHerb 好漢草</div>
-          <div>APP_BASE_URL=https://你的網址</div>
-        </div>
-        <Step n={4}>回到 <b>電子報發送</b>，確認上方變成「✅ 真實寄送模式」，勾選名單、選模板、按「寄送」即真正送出。</Step>
-        <Step n={5}>寄出後到 <b>郵件儀表板</b> 看送達、開信、點擊、退信、回覆。</Step>
-        <div style={{ fontSize: 12.5, color: C.muted, marginTop: 8, lineHeight: 1.6, background: C.surf2, padding: "10px 12px", borderRadius: 9 }}>
-          🔌 用的 API：<b>Resend</b>（<span style={code}>POST https://api.resend.com/emails</span>，系統已內建串接，你只要填金鑰即可）。
-          報價單頁的「✉ 寄給客戶」、單筆寄送也都走同一條寄信管道。
-        </div>
+
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: C.text, marginTop: 6, marginBottom: 4 }}>方案 A — Gmail SMTP（最快，不需網域）</div>
+        <Step n={1}>Gmail 帳號開啟<b>兩步驟驗證</b>，到 Google 帳戶 → 安全性 → <b>應用程式密碼</b> 產生一組 16 碼密碼。</Step>
+        <Step n={2}>填入環境變數：</Step>
+        <KeyBlock vars={["EMAIL_PROVIDER=gmail", "GMAIL_USER=你的帳號@gmail.com", "GMAIL_APP_PASSWORD=16碼應用程式密碼", "OUTREACH_FROM_NAME=HeroHerb 好漢草", "APP_BASE_URL=https://你的網址"]} />
+        <div style={{ fontSize: 12, color: C.muted, marginBottom: 10 }}>⚠️ 免費 Gmail 每日約 500 封上限，且不適合大量冷開發信（送達率/帳號風險），適合先小量測試。</div>
+
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: C.text, marginTop: 6, marginBottom: 4 }}>方案 B — Resend（適合長期、量大）</div>
+        <Step n={1}>到 <b>resend.com</b> 註冊 → Domains 驗證寄件網域（加 SPF/DKIM DNS）→ 建立 API Key。</Step>
+        <Step n={2}>填入環境變數：</Step>
+        <KeyBlock vars={["EMAIL_PROVIDER=resend", "RESEND_API_KEY=re_xxxxxxxx", "OUTREACH_FROM_EMAIL=hello@你的網域.com", "OUTREACH_FROM_NAME=HeroHerb 好漢草", "APP_BASE_URL=https://你的網址"]} />
+
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: C.text, marginTop: 6, marginBottom: 4 }}>方案 C — SendGrid</div>
+        <KeyBlock vars={["EMAIL_PROVIDER=sendgrid", "SENDGRID_API_KEY=SG.xxxxxxxx", "OUTREACH_FROM_EMAIL=hello@你的網域.com"]} />
+
+        <Step n={3}>存檔後重啟（本機）或重新部署（Vercel）。回 <b>電子報發送</b> 確認上方變「✅ 真實寄送模式」，選名單、選模板、按「寄送」。</Step>
+        <Step n={4}>到 <b>郵件儀表板</b> 看送達、開信、點擊、退信、回覆。報價單「✉ 寄給客戶」也走同一條寄信管道。</Step>
       </Card>
     </>
   );

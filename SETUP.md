@@ -22,14 +22,36 @@ GOOGLE_PLACES_API_KEY=AIzaxxxxxxxx    # 啟用 Places API + Custom Search API
 GOOGLE_CSE_ID=xxxxxxxx                # programmablesearchengine.google.com 取得
 ```
 
-### 電子報寄送（Resend）
+### 電子報寄送（Gmail SMTP / Resend / SendGrid 擇一）
+用 `EMAIL_PROVIDER` 指定，或依設定的金鑰自動挑選（Resend → SendGrid → Gmail）。
 ```
-RESEND_API_KEY=re_xxxxxxxx
-OUTREACH_FROM_EMAIL=hello@yourdomain.com   # 須為已驗證網域信箱
 OUTREACH_FROM_NAME=HeroHerb 好漢草
 APP_BASE_URL=https://你的網址               # 追蹤像素/連結用絕對網址
+
+# 方案 A：Gmail SMTP（最快，不需網域；需開兩步驟驗證 + 應用程式密碼）
+EMAIL_PROVIDER=gmail
+GMAIL_USER=you@gmail.com
+GMAIL_APP_PASSWORD=16碼應用程式密碼
+
+# 方案 B：Resend（需驗證寄件網域）
+EMAIL_PROVIDER=resend
+RESEND_API_KEY=re_xxxxxxxx
+OUTREACH_FROM_EMAIL=hello@yourdomain.com
+
+# 方案 C：SendGrid
+EMAIL_PROVIDER=sendgrid
+SENDGRID_API_KEY=SG.xxxxxxxx
+OUTREACH_FROM_EMAIL=hello@yourdomain.com
+
+# 方案 D：自訂 SMTP
+EMAIL_PROVIDER=smtp
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=user
+SMTP_PASS=pass
 ```
-> 未設定 `RESEND_API_KEY` 時，電子報只會「模擬寄出」（標記已寄、不真的送信）。
+> 都沒設定時，電子報只會「模擬寄出」（標記已寄、不真的送信）。
+> Gmail 免費帳號每日約 500 封上限，不適合大量冷開發信。
 
 ### AI 生成草稿（Claude / OpenAI / Gemini 三選一）
 設定任一家金鑰即可；要指定用哪家可加 `AI_PROVIDER`，否則依設定的金鑰自動挑選（優先 Claude → OpenAI → Gemini）。

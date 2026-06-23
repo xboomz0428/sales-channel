@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "1.7.1";
+export const APP_VERSION = "1.8.0";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "1.8.0",
+    date: "2026-06-23",
+    title: "多家寄信服務：Gmail / Resend / SendGrid",
+    items: [
+      "寄信支援 Gmail SMTP、Resend、SendGrid、自訂 SMTP，可用 EMAIL_PROVIDER 切換或自動挑選",
+      "Gmail SMTP 最快上手（不需網域，用應用程式密碼）",
+      "電子報發送頁狀態橫幅顯示目前使用的寄信服務",
+      "使用說明補上三家設定步驟與 Gmail 寄送上限提醒",
+    ],
+  },
   {
     version: "1.7.1",
     date: "2026-06-22",

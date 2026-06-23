@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { cleanEnv } from "@/lib/env";
 import crypto from "node:crypto";
+import { resolveEmailProvider, sendViaResend, sendViaSendgrid, sendViaSmtp } from "@/lib/outreach/emailProvider";
 
 interface DispatchResult {
   ok: boolean;
@@ -18,27 +19,21 @@ export async function dispatchEmail(messageId: string): Promise<DispatchResult> 
     return { ok: false, error: "訊息不存在或無收件人 email" };
   }
 
-  const fromEmail = cleanEnv("OUTREACH_FROM_EMAIL") || "noreply@heroherb.co";
-  const fromName = cleanEnv("OUTREACH_FROM_NAME") || "HeroHerb 好漢草";
-  const resendKey = cleanEnv("RESEND_API_KEY");
+  const { provider, fromEmail, fromName } = resolveEmailProvider();
   const appBase = cleanEnv("APP_BASE_URL") || "https://localhost:3000";
 
-  // 產生追蹤 ID
+  // 產生追蹤 ID + 注入開信追蹤像素
   const trackingId = crypto.randomUUID();
-
-  // 注入追蹤像素 & 連結改寫
   let html = msg.body_html || msg.body?.replace(/\n/g, "<br/>") || "";
-  const pixelTag = `<img src="${appBase}/api/track/open/${trackingId}" width="1" height="1" style="display:none" />`;
-  html += pixelTag;
+  html += `<img src="${appBase}/api/track/open/${trackingId}" width="1" height="1" style="display:none" />`;
 
-  // 更新訊息追蹤 ID
   await supabaseAdmin
     .from("outreach_messages")
     .update({ tracking_id: trackingId, status: "sending" })
     .eq("id", messageId);
 
-  if (!resendKey) {
-    // 無 Resend API Key：模擬寄出（開發期）
+  // 未設定任何寄信供應商 → 模擬寄出（開發/測試）
+  if (provider === "none") {
     console.log(`[dispatchEmail] 模擬寄出 → ${msg.to_email}，主旨：${msg.subject}`);
     await supabaseAdmin
       .from("outreach_messages")
@@ -47,46 +42,43 @@ export async function dispatchEmail(messageId: string): Promise<DispatchResult> 
     return { ok: true };
   }
 
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${resendKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: `${fromName} <${fromEmail}>`,
-        to: [msg.to_email],
-        subject: msg.subject || "HeroHerb 好漢草",
-        html,
-      }),
-    });
+  const args = {
+    to: msg.to_email,
+    subject: msg.subject || "HeroHerb 好漢草",
+    html,
+    from: `${fromName} <${fromEmail}>`,
+    fromEmail,
+    fromName,
+  };
 
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
+  try {
+    const r =
+      provider === "resend" ? await sendViaResend(args)
+      : provider === "sendgrid" ? await sendViaSendgrid(args)
+      : await sendViaSmtp(args, provider); // gmail | smtp
+
+    if (!r.ok) {
       await supabaseAdmin
         .from("outreach_messages")
-        .update({ status: "failed", error_detail: errText.slice(0, 500) })
+        .update({ status: "failed", error_detail: (r.error || "寄送失敗").slice(0, 500) })
         .eq("id", messageId);
-      return { ok: false, error: `Resend 錯誤 (${res.status})` };
+      return { ok: false, error: r.error || "寄送失敗" };
     }
 
-    const data = await res.json();
     await supabaseAdmin
       .from("outreach_messages")
       .update({
         status: "sent",
         sent_at: new Date().toISOString(),
-        provider_message_id: data.id || null,
+        provider_message_id: r.providerMessageId || null,
       })
       .eq("id", messageId);
-
     return { ok: true };
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : "寄送失敗";
     await supabaseAdmin
       .from("outreach_messages")
-      .update({ status: "failed", error_detail: errMsg })
+      .update({ status: "failed", error_detail: errMsg.slice(0, 500) })
       .eq("id", messageId);
     return { ok: false, error: errMsg };
   }

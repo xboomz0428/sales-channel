@@ -46,7 +46,7 @@ export default function NewsletterPage() {
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<SendResult | null>(null);
   const [loading, setLoading] = useState(true);
-  const [cfg, setCfg] = useState<{ mode: string; fromEmail: string | null; missing: string[] } | null>(null);
+  const [cfg, setCfg] = useState<{ mode: string; fromEmail: string | null; providerLabel?: string } | null>(null);
 
   // 寄信設定狀態（真實 / 模擬）
   useEffect(() => {
@@ -132,9 +132,9 @@ export default function NewsletterPage() {
       {cfg && (
         <div className={`sendmode ${cfg.mode}`}>
           {cfg.mode === 'live' ? (
-            <span>✅ <b>真實寄送模式</b>：透過 Resend 寄出{cfg.fromEmail ? `，寄件人 ${cfg.fromEmail}` : ''}。</span>
+            <span>✅ <b>真實寄送模式</b>（{cfg.providerLabel}）{cfg.fromEmail ? `，寄件人 ${cfg.fromEmail}` : ''}。</span>
           ) : (
-            <span>⚠️ <b>模擬寄出模式</b>：目前不會真的寄信。需設定 <code>RESEND_API_KEY</code>{cfg.missing.includes('OUTREACH_FROM_EMAIL') ? ' 與 OUTREACH_FROM_EMAIL' : ''} 才會真實寄出。</span>
+            <span>⚠️ <b>模擬寄出模式</b>：目前不會真的寄信。設定 Gmail SMTP、Resend 或 SendGrid 任一即可真實寄出。</span>
           )}
           <a href="/guide">如何設定 →</a>
         </div>
