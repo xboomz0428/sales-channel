@@ -105,7 +105,7 @@ export default function EmailDashboardPage() {
             <div className="hbars">
               {(data?.daily || []).slice().reverse().map((d) => (
                 <div key={d.day} className="hbarrow" title={`${d.day.slice(5, 10)} 寄${d.sent} 開${d.opened} 點${d.clicked}`}>
-                  <span className="hbarlabel">{d.day.slice(8, 10)}</span>
+                  <span className="hbarlabel">{parseInt(d.day.slice(5, 7))}/{parseInt(d.day.slice(8, 10))}</span>
                   <div className="hbartrack">
                     <div className="hbarfill" style={{ width: `${(d.sent / maxSent) * 100}%` }} />
                   </div>
