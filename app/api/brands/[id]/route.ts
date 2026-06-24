@@ -108,3 +108,21 @@ export async function PATCH(request: NextRequest, { params }: any) {
     );
   }
 }
+
+/**
+ * DELETE /api/brands/:id
+ * 刪除品牌（連帶刪除門市、管道、工商記錄等關聯資料）
+ */
+export async function DELETE(request: NextRequest, { params }: any) {
+  try {
+    const supabase = getSupabaseServerClient();
+    const { id } = await params;
+    const { error } = await supabase.from("brands").delete().eq("id", id);
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+    return NextResponse.json({ success: true });
+  } catch {
+    return NextResponse.json({ success: false, error: "刪除失敗" }, { status: 500 });
+  }
+}

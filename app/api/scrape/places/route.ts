@@ -167,10 +167,15 @@ export async function POST(request: NextRequest) {
         .from("stores").select("address_key,name").in("address_key", addressKeys);
       const existingAddrSet = new Set((existingByAddr ?? []).map((r) => `${r.address_key}|${r.name}`));
 
+      // 載入採集黑名單
+      const { data: blRows } = await supabase.from("collection_blacklist").select("keyword");
+      const blacklistWords = (blRows || []).map((r) => r.keyword.toLowerCase());
+
       let newStores = 0;
       let newBrands = 0;
       let linkedExisting = 0;
       let skippedExists = 0;
+      let skippedBlacklist = 0;
       let brandErrors = 0;
 
       for (let i = 0; i < uniquePlaces.length; i++) {
@@ -180,6 +185,14 @@ export async function POST(request: NextRequest) {
         if (!name) continue;
         if (p.businessStatus === "CLOSED_PERMANENTLY") {
           await emit({ type: "store", ok: false, text: `${prefix} — 跳過「${name}」（永久停業）` });
+          continue;
+        }
+        // 黑名單過濾：名稱含任何黑名單關鍵字就跳過
+        const nameLower = name.toLowerCase();
+        const hitBlacklist = blacklistWords.find((kw) => nameLower.includes(kw));
+        if (hitBlacklist) {
+          skippedBlacklist++;
+          await emit({ type: "store", ok: false, text: `${prefix} — 跳過「${name}」（黑名單：${hitBlacklist}）` });
           continue;
         }
 
@@ -286,6 +299,7 @@ export async function POST(request: NextRequest) {
           new_stores: newStores,
           linked_existing: linkedExisting,
           skipped_exists: skippedExists,
+          skipped_blacklist: skippedBlacklist,
           skipped_dup_google: skippedDupGoogle,
           brand_errors: brandErrors,
           requests,

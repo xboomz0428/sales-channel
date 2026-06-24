@@ -574,6 +574,7 @@ function DetailPanel({
   onRunTask,
   onAcceptConflict,
   onGovUpdated,
+  onDelete,
 }: {
   brand: ScrapeBrand;
   tab: string;
@@ -581,6 +582,7 @@ function DetailPanel({
   onRunTask: (brandId: number | string, src: string) => void;
   onAcceptConflict: (brandId: number | string, idx: number, accepted: boolean) => void;
   onGovUpdated?: () => void;
+  onDelete?: (brandId: string) => void;
 }) {
   const pct = completeness(brand.tasks);
   const pending = brand.conflicts.filter((c) => c.accepted === null).length;
@@ -617,6 +619,13 @@ function DetailPanel({
         >
           開啟詳情 →
         </a>
+        <button
+          onClick={() => { if (confirm(`確定刪除「${brand.name}」？此操作不可復原。`)) onDelete?.(String(brand.id)); }}
+          title="刪除此品牌"
+          style={{ padding: "7px 12px", borderRadius: 10, border: `1px solid ${C.danger}`, background: "transparent", color: C.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
+        >
+          刪除
+        </button>
       </div>
 
       {/* Tabs */}
@@ -838,6 +847,63 @@ const CITY_DISTRICTS: Record<string, string[]> = {
 };
 const CITY_OPTIONS = Object.keys(CITY_DISTRICTS);
 const KEYWORD_SUGGEST = ["養生館", "越式洗髮", "宮廟", "長照中心", "禮儀公司", "SPA"];
+
+// ── 採集黑名單管理 ────────────────────────────────────
+function BlacklistPanel() {
+  const [items, setItems] = useState<{ id: string; keyword: string; reason: string | null }[]>([]);
+  const [newKw, setNewKw] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const load = () => {
+    fetch("/api/collection-blacklist").then((r) => r.json()).then((d) => setItems(d.data || [])).catch(() => {});
+  };
+  useEffect(load, []);
+
+  const add = async () => {
+    const kw = newKw.trim();
+    if (!kw) return;
+    const res = await fetch("/api/collection-blacklist", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ keyword: kw }) }).then((r) => r.json());
+    if (res.success) { setNewKw(""); load(); }
+  };
+  const remove = async (id: string) => {
+    await fetch("/api/collection-blacklist", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ id }) });
+    load();
+  };
+
+  return (
+    <div style={{ margin: "16px 0 10px" }}>
+      <button onClick={() => setOpen(!open)} style={{ display: "flex", alignItems: "center", gap: 6, border: "none", background: "none", cursor: "pointer", padding: 0, fontSize: 12, fontWeight: 700, color: C.muted, letterSpacing: 0.6 }}>
+        🚫 採集黑名單（{items.length}）{open ? "▼" : "▶"}
+      </button>
+      {open && (
+        <div style={{ marginTop: 8, padding: 12, background: C.surf2, borderRadius: 10, border: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: 11, color: C.muted, marginBottom: 8 }}>名稱含以下關鍵字的店家，採集時會自動跳過。</div>
+          <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+            <input value={newKw} onChange={(e) => setNewKw(e.target.value)} placeholder="輸入關鍵字…"
+              onKeyDown={(e) => { if (e.key === "Enter") add(); }}
+              style={{ flex: 1, padding: "7px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.surface, color: C.text }} />
+            <button onClick={add} disabled={!newKw.trim()}
+              style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: newKw.trim() ? C.primary : C.surf2, color: newKw.trim() ? "white" : C.muted, fontSize: 12, fontWeight: 700, cursor: newKw.trim() ? "pointer" : "default" }}>
+              新增
+            </button>
+          </div>
+          {items.length === 0 ? (
+            <div style={{ fontSize: 12, color: C.muted, textAlign: "center", padding: 8 }}>尚無黑名單關鍵字</div>
+          ) : (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {items.map((it) => (
+                <span key={it.id} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 999, background: "#F3E4DC", color: "#A66A4F", fontSize: 12, fontWeight: 600 }}>
+                  {it.keyword}
+                  <button onClick={() => remove(it.id)} style={{ border: "none", background: "none", color: "#A66A4F", cursor: "pointer", fontSize: 13, padding: 0, lineHeight: 1 }}>×</button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const KW_STORE = "collect_keywords";
 function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () => void }) {
@@ -1157,6 +1223,9 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
           {/* 歷史任務 */}
           <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.2, color: C.muted, margin: "20px 0 10px" }}>最近採集任務</div>
           {jobs.length === 0 && <div style={{ fontSize: 13, color: C.muted, textAlign: "center", padding: "14px 0" }}>尚無任務紀錄</div>}
+          {/* 採集黑名單 */}
+          <BlacklistPanel />
+
           {jobs.map((j) => {
             const st = JOB_STATUS[j.status] || JOB_STATUS.pending;
             const d = new Date(j.created_at);
@@ -1859,6 +1928,20 @@ export default function MatchingPage() {
     }, 1800 + Math.random() * 1200);
   };
 
+  const handleDeleteBrand = async (brandId: string) => {
+    try {
+      const res = await fetch(`/api/brands/${brandId}`, { method: "DELETE" });
+      const json = await res.json();
+      if (json.success) {
+        setBrands((prev) => prev.filter((b) => String(b.id) !== brandId));
+        setSelectedId(null);
+        if (isMobile) setMobileDetail(false);
+      } else {
+        alert(json.error || "刪除失敗");
+      }
+    } catch { alert("刪除失敗"); }
+  };
+
   const resolveConflict = (brandId: number | string, idx: number, accepted: boolean) => {
     const conflict = brands.find((b) => b.id === brandId)?.conflicts[idx];
     // 先更新畫面，真實模式再回寫 DB
@@ -2211,11 +2294,11 @@ export default function MatchingPage() {
                 ← 返回名單
               </button>
               <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
-                <DetailPanel brand={selected} tab={tab} onTabChange={setTab} onRunTask={runTask} onAcceptConflict={resolveConflict} onGovUpdated={loadBrands} />
+                <DetailPanel brand={selected} tab={tab} onTabChange={setTab} onRunTask={runTask} onAcceptConflict={resolveConflict} onGovUpdated={loadBrands} onDelete={handleDeleteBrand} />
               </div>
             </div>
           ) : (
-            <DetailPanel brand={selected} tab={tab} onTabChange={setTab} onRunTask={runTask} onAcceptConflict={resolveConflict} onGovUpdated={loadBrands} />
+            <DetailPanel brand={selected} tab={tab} onTabChange={setTab} onRunTask={runTask} onAcceptConflict={resolveConflict} onGovUpdated={loadBrands} onDelete={handleDeleteBrand} />
           )
         )}
       </div>
