@@ -86,5 +86,6 @@ export const templateUpdateSchema: Schema = {
 
 export const newsletterSendSchema: Schema = {
   templateId: { type: "string", required: true },
-  brandIds: { type: "string[]", required: true },
+  brandIds: { type: "string[]" },
+  manualEmails: { type: "string[]" },
 };
