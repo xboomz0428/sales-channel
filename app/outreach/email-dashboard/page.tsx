@@ -239,7 +239,8 @@ export default function EmailDashboardPage() {
         .bars { display: flex; align-items: flex-end; gap: 6px; height: 140px; margin-top: 12px; }
         .barwrap { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; }
         .bar { width: 70%; background: linear-gradient(#6f8c5f, #4a6b3f); border-radius: 4px 4px 0 0; min-height: 2px; }
-        .barwrap span { font-size: 22px; color: #2f3d2f; margin-top: 6px; font-weight: 700; font-family: 'Noto Serif TC', serif; }
+        .barwrap span { font-size: 22px; color: #c0392b; margin-top: 6px; font-weight: 700; font-family: 'Noto Serif TC', serif; }
+        .bars { justify-content: flex-start; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         th { text-align: left; font-size: 13px; color: #8a8472; font-weight: 600; padding: 8px 10px; border-bottom: 2px solid #e3ded3; }
         td { font-size: 15px; padding: 11px 10px; border-bottom: 1px solid #f0ece1; }
