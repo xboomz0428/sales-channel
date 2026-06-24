@@ -94,7 +94,7 @@ create unique index if not exists uq_enroll_active
 -- 6) 訊息(草稿 / 已發 / 回覆 / 交付追蹤 / 可觀測性)----------------
 create table if not exists public.outreach_messages (
   id                  uuid primary key default gen_random_uuid(),
-  brand_id            uuid not null references public.brands(id) on delete cascade,
+  brand_id            uuid references public.brands(id) on delete cascade,
   enrollment_id       uuid references public.outreach_enrollments(id) on delete set null,
   batch_id            uuid references public.outreach_batches(id) on delete set null,
   channel             text not null check (channel in ('LN','FB','IG','EM','TEL')),
