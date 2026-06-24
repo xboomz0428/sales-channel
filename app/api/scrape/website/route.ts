@@ -226,7 +226,7 @@ export async function POST(request: NextRequest) {
 
       // 指定品牌 IDs
       if (Array.isArray(body.brand_ids) && (body.brand_ids as string[]).length > 0) {
-        const ids = (body.brand_ids as string[]).slice(0, 50);
+        const ids = (body.brand_ids as string[]).slice(0, 200);
         const { data } = await sb.from("brands").select("id,name").in("id", ids);
         brands = data ?? [];
       } else if (body.brand_id) {
