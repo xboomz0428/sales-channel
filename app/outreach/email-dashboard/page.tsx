@@ -219,41 +219,41 @@ export default function EmailDashboardPage() {
       <style jsx>{`
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@700&display=swap');
         .wrap { font-family: 'Noto Sans TC', sans-serif; background: #f3f0e7; height: 100vh; overflow-y: auto; box-sizing: border-box; padding: 22px; color: #2f3d2f; }
-        .funnel { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
-        .fstep { display: flex; align-items: center; gap: 10px; }
-        .flabel { width: 70px; font-size: 12px; color: #6e7a6d; display: flex; justify-content: space-between; }
-        .flabel b { color: #2f3d2f; }
-        .ftrack { flex: 1; height: 16px; background: #f0ece1; border-radius: 999px; overflow: hidden; }
+        .funnel { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+        .fstep { display: flex; align-items: center; gap: 12px; }
+        .flabel { width: 80px; font-size: 15px; color: #6e7a6d; display: flex; justify-content: space-between; }
+        .flabel b { color: #2f3d2f; font-size: 16px; }
+        .ftrack { flex: 1; height: 20px; background: #f0ece1; border-radius: 999px; overflow: hidden; }
         .ffill { height: 100%; border-radius: 999px; transition: width 400ms; }
-        .fpct { width: 38px; text-align: right; font-size: 12px; color: #8a8472; }
-        h1 { font-family: 'Noto Serif TC', serif; font-size: 23px; margin: 0; }
-        header p { margin: 4px 0 16px; font-size: 12px; color: #8a8472; }
+        .fpct { width: 48px; text-align: right; font-size: 15px; font-weight: 600; color: #6e7a6d; }
+        h1 { font-family: 'Noto Serif TC', serif; font-size: 24px; margin: 0; }
+        header p { margin: 4px 0 18px; font-size: 14px; color: #8a8472; }
         .muted { color: #9a9384; }
-        .cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 14px; }
+        .cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 18px; }
         @media (max-width: 760px) { .cards { grid-template-columns: repeat(2, 1fr); } }
-        .card { background: #fffdf8; border: 1px solid #e3ded3; border-radius: 12px; padding: 15px; }
-        .ck { font-size: 12px; color: #8a8472; }
-        .cv { font-family: 'Noto Serif TC', serif; font-size: 26px; font-weight: 700; margin: 4px 0; }
-        .cs { font-size: 11px; color: #a59f8e; }
-        .chart { margin-bottom: 14px; }
-        .bars { display: flex; align-items: flex-end; gap: 6px; height: 110px; margin-top: 10px; }
+        .card { background: #fffdf8; border: 1px solid #e3ded3; border-radius: 14px; padding: 18px; }
+        .ck { font-size: 14px; color: #8a8472; font-weight: 500; }
+        .cv { font-family: 'Noto Serif TC', serif; font-size: 32px; font-weight: 700; margin: 6px 0; }
+        .cs { font-size: 13px; color: #a59f8e; }
+        .chart { margin-bottom: 18px; }
+        .bars { display: flex; align-items: flex-end; gap: 6px; height: 140px; margin-top: 12px; }
         .barwrap { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; }
         .bar { width: 70%; background: linear-gradient(#6f8c5f, #4a6b3f); border-radius: 4px 4px 0 0; min-height: 2px; }
-        .barwrap span { font-size: 9px; color: #a59f8e; margin-top: 4px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-        th { text-align: left; font-size: 11px; color: #8a8472; font-weight: 500; padding: 6px 8px; border-bottom: 1px solid #e3ded3; }
-        td { font-size: 13px; padding: 9px 8px; border-bottom: 1px solid #f0ece1; }
+        .barwrap span { font-size: 12px; color: #6e7a6d; margin-top: 5px; font-weight: 500; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th { text-align: left; font-size: 13px; color: #8a8472; font-weight: 600; padding: 8px 10px; border-bottom: 2px solid #e3ded3; }
+        td { font-size: 15px; padding: 11px 10px; border-bottom: 1px solid #f0ece1; }
         tbody tr { cursor: pointer; }
         tbody tr:hover { background: #f8f6ee; }
-        .subj { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .badge { color: #fff; font-size: 11px; padding: 2px 9px; border-radius: 999px; }
+        .subj { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .badge { color: #fff; font-size: 13px; padding: 3px 11px; border-radius: 999px; font-weight: 600; }
         .overlay { position: fixed; inset: 0; background: rgba(40, 44, 36, 0.4); display: flex; justify-content: flex-end; }
-        .drawer { width: min(520px, 92vw); background: #fffdf8; height: 100%; padding: 18px; overflow: auto; display: flex; flex-direction: column; }
-        .dhead { display: flex; justify-content: space-between; gap: 10px; }
-        .dhead button { border: none; background: #eee9dc; border-radius: 8px; width: 30px; height: 30px; cursor: pointer; }
-        .dmeta { font-size: 12px; color: #8a8472; margin: 8px 0 12px; }
+        .drawer { width: min(560px, 94vw); background: #fffdf8; height: 100%; padding: 22px; overflow: auto; display: flex; flex-direction: column; }
+        .dhead { display: flex; justify-content: space-between; gap: 12px; }
+        .dhead button { border: none; background: #eee9dc; border-radius: 8px; width: 34px; height: 34px; cursor: pointer; font-size: 16px; }
+        .dmeta { font-size: 14px; color: #8a8472; margin: 10px 0 14px; }
         .cframe { flex: 1; min-height: 460px; border: 1px solid #e3ded3; border-radius: 10px; background: #f3f0e7; }
-        .ctext { white-space: pre-wrap; font-size: 13px; line-height: 1.6; background: #fcfbf5; border: 1px solid #e3ded3; border-radius: 10px; padding: 14px; }
+        .ctext { white-space: pre-wrap; font-size: 15px; line-height: 1.7; background: #fcfbf5; border: 1px solid #e3ded3; border-radius: 10px; padding: 16px; }
       `}</style>
     </div>
   );
