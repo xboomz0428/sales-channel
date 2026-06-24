@@ -56,6 +56,27 @@ export async function dispatchEmail(messageId: string): Promise<DispatchResult> 
   const trackingId = crypto.randomUUID();
   let html = replaceVars(msg.body_html || msg.body?.replace(/\n/g, "<br/>") || "");
   const subject = replaceVars(msg.subject || "");
+
+  // 連結追蹤改寫：把 HTML 內的 <a href="https://..."> 換成追蹤連結
+  // 每個連結建一筆 email_links，點擊時走 /api/track/click/[lid] → 302 轉原網址
+  const linkRe = /href="(https?:\/\/[^"]+)"/gi;
+  const linkMatches = [...html.matchAll(linkRe)];
+  for (const m of linkMatches) {
+    const origUrl = m[1];
+    // 跳過追蹤像素本身與退訂連結
+    if (origUrl.includes("/api/track/") || origUrl.includes("{{unsubscribe}}")) continue;
+    try {
+      const { data: link } = await supabaseAdmin
+        .from("email_links")
+        .insert({ message_id: messageId, url: origUrl })
+        .select("id")
+        .single();
+      if (link) {
+        html = html.replace(origUrl, `${appBase}/api/track/click/${link.id}`);
+      }
+    } catch { /* 建立連結失敗不影響寄信 */ }
+  }
+
   html += `<img src="${appBase}/api/track/open/${trackingId}" width="1" height="1" style="display:none" />`;
 
   // 更新訊息的替換後主旨
