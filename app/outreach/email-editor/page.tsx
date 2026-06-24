@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { TEMPLATE_VARS } from '@/lib/outreach/templateVars';
 
 type BlockType = 'heading' | 'text' | 'image' | 'button' | 'divider' | 'spacer' | 'file';
 type FontSize = 'small' | 'normal' | 'large' | 'xlarge';
@@ -478,6 +479,20 @@ export default function EmailEditorPage() {
             <input className="in" value={subject} onChange={(e) => setSubject(e.target.value)} />
           </label>
 
+          {/* 可用變數說明（可收折） */}
+          <details className="varref">
+            <summary className="varsum">📎 可用變數（點擊展開）</summary>
+            <div className="varlist">
+              <div className="varhint">在主旨或內文中輸入 <code>{'{{變數名}}'}</code>，寄出時會自動替換。沒有資料的變數會顯示空白。</div>
+              {TEMPLATE_VARS.map((v) => (
+                <div key={v.key} className="varrow">
+                  <code className="vartag" onClick={() => navigator.clipboard.writeText(v.label)} title="點擊複製">{v.label}</code>
+                  <span className="vardesc">{v.desc}</span>
+                </div>
+              ))}
+            </div>
+          </details>
+
           <div className="adders">
             {(Object.keys(BLOCK_LABEL) as BlockType[]).map((t) => (
               <button key={t} className="chip" onClick={() => add(t)}>
@@ -833,6 +848,17 @@ export default function EmailEditorPage() {
           margin-bottom: 6px;
           word-break: break-all;
         }
+        .varref { margin-bottom: 14px; border: 1px solid #e3ded3; border-radius: 10px; overflow: hidden; }
+        .varsum { padding: 9px 13px; font-size: 13px; color: #5a6b4f; cursor: pointer; background: #fcfbf5; font-weight: 600; list-style: none; }
+        .varsum::-webkit-details-marker { display: none; }
+        .varlist { padding: 10px 13px; background: #f9f7f0; }
+        .varhint { font-size: 11px; color: #9a9384; margin-bottom: 8px; line-height: 1.5; }
+        .varhint code { background: #eef0e6; padding: 1px 5px; border-radius: 4px; }
+        .varrow { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid #f0ece1; }
+        .varrow:last-child { border-bottom: none; }
+        .vartag { background: #eef0e6; color: #4a6b3f; padding: 3px 9px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+        .vartag:hover { background: #4a6b3f; color: #fff; }
+        .vardesc { font-size: 12px; color: #6e7a6d; }
         .adders {
           display: flex;
           flex-wrap: wrap;

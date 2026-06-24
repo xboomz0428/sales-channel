@@ -11,7 +11,7 @@ interface DispatchResult {
 export async function dispatchEmail(messageId: string): Promise<DispatchResult> {
   const { data: msg } = await supabaseAdmin
     .from("outreach_messages")
-    .select("id, to_email, subject, body, body_html")
+    .select("id, to_email, subject, body, body_html, brand_id")
     .eq("id", messageId)
     .single();
 
@@ -22,10 +22,47 @@ export async function dispatchEmail(messageId: string): Promise<DispatchResult> 
   const { provider, fromEmail, fromName } = await resolveEmailProvider();
   const appBase = (await getCfg("APP_BASE_URL")) || "https://localhost:3000";
 
+  // 取品牌資料用於變數替換
+  let brandData: Record<string, string> = {};
+  if (msg.brand_id) {
+    const { data: brand } = await supabaseAdmin
+      .from("brands")
+      .select("name, industry, registered_name, owner_name, tax_id")
+      .eq("id", msg.brand_id)
+      .maybeSingle();
+    if (brand) {
+      brandData = {
+        品牌名: brand.name || "",
+        公司名稱: brand.registered_name || "",
+        產業: brand.industry || "",
+        負責人: brand.owner_name || "",
+        統編: brand.tax_id || "",
+      };
+    }
+  }
+
+  // 變數替換：{{變數名}} → 實際值，沒有資料就替換為空字串（不顯示變數名）
+  const now = new Date();
+  const vars: Record<string, string> = {
+    ...brandData,
+    收件人Email: msg.to_email || "",
+    寄件人: fromName || "",
+    今天日期: `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, "0")}/${String(now.getDate()).padStart(2, "0")}`,
+  };
+  const replaceVars = (text: string) =>
+    text.replace(/\{\{([^}]+)\}\}/g, (_, key) => vars[key.trim()] ?? "");
+
   // 產生追蹤 ID + 注入開信追蹤像素
   const trackingId = crypto.randomUUID();
-  let html = msg.body_html || msg.body?.replace(/\n/g, "<br/>") || "";
+  let html = replaceVars(msg.body_html || msg.body?.replace(/\n/g, "<br/>") || "");
+  const subject = replaceVars(msg.subject || "");
   html += `<img src="${appBase}/api/track/open/${trackingId}" width="1" height="1" style="display:none" />`;
+
+  // 更新訊息的替換後主旨
+  await supabaseAdmin
+    .from("outreach_messages")
+    .update({ subject })
+    .eq("id", messageId);
 
   await supabaseAdmin
     .from("outreach_messages")
@@ -44,7 +81,7 @@ export async function dispatchEmail(messageId: string): Promise<DispatchResult> 
 
   const args = {
     to: msg.to_email,
-    subject: msg.subject || "HeroHerb 好漢草",
+    subject: subject || "HeroHerb 好漢草",
     html,
     from: `${fromName} <${fromEmail}>`,
     fromEmail,
