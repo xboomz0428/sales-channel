@@ -1,16 +1,5 @@
-import { createClient } from "@supabase/supabase-js";
-import { cleanEnv } from "@/lib/env";
+import { getSupabaseServerClient } from "@/lib/supabase-server";
 
-const supabaseUrl = cleanEnv("NEXT_PUBLIC_SUPABASE_URL") || cleanEnv("SUPABASE_URL");
-const serviceRoleKey =
-  cleanEnv("SUPABASE_SERVICE_ROLE_KEY") ||
-  cleanEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY") ||
-  cleanEnv("SUPABASE_ANON_KEY");
-
-if (!supabaseUrl || !serviceRoleKey) {
-  throw new Error("Supabase 環境變數未設定（SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY）");
-}
-
-export const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-  auth: { persistSession: false },
-});
+// 統一使用與所有其他 API 完全相同的 Supabase client
+// （不再自建 client，避免金鑰讀取順序不一致導致正式環境失敗）
+export const supabaseAdmin = getSupabaseServerClient();
