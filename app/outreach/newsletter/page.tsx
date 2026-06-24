@@ -51,7 +51,7 @@ export default function NewsletterPage() {
   const [manualOpen, setManualOpen] = useState(false);
   const [manualName, setManualName] = useState('');
   const [manualEmail, setManualEmail] = useState('');
-  const [manualList, setManualList] = useState<Recipient[]>([]);
+  // manualList 不再需要前端暫存，手動名單已持久化到資料庫，從 recipients API 取回
   // 發送紀錄
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<{ id: string; to_email: string; subject: string | null; status: string; sent_at: string | null; open_count: number; click_count: number; brands?: { name?: string } | null }[]>([]);
@@ -70,16 +70,34 @@ export default function NewsletterPage() {
   };
   useEffect(loadHistory, []);
 
-  // 手動新增收件人
-  const addManual = () => {
+  // 手動新增收件人（存到資料庫，重新整理也不會消失）
+  const addManual = async () => {
     const email = manualEmail.trim();
     const name = manualName.trim() || email;
     if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email)) return;
-    if (manualList.some((m) => m.email === email) || recipients.some((r) => r.email === email)) return;
-    const id = `manual_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    setManualList((prev) => [...prev, { id, name, email, industry: null, stage: null, source: '手動' }]);
-    setManualName('');
-    setManualEmail('');
+    if (recipients.some((r) => r.email === email)) return;
+    try {
+      const res = await fetch('/api/outreach/manual-recipients', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name, email }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        // 重新載入名單（手動名單現在從 DB 來）
+        setManualName('');
+        setManualEmail('');
+        // 觸發 recipients 重新載入
+        const p = new URLSearchParams();
+        if (q) p.set('q', q);
+        if (industry) p.set('industry', industry);
+        if (stage) p.set('stage', stage);
+        if (source) p.set('source', source);
+        fetch(`/api/outreach/recipients?${p.toString()}`)
+          .then((r) => r.json())
+          .then((d) => { setRecipients(d.recipients || []); });
+      }
+    } catch { /* 新增失敗 */ }
   };
 
   // 載入名單(隨搜尋/篩選)
@@ -117,24 +135,37 @@ export default function NewsletterPage() {
       n.has(id) ? n.delete(id) : n.add(id);
       return n;
     });
-  const allRecipients = [...recipients, ...manualList];
-  const allShown = allRecipients.length > 0 && allRecipients.every((r) => selected.has(r.id));
+  const allShown = recipients.length > 0 && recipients.every((r) => selected.has(r.id));
   const toggleAll = () =>
     setSelected((s) => {
       const n = new Set(s);
-      if (allShown) allRecipients.forEach((r) => n.delete(r.id));
-      else allRecipients.forEach((r) => n.add(r.id));
+      if (allShown) recipients.forEach((r) => n.delete(r.id));
+      else recipients.forEach((r) => n.add(r.id));
       return n;
     });
+
+  // 刪除手動收件人（從 DB 移除）
+  const removeManual = async (id: string) => {
+    const dbId = id.replace(/^manual_/, '');
+    await fetch('/api/outreach/manual-recipients', {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: dbId }),
+    });
+    setRecipients((prev) => prev.filter((r) => r.id !== id));
+    setSelected((s) => { const n = new Set(s); n.delete(id); return n; });
+  };
 
   async function doSend() {
     setSending(true);
     setConfirm(false);
     try {
-      // 分開處理：名單內品牌走 newsletter/send，手動新增走單筆寄送
+      // 品牌 ID 和手動收件人分開處理
       const brandIds = [...selected].filter((id) => !id.startsWith('manual_'));
       const manualIds = [...selected].filter((id) => id.startsWith('manual_'));
-      const manualRecips = manualIds.map((id) => manualList.find((m) => m.id === id)).filter(Boolean);
+      const manualRecips = manualIds
+        .map((id) => recipients.find((r) => r.id === id))
+        .filter((r): r is Recipient => !!r && !!r.email);
       let sent = 0, failed = 0, queued = 0;
 
       // 名單品牌批次寄送
@@ -149,17 +180,15 @@ export default function NewsletterPage() {
         else { failed += brandIds.length; }
       }
 
-      // 手動收件人逐筆寄送（建立 outreach_message 後走 dispatch）
-      for (const m of manualRecips) {
-        try {
-          const res = await fetch('/api/outreach/newsletter/send', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ templateId: tplId, manualEmails: [{ name: m!.name, email: m!.email }] }),
-          });
-          const data = await res.json();
-          if (res.ok) { sent += data.sent || 0; failed += data.failed || 0; } else { failed++; }
-        } catch { failed++; }
+      // 手動收件人走 manualEmails
+      if (manualRecips.length > 0) {
+        const res = await fetch('/api/outreach/newsletter/send', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ templateId: tplId, manualEmails: manualRecips.map((r) => ({ name: r.name, email: r.email! })) }),
+        });
+        const data = await res.json();
+        if (res.ok) { sent += data.sent || 0; failed += data.failed || 0; } else { failed += manualRecips.length; }
       }
 
       setResult({ total: brandIds.length + manualRecips.length, sent, failed, queued });
@@ -197,7 +226,7 @@ export default function NewsletterPage() {
         <section className="panel">
           <div className="phead">
             <strong>收件名單</strong>
-            <span className="count">名單 {totalBrands}・有 Email {recipients.length}{manualList.length > 0 ? `＋手動 ${manualList.length}` : ''}・已選 {selected.size}</span>
+            <span className="count">名單 {totalBrands}・可寄送 {recipients.length}・已選 {selected.size}</span>
           </div>
           <div className="filters">
             <input className="in" placeholder="搜尋名稱…" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -218,7 +247,7 @@ export default function NewsletterPage() {
           </div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
             <button className="selall" style={{ flex: 1, marginBottom: 0 }} onClick={toggleAll}>
-              {allShown ? '取消全選' : `全選 ${allRecipients.length} 筆`}
+              {allShown ? '取消全選' : `全選 ${recipients.length} 筆`}
             </button>
             <button className="addbtn" onClick={() => setManualOpen(!manualOpen)}>＋ 手動新增</button>
             <button className="addbtn hist" onClick={() => { setHistoryOpen(!historyOpen); if (!historyOpen) loadHistory(); }}>📋 發送紀錄</button>
@@ -244,7 +273,7 @@ export default function NewsletterPage() {
                 </div>
               </div>
             ) : (
-              allRecipients.map((r) => (
+              recipients.map((r) => (
                 <label key={r.id} className={`row ${selected.has(r.id) ? 'on' : ''}`}>
                   <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} />
                   <span className="rname">
@@ -254,7 +283,7 @@ export default function NewsletterPage() {
                   </span>
                   <span className="rmeta">{r.industry || '—'} · {r.email}
                     {r.id.startsWith('manual_') && (
-                      <button className="rmbtn" onClick={(e) => { e.preventDefault(); setManualList((p) => p.filter((m) => m.id !== r.id)); setSelected((s) => { const n = new Set(s); n.delete(r.id); return n; }); }}>✕</button>
+                      <button className="rmbtn" onClick={(e) => { e.preventDefault(); removeManual(r.id); }}>✕</button>
                     )}
                   </span>
                 </label>

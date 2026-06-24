@@ -19,6 +19,20 @@ export async function dispatchEmail(messageId: string): Promise<DispatchResult> 
     return { ok: false, error: "訊息不存在或無收件人 email" };
   }
 
+  // 檢查黑名單：曾經寄送失敗的信箱跳過
+  const { data: blocked } = await supabaseAdmin
+    .from("email_blacklist")
+    .select("email, reason, fail_count")
+    .eq("email", msg.to_email.toLowerCase())
+    .maybeSingle();
+  if (blocked) {
+    await supabaseAdmin
+      .from("outreach_messages")
+      .update({ status: "failed", error_detail: `此信箱已被標記為黑名單（${blocked.reason}，累計 ${blocked.fail_count} 次失敗）` })
+      .eq("id", messageId);
+    return { ok: false, error: `${msg.to_email} 已被標記為無效信箱，跳過寄送` };
+  }
+
   const { provider, fromEmail, fromName } = await resolveEmailProvider();
   const appBase = (await getCfg("APP_BASE_URL")) || "https://localhost:3000";
 
@@ -120,6 +134,8 @@ export async function dispatchEmail(messageId: string): Promise<DispatchResult> 
         .from("outreach_messages")
         .update({ status: "failed", error_detail: (r.error || "寄送失敗").slice(0, 500) })
         .eq("id", messageId);
+      // 自動加入黑名單（累加失敗次數）
+      await addToBlacklist(msg.to_email, "failed");
       return { ok: false, error: r.error || "寄送失敗" };
     }
 
@@ -138,6 +154,19 @@ export async function dispatchEmail(messageId: string): Promise<DispatchResult> 
       .from("outreach_messages")
       .update({ status: "failed", error_detail: errMsg.slice(0, 500) })
       .eq("id", messageId);
+    await addToBlacklist(msg.to_email, "failed");
     return { ok: false, error: errMsg };
   }
+}
+
+async function addToBlacklist(email: string, reason: string) {
+  const addr = email.toLowerCase();
+  try {
+    const { data } = await supabaseAdmin.from("email_blacklist").select("fail_count").eq("email", addr).maybeSingle();
+    if (data) {
+      await supabaseAdmin.from("email_blacklist").update({ fail_count: (data.fail_count || 0) + 1, last_fail: new Date().toISOString(), reason }).eq("email", addr);
+    } else {
+      await supabaseAdmin.from("email_blacklist").insert({ email: addr, reason, fail_count: 1 });
+    }
+  } catch { /* 黑名單寫入失敗不影響主流程 */ }
 }

@@ -76,17 +76,37 @@ export async function GET(req: Request) {
       } catch { /* 聯絡人讀取失敗 → 略過 */ }
     }
 
-    // 3) 合併（優先序：採集 → 聯絡人 → 名單）
+    // 3) 讀取黑名單（寄送失敗的信箱，排除不寄）
+    const blackSet = new Set<string>();
+    try {
+      const { data: bl } = await supabaseAdmin.from('email_blacklist').select('email');
+      for (const b of bl || []) blackSet.add(b.email);
+    } catch { /* 黑名單讀取失敗不影響 */ }
+
+    // 4) 合併（優先序：採集 → 聯絡人 → 名單），排除黑名單
     let recipients = brands
       .map((b: any) => {
         const chEmail = chMap.get(b.id);
         const contactEmail = ctMap.get(b.id);
         const email = chEmail || contactEmail || (isValidEmail(b.email) ? b.email : null);
-        if (!email) return null;
+        if (!email || blackSet.has(email.toLowerCase())) return null;
         const src = chEmail ? '採集' : contactEmail ? '聯絡人' : '名單';
         return { id: b.id, name: b.name, industry: b.industry || null, email, stage: b.status || null, registered_name: b.registered_name || null, source: src };
       })
       .filter(Boolean) as any[];
+
+    // 5) 加入手動新增的收件人（持久化在 manual_recipients 表）
+    try {
+      const { data: manual } = await supabaseAdmin
+        .from('manual_recipients')
+        .select('id, name, email')
+        .eq('is_active', true);
+      for (const m of manual || []) {
+        if (!blackSet.has(m.email.toLowerCase()) && !recipients.some((r: any) => r.email === m.email)) {
+          recipients.push({ id: `manual_${m.id}`, name: m.name || m.email, industry: null, email: m.email, stage: null, registered_name: null, source: '手動' });
+        }
+      }
+    } catch { /* 手動名單讀取失敗不影響 */ }
 
     if (source) recipients = recipients.filter((r) => r.source === source);
 
