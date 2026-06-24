@@ -58,8 +58,10 @@ interface PlaceResult {
   userRatingCount?: number;
   websiteUri?: string;
   nationalPhoneNumber?: string;
+  internationalPhoneNumber?: string;
   businessStatus?: string;
   googleMapsUri?: string;
+  types?: string[];
   reviews?: PlaceReview[];
 }
 
@@ -124,7 +126,7 @@ export async function POST(request: NextRequest) {
             "Content-Type": "application/json",
             "X-Goog-Api-Key": apiKey,
             "X-Goog-FieldMask":
-              "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.websiteUri,places.nationalPhoneNumber,places.businessStatus,places.googleMapsUri,places.reviews,nextPageToken",
+              "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.websiteUri,places.nationalPhoneNumber,places.internationalPhoneNumber,places.businessStatus,places.googleMapsUri,places.reviews,places.types,nextPageToken",
           },
           body: JSON.stringify({
             textQuery: `${keyword} ${city}`,
@@ -267,6 +269,20 @@ export async function POST(request: NextRequest) {
           newStores++;
           const addrShort = address.length > 18 ? address.slice(0, 18) + "…" : address;
           await emit({ type: "store", ok: true, text: `${prefix} ✓ 新增門市「${name}」（${addrShort}）` });
+
+          // 自動把 Places 取到的電話/官網/地圖寫入 brand_channels（不重複）
+          const autoChannels: [string, string | null][] = [
+            ["phone", p.nationalPhoneNumber || p.internationalPhoneNumber || null],
+            ["website", p.websiteUri || null],
+            ["map", p.googleMapsUri || null],
+          ];
+          for (const [ch, val] of autoChannels) {
+            if (!val) continue;
+            const { data: exists } = await supabase.from("brand_channels").select("id").eq("brand_id", brandId).eq("channel", ch).maybeSingle();
+            if (!exists) {
+              await supabase.from("brand_channels").insert({ brand_id: brandId, channel: ch, value: val, source_url: "google_places", fetched_at: new Date().toISOString() });
+            }
+          }
           if (p.reviews?.length) {
             const reviewRows = p.reviews.slice(0, 5).map((r) => ({
               store_id: newStore.id,

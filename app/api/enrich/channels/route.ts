@@ -49,8 +49,48 @@ async function fetchSiteLinks(url: string): Promise<Record<string, string>> {
       const m = html.match(re);
       if (m) found[ch] = ch === "email" ? m[1] : m[0];
     }
+    // 額外抓取 email：頁面內直接出現的 email（非 mailto 連結）
+    if (!found.email) {
+      const JUNK = /noreply|no-reply|example\.|sentry|wixpress|facebook|google|apple/i;
+      for (const m of html.matchAll(/\b([A-Za-z0-9_.+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b/g)) {
+        if (!JUNK.test(m[1]) && !/\.(png|jpg|gif|svg|webp|ico|js|css)$/i.test(m[1])) {
+          found.email = m[1]; break;
+        }
+      }
+    }
+    // 抓取電話（tel: 連結或台灣格式）
+    if (!found.phone) {
+      const telHref = html.match(/href=["']tel:([+0-9\-\s()]+)["']/i);
+      if (telHref) {
+        const n = telHref[1].replace(/[\s\-().+]/g, "").replace(/^886/, "0");
+        if (/^0[2-9]/.test(n)) found.phone = n;
+      }
+      if (!found.phone) {
+        const pm = html.match(/0[2-8]-?\d{3,4}-?\d{4}|09\d{2}-?\d{3}-?\d{3}/);
+        if (pm) found.phone = pm[0];
+      }
+    }
   } catch {
     // 網站逾時/拒絕 → 略過
+  }
+  return found;
+}
+
+// 嘗試抓聯絡頁面（/contact, /about 等常見路徑）找 email
+async function fetchContactPages(baseUrl: string): Promise<Record<string, string>> {
+  const found: Record<string, string> = {};
+  let base: URL;
+  try { base = new URL(baseUrl); } catch { return found; }
+  const paths = ["/contact", "/contact-us", "/about", "/about-us", "/contactus"];
+  for (const path of paths) {
+    try {
+      const url = `${base.origin}${path}`;
+      const links = await fetchSiteLinks(url);
+      for (const [ch, val] of Object.entries(links)) {
+        if (!found[ch]) found[ch] = val;
+      }
+      if (found.email) break; // 找到 email 就停
+    } catch { /* 略過 */ }
   }
   return found;
 }
@@ -241,6 +281,19 @@ async function enrichBrand(
         }
       }
     }
+
+    // 官網首頁沒找到 email → 嘗試聯絡頁（/contact, /about）
+    if (!have.has("email") && website && !LINK_PATTERNS.some(([, re]) => re.test(website))) {
+      await emit({ type: "step", text: `${prefix}搜尋聯絡頁面（/contact, /about）…` });
+      const contactLinks = await fetchContactPages(website);
+      for (const [ch, value] of Object.entries(contactLinks)) {
+        if (!have.has(ch)) {
+          await upsertChannel(supabase, brandId, ch, value, website);
+          added.push(ch); have.add(ch);
+          await emit({ type: "step", text: `${prefix}聯絡頁找到 ${ch}` });
+        }
+      }
+    }
   } else if (!website && !phone && !gmaps) {
     await emit({ type: "step", text: `${prefix}此品牌無門市資料（請先執行 Google Maps 採集）` });
   }
@@ -282,30 +335,56 @@ async function enrichBrand(
     const apiKey = await getCfg("GOOGLE_PLACES_API_KEY");
     const cseId = await getCfg("GOOGLE_CSE_ID");
     if (apiKey && cseId) {
-      // 搜尋品牌聯絡資訊（品牌名 + 公司名都搜）
+      // 搜尋品牌聯絡資訊（品牌名 + 公司名都搜，多種搜尋詞）
+      const JUNK_CSE = /noreply|no-reply|sentry|example\.|wixpress|facebook|google/i;
       for (const sn of searchNames) {
         if (!TARGET_CHANNELS.some((ch) => !have.has(ch))) break;
-        await emit({ type: "step", text: `${prefix}Google 搜尋「${sn}」聯絡資訊…` });
-        try {
-          const q = encodeURIComponent(`"${sn.slice(0, 15)}" 電話 email LINE`);
-          const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cseId}&q=${q}&num=5&hl=zh-TW&gl=tw`;
-          const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
-          logApiUsage("cse", 1);
-          if (res.ok) {
-            const data = (await res.json()) as { items?: { snippet?: string }[] };
-            const text = (data.items || []).map((i) => i.snippet || "").join(" ");
-            if (!have.has("phone")) {
-              const pm = text.match(/0[2-8]-?\d{3,4}-?\d{4}|09\d{2}-?\d{3}-?\d{3}/);
-              if (pm) { await upsertChannel(supabase, brandId, "phone", pm[0], "google_cse"); added.push("phone"); have.add("phone"); }
+        // 搜尋詞策略：先搜「聯絡 email LINE」，再搜「預約」（服務業常有 email）
+        const queries = [
+          `"${sn.slice(0, 15)}" 電話 email LINE`,
+          ...(!have.has("email") ? [`"${sn.slice(0, 15)}" 聯絡 預約 email`] : []),
+        ];
+        for (const qStr of queries) {
+          if (!TARGET_CHANNELS.some((ch) => !have.has(ch))) break;
+          await emit({ type: "step", text: `${prefix}Google 搜尋「${sn}」聯絡資訊…` });
+          try {
+            const q = encodeURIComponent(qStr);
+            const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cseId}&q=${q}&num=5&hl=zh-TW&gl=tw`;
+            const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+            logApiUsage("cse", 1);
+            if (res.ok) {
+              const data = (await res.json()) as { items?: { snippet?: string; link?: string }[] };
+              const text = (data.items || []).map((i) => i.snippet || "").join(" ");
+              if (!have.has("phone")) {
+                const pm = text.match(/0[2-8]-?\d{3,4}-?\d{4}|09\d{2}-?\d{3}-?\d{3}/);
+                if (pm) { await upsertChannel(supabase, brandId, "phone", pm[0], "google_cse"); added.push("phone"); have.add("phone"); }
+              }
+              if (!have.has("email")) {
+                for (const m of text.matchAll(/([A-Za-z0-9_.+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})/g)) {
+                  if (!JUNK_CSE.test(m[1])) { await upsertChannel(supabase, brandId, "email", m[1], "google_cse"); added.push("email"); have.add("email"); break; }
+                }
+              }
+              // 從搜尋結果連結中找品牌的官網（補 website）
+              if (!have.has("website")) {
+                for (const item of data.items || []) {
+                  const link = item.link || "";
+                  if (link && !link.includes("facebook.com") && !link.includes("instagram.com") && !link.includes("google.com") && !link.includes("youtube.com")) {
+                    await upsertChannel(supabase, brandId, "website", link, "google_cse");
+                    added.push("website"); have.add("website");
+                    // 找到官網就順便爬一下
+                    const siteLinks = await fetchSiteLinks(link);
+                    for (const [ch, val] of Object.entries(siteLinks)) {
+                      if (!have.has(ch)) { await upsertChannel(supabase, brandId, ch, val, link); added.push(ch); have.add(ch); }
+                    }
+                    break;
+                  }
+                }
+              }
+              const cseFound = added.filter((ch) => !existingChannels?.some((e) => e.channel === ch));
+              if (cseFound.length > 0) await emit({ type: "step", text: `${prefix}Google 搜尋找到 ${cseFound.join("、")}` });
             }
-            if (!have.has("email")) {
-              const em = text.match(/([A-Za-z0-9_.+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})/);
-              if (em && !/noreply|no-reply/i.test(em[1])) { await upsertChannel(supabase, brandId, "email", em[1], "google_cse"); added.push("email"); have.add("email"); }
-            }
-            const cseFound = added.filter((ch) => !existingChannels?.some((e) => e.channel === ch));
-            if (cseFound.length > 0) await emit({ type: "step", text: `${prefix}Google 搜尋找到 ${cseFound.join("、")}` });
-          }
-        } catch { /* CSE 搜尋失敗 → 略過 */ }
+          } catch { /* CSE 搜尋失敗 → 略過 */ }
+        }
       }
     }
   }

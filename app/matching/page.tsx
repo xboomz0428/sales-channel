@@ -909,7 +909,7 @@ const KW_STORE = "collect_keywords";
 function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () => void }) {
   const [keyword, setKeyword] = useState("");
   const [city, setCity] = useState("台中市");
-  const [maxPages, setMaxPages] = useState(1);
+  const [maxPages, setMaxPages] = useState(3);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [resultOk, setResultOk] = useState(false);
