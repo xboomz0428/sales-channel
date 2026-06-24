@@ -102,11 +102,14 @@ export default function EmailDashboardPage() {
 
           <div className="chart card">
             <div className="ck">每日寄送量</div>
-            <div className="bars">
+            <div className="hbars">
               {(data?.daily || []).slice().reverse().map((d) => (
-                <div key={d.day} className="barwrap" title={`${d.day.slice(5, 10)} 寄${d.sent} 開${d.opened} 點${d.clicked}`}>
-                  <div className="bar" style={{ height: `${(d.sent / maxSent) * 100}%` }} />
-                  <span>{d.day.slice(8, 10)}</span>
+                <div key={d.day} className="hbarrow" title={`${d.day.slice(5, 10)} 寄${d.sent} 開${d.opened} 點${d.clicked}`}>
+                  <span className="hbarlabel">{d.day.slice(8, 10)}</span>
+                  <div className="hbartrack">
+                    <div className="hbarfill" style={{ width: `${(d.sent / maxSent) * 100}%` }} />
+                  </div>
+                  <span className="hbarval">{d.sent}</span>
                 </div>
               ))}
             </div>
@@ -236,11 +239,12 @@ export default function EmailDashboardPage() {
         .cv { font-family: 'Noto Serif TC', serif; font-size: 32px; font-weight: 700; margin: 6px 0; }
         .cs { font-size: 13px; color: #a59f8e; }
         .chart { margin-bottom: 18px; }
-        .bars { display: flex; align-items: flex-end; gap: 6px; height: 140px; margin-top: 12px; }
-        .barwrap { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; }
-        .bar { width: 70%; background: linear-gradient(#6f8c5f, #4a6b3f); border-radius: 4px 4px 0 0; min-height: 2px; }
-        .barwrap span { font-size: 22px; color: #c0392b; margin-top: 6px; font-weight: 700; font-family: 'Noto Serif TC', serif; }
-        .bars { justify-content: flex-start; }
+        .hbars { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+        .hbarrow { display: flex; align-items: center; gap: 12px; }
+        .hbarlabel { font-size: 36px; font-weight: 700; color: #c0392b; font-family: 'Noto Serif TC', serif; min-width: 56px; text-align: right; flex-shrink: 0; }
+        .hbartrack { flex: 1; height: 28px; background: #f0ece1; border-radius: 999px; overflow: hidden; }
+        .hbarfill { height: 100%; background: linear-gradient(90deg, #6f8c5f, #4a6b3f); border-radius: 999px; min-width: 4px; transition: width 400ms; }
+        .hbarval { font-size: 16px; font-weight: 700; color: #2f3d2f; min-width: 30px; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         th { text-align: left; font-size: 13px; color: #8a8472; font-weight: 600; padding: 8px 10px; border-bottom: 2px solid #e3ded3; }
         td { font-size: 15px; padding: 11px 10px; border-bottom: 1px solid #f0ece1; }
