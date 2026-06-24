@@ -281,6 +281,9 @@ function BrandList({
                         </span>
                       );
                     })}
+                    {b.channels.length === 0 && (
+                      <span style={{ padding: "1px 7px", borderRadius: 999, background: "#FEF3C7", color: "#92400E", fontSize: 10, fontWeight: 700 }}>未採集</span>
+                    )}
                     {conflicts > 0 && (
                       <span style={{ padding: "1px 7px", borderRadius: 999, background: C.dangerBg, color: C.danger, fontSize: 10, fontWeight: 700 }}>⚠ {conflicts}筆差異</span>
                     )}
@@ -1977,6 +1980,13 @@ export default function MatchingPage() {
     if (filterCity && !b.cities.includes(filterCity)) return false;
     if (filterDistrict && !b.districts.includes(filterDistrict)) return false;
     return true;
+  }).sort((a, b) => {
+    // 未採集（0 管道）優先，然後依完整度低→高排序
+    const aChannels = a.channels.length;
+    const bChannels = b.channels.length;
+    if (aChannels === 0 && bChannels > 0) return -1;
+    if (bChannels === 0 && aChannels > 0) return 1;
+    return completeness(a.tasks) - completeness(b.tasks);
   });
   const selected = selectedId != null ? visibleBrands.find((b) => b.id === selectedId) ?? visibleBrands[0] : visibleBrands[0];
 
@@ -2154,7 +2164,7 @@ export default function MatchingPage() {
             {availableCities.length > 0 && (
               <>
                 <span style={{ fontSize: 11, color: C.muted, fontWeight: 700, letterSpacing: 0.6, marginLeft: 8, paddingLeft: 8, borderLeft: `1px solid ${C.border}` }}>縣市：</span>
-                {availableCities.slice(0, 8).map((city) => (
+                {availableCities.map((city) => (
                   <button
                     key={city}
                     onClick={() => { setFilterCity(filterCity === city ? null : city); setFilterDistrict(null); }}
@@ -2255,6 +2265,30 @@ export default function MatchingPage() {
                 ))}
               </>
             )}
+
+            {/* 尚未採集的縣市提示 */}
+            {(() => {
+              const collectedCities = new Set(brands.flatMap((b) => b.cities));
+              const uncollected = CITY_OPTIONS.filter((c) => !collectedCities.has(c));
+              if (uncollected.length === 0) return null;
+              return (
+                <>
+                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 700, marginLeft: 6, paddingLeft: 8, borderLeft: `1px solid ${C.border}` }}>
+                    尚未採集（{uncollected.length}）：
+                  </span>
+                  {uncollected.map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => { setJobPanelOpen(true); }}
+                      title={`點擊開啟採集任務，前往採集「${c}」`}
+                      style={{ fontSize: 11, padding: "2px 9px", borderRadius: 999, border: `1px dashed #D97706`, background: "transparent", color: "#92400E", cursor: "pointer" }}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </>
+              );
+            })()}
           </div>
         );
       })()}
