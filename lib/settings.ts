@@ -1,15 +1,13 @@
-import { createClient } from "@supabase/supabase-js";
+import { getSupabaseServerClient } from "@/lib/supabase-server";
 import { cleanEnv } from "@/lib/env";
 
-// 用獨立的 client 讀寫 app_settings（避免與 supabaseAdmin 的循環相依）
+// 用與其他 API 完全相同的 Supabase client（已驗證可用）
 function db() {
-  const url = cleanEnv("NEXT_PUBLIC_SUPABASE_URL") || cleanEnv("SUPABASE_URL");
-  const key =
-    cleanEnv("SUPABASE_SERVICE_ROLE_KEY") ||
-    cleanEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY") ||
-    cleanEnv("SUPABASE_ANON_KEY");
-  if (!url || !key) return null;
-  return createClient(url, key, { auth: { persistSession: false } });
+  try {
+    return getSupabaseServerClient();
+  } catch {
+    return null;
+  }
 }
 
 let cache: { at: number; map: Record<string, string> } | null = null;
@@ -55,6 +53,6 @@ export async function saveSettings(values: Record<string, string>): Promise<{ ok
   const rows = Object.entries(values).map(([key, value]) => ({ key, value: value ?? "", updated_at: new Date().toISOString() }));
   if (rows.length === 0) return { ok: true };
   const { error } = await client.from("app_settings").upsert(rows, { onConflict: "key" });
-  cache = null; // 失效快取
+  cache = null;
   return error ? { ok: false, error: error.message } : { ok: true };
 }
