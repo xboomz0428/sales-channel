@@ -265,95 +265,80 @@ export async function POST(request: NextRequest) {
         return;
       }
 
-      await emit({ type: "step", text: `開始爬取 ${brands.length} 個品牌官網…` });
+      const WEB_CONCURRENCY = Math.min(20, Math.max(5, Math.ceil(brands.length / 30) * 5));
+      await emit({ type: "step", text: `開始爬取 ${brands.length} 個品牌官網（${WEB_CONCURRENCY} 並行）…` });
 
       let enriched = 0, skipped = 0, totalCh = 0;
 
-      for (let i = 0; i < brands.length; i++) {
+      const processBrandWeb = async (i: number) => {
         const brand = brands[i];
         const prefix = `[${i + 1}/${brands.length}]`;
 
-        // 載入此品牌已有的管道，只補缺失的
-        const { data: existCh } = await sb
-          .from("brand_channels")
-          .select("channel")
-          .eq("brand_id", brand.id);
+        const { data: existCh } = await sb.from("brand_channels").select("channel").eq("brand_id", brand.id);
         const haveChannels = new Set((existCh ?? []).map((c) => c.channel));
-
-        const { data: stores } = await sb
-          .from("stores")
-          .select("website")
-          .eq("brand_id", brand.id)
-          .not("website", "is", null);
-
-        const websites = [
-          ...new Set((stores ?? []).map((s) => (s.website as string)).filter(Boolean)),
-        ];
+        const { data: stores } = await sb.from("stores").select("website").eq("brand_id", brand.id).not("website", "is", null);
+        const websites = [...new Set((stores ?? []).map((s) => (s.website as string)).filter(Boolean))];
 
         if (websites.length === 0) {
           await emit({ type: "store", ok: false, text: `${prefix} ${brand.name}：無官網 URL` });
           skipped++;
-          continue;
+          return;
         }
 
         const merged: Record<string, string> = {};
-
         for (const url of websites) {
-          if (/facebook\.com/i.test(url))          { merged.fb       ??= url; continue; }
-          if (/instagram\.com/i.test(url))          { merged.ig       ??= url; continue; }
+          if (/facebook\.com/i.test(url)) { merged.fb ??= url; continue; }
+          if (/instagram\.com/i.test(url)) { merged.ig ??= url; continue; }
           if (/line\.me|lin\.ee|page\.line\.me/i.test(url)) { merged.line ??= url; continue; }
-          if (/linktr\.ee/i.test(url))              { merged.linktree ??= url; }
-
-          await emit({ type: "step", text: `${prefix} 爬取 ${url}…` });
+          if (/linktr\.ee/i.test(url)) { merged.linktree ??= url; }
           const html = await fetchHtml(url);
-          if (!html) {
-            await emit({ type: "store", ok: false, text: `${prefix} ${brand.name}：${url} 無法存取` });
-            continue;
-          }
-          for (const [k, v] of Object.entries(extractLinks(html))) {
-            merged[k] ??= v;
-          }
+          if (!html) { continue; }
+          for (const [k, v] of Object.entries(extractLinks(html))) { merged[k] ??= v; }
         }
 
         if (!merged.phone && websites[0] && !/facebook|instagram|line|linktr/i.test(websites[0])) {
           const fallbackPhone = await findPhoneFromContactPage(websites[0]);
-          if (fallbackPhone) {
-            merged.phone = fallbackPhone;
-            await emit({ type: "step", text: `${prefix} 聯絡頁找到電話` });
-          }
+          if (fallbackPhone) merged.phone = fallbackPhone;
         }
 
-        // 過濾掉已有的管道，只寫入新發現的
         const newChannels: Record<string, string> = {};
         for (const [ch, value] of Object.entries(merged)) {
           if (!haveChannels.has(ch)) newChannels[ch] = value;
         }
 
-        if (Object.keys(merged).length === 0) {
-          await emit({ type: "store", ok: false, text: `${prefix} ${brand.name}：找不到任何聯絡管道` });
-          skipped++;
-          continue;
-        }
-
         if (Object.keys(newChannels).length === 0) {
-          await emit({ type: "store", ok: false, text: `${prefix} ${brand.name}：管道已齊全（${[...haveChannels].join("、")}）` });
           skipped++;
-          continue;
+          return;
         }
 
         for (const [ch, value] of Object.entries(newChannels)) {
           await upsertChannel(sb, brand.id, ch, value, websites[0]);
         }
-
         enriched++;
         totalCh += Object.keys(newChannels).length;
         await emit({
-          type: "store",
-          ok: true,
-          text: `${prefix} ✓ ${brand.name}：新增 ${Object.keys(newChannels).join("、")}` +
-            (haveChannels.size > 0 ? `（已有 ${[...haveChannels].join("、")}）` : ""),
+          type: "store", ok: true,
+          text: `${prefix} ✓ ${brand.name}：新增 ${Object.keys(newChannels).join("、")}`,
         });
-      }
+      };
+
+      // 平行處理
+      let running = 0, nextIdx = 0;
+      await new Promise<void>((resolve) => {
+        const tryNext = () => {
+          while (running < WEB_CONCURRENCY && nextIdx < brands.length) {
+            const idx = nextIdx++;
+            running++;
+            processBrandWeb(idx).finally(() => {
+              running--;
+              if (nextIdx >= brands.length && running === 0) resolve();
+              else tryNext();
+            });
+          }
+        };
+        if (brands.length === 0) resolve();
+        else tryNext();
+      });
 
       await emit({
         type: "done",

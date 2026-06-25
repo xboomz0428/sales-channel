@@ -517,16 +517,20 @@ export async function POST(request: NextRequest) {
         return;
       }
 
+      const CONCURRENCY = Math.min(30, Math.max(5, Math.ceil(brands.length / 30) * 5));
       await emit({ type: "init", total: brands.length, skipped });
-      await emit({ type: "step", text: `開始採集 ${brands.length} 個品牌的聯絡管道${skipped > 0 ? `（已剃除 ${skipped} 個完整品牌）` : ""}…` });
+      await emit({ type: "step", text: `開始採集 ${brands.length} 個品牌（${CONCURRENCY} 並行）${skipped > 0 ? `，已剃除 ${skipped} 個完整品牌` : ""}…` });
 
       let enriched = 0;
-      for (let i = 0; i < brands.length; i++) {
-        const { id, name } = brands[i];
-        const prefix = brands.length > 1 ? `[${i + 1}/${brands.length}] ` : "";
+      let doneCount = 0;
+
+      // 平行處理：分批並行，每批 CONCURRENCY 個同時跑
+      const processBrand = async (idx: number) => {
+        const { id, name } = brands[idx];
+        const prefix = `[${idx + 1}/${brands.length}] `;
         try {
-          await emit({ type: "step", text: `${prefix}${name}：查詢門市資料…` });
-          const channels = await enrichBrand(supabase, id, name, emit, prefix, (brands[i] as any).registered_name);
+          const channels = await enrichBrand(supabase, id, name, emit, prefix, (brands[idx] as any).registered_name);
+          doneCount++;
           if (channels.length > 0) {
             enriched++;
             await emit({ type: "store", ok: true, text: `${prefix}✓ ${name}：取得 ${channels.join("、")}` });
@@ -534,9 +538,29 @@ export async function POST(request: NextRequest) {
             await emit({ type: "store", ok: false, text: `${prefix}— ${name}：無可新增的管道資料` });
           }
         } catch (e) {
+          doneCount++;
           await emit({ type: "store", ok: false, text: `${prefix}✕ ${name}：${e instanceof Error ? e.message : "失敗"}` });
         }
-      }
+      };
+
+      // 用 semaphore 控制並行數量
+      let running = 0;
+      let nextIdx = 0;
+      await new Promise<void>((resolve) => {
+        const tryNext = () => {
+          while (running < CONCURRENCY && nextIdx < brands.length) {
+            const idx = nextIdx++;
+            running++;
+            processBrand(idx).finally(() => {
+              running--;
+              if (nextIdx >= brands.length && running === 0) resolve();
+              else tryNext();
+            });
+          }
+        };
+        if (brands.length === 0) resolve();
+        else tryNext();
+      });
 
       await emit({ type: "done", data: { total: brands.length, enriched, skipped } });
     } catch (e) {

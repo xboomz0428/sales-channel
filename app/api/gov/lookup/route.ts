@@ -825,23 +825,45 @@ export async function POST(request: NextRequest) {
       (async () => {
         const list = brands;
         const neverChecked = list.filter((b) => !b.gov_checked_at).length;
-        send({ type: "step", text: `本次處理 ${list.length} 個（優先未比對過的 ${neverChecked} 個，已比對過的排後面）…` });
-        const results = [];
-        for (let i = 0; i < list.length; i++) {
-          const b = list[i];
-          send({ type: "brand", text: `[${i + 1}/${list.length}] ${b.name}` });
+        const GOV_CONCURRENCY = Math.min(10, Math.max(3, Math.ceil(list.length / 30) * 3));
+        send({ type: "step", text: `本次處理 ${list.length} 個（${GOV_CONCURRENCY} 並行，優先未比對過的 ${neverChecked} 個）…` });
+        const results: any[] = [];
+        let doneCount = 0;
+
+        const processGov = async (idx: number) => {
+          const b = list[idx];
           const website = extractWebsite(b as unknown as { stores?: { website?: string | null }[]; brand_channels?: { channel: string; value: string }[] });
           try {
             const r = await matchBrand(supabase, { ...b, website }, (text) => send({ type: "step", text }));
             results.push(r);
+            doneCount++;
             const ok = r.matched;
             send({ type: "store", ok, text: ok ? `  ✓ ${r.registered_name}（${r.tax_id}）[${r.source}]` : `  ✗ ${b.name} 未比對到` });
           } catch (e) {
             results.push({ brand: b.name, matched: false });
+            doneCount++;
             send({ type: "store", ok: false, text: `  ✗ ${b.name} 錯誤：${e instanceof Error ? e.message : "失敗"}` });
           }
-          await new Promise((r) => setTimeout(r, 300));
-        }
+        };
+
+        let running = 0;
+        let nextIdx = 0;
+        await new Promise<void>((resolve) => {
+          const tryNext = () => {
+            while (running < GOV_CONCURRENCY && nextIdx < list.length) {
+              const idx = nextIdx++;
+              running++;
+              processGov(idx).finally(() => {
+                running--;
+                if (nextIdx >= list.length && running === 0) resolve();
+                else tryNext();
+              });
+            }
+          };
+          if (list.length === 0) resolve();
+          else tryNext();
+        });
+
         const matched = results.filter((r) => r.matched).length;
         send({ type: "done", data: { total: results.length, matched, low_confidence: results.length - matched, results } });
         writer.close();
