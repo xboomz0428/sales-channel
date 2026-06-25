@@ -76,20 +76,66 @@ async function fetchSiteLinks(url: string): Promise<Record<string, string>> {
   return found;
 }
 
-// 嘗試抓聯絡頁面（/contact, /about 等常見路徑）找 email
+// 聯絡頁面發現策略：
+// 1) 先從首頁 HTML 找內部連結，用連結文字/URL 判斷哪些像聯絡頁
+// 2) 退回固定英文路徑（/contact, /about 等）
+// 這比只找英文路徑有效得多——台灣網站常用中文路徑或 CMS 生成的 URL
+const CONTACT_LINK_RE = /聯絡|聯繫|關於|contact|about|預約|門市資訊|店舖資訊|公司簡介|服務據點|加盟|FAQ|常見問題/i;
+const SKIP_LINK_RE = /facebook|instagram|line\.me|youtube|twitter|google|linkedin|apple|android|\.pdf$|\.jpg$|\.png$/i;
+
+async function discoverContactUrls(baseUrl: string): Promise<string[]> {
+  const urls: string[] = [];
+  let base: URL;
+  try { base = new URL(baseUrl); } catch { return urls; }
+  try {
+    const res = await fetch(baseUrl, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; HeroHerbBot/1.0)" },
+      signal: AbortSignal.timeout(6000),
+      redirect: "follow",
+    });
+    if (!res.ok) return urls;
+    const html = (await res.text()).slice(0, 500_000);
+    // 找所有 <a href="..." ...>文字</a>
+    const linkRe = /<a\s[^>]*href=["']([^"'#]+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+    const seen = new Set<string>();
+    for (const m of html.matchAll(linkRe)) {
+      const href = m[1];
+      const text = m[2].replace(/<[^>]*>/g, "").trim();
+      if (!href || SKIP_LINK_RE.test(href)) continue;
+      // 連結文字或 URL 含聯絡相關關鍵字
+      if (CONTACT_LINK_RE.test(text) || CONTACT_LINK_RE.test(href)) {
+        let fullUrl: string;
+        try {
+          fullUrl = new URL(href, base.origin).href;
+        } catch { continue; }
+        // 只追同網域
+        if (!fullUrl.startsWith(base.origin)) continue;
+        if (seen.has(fullUrl) || fullUrl === baseUrl) continue;
+        seen.add(fullUrl);
+        urls.push(fullUrl);
+        if (urls.length >= 5) break; // 最多追 5 個聯絡頁
+      }
+    }
+  } catch { /* 首頁讀取失敗 → 退回固定路徑 */ }
+  // 退回固定路徑（沒從首頁找到就試這些）
+  if (urls.length === 0) {
+    for (const p of ["/contact", "/contact-us", "/about", "/about-us"]) {
+      urls.push(`${base.origin}${p}`);
+    }
+  }
+  return urls;
+}
+
 async function fetchContactPages(baseUrl: string): Promise<Record<string, string>> {
   const found: Record<string, string> = {};
-  let base: URL;
-  try { base = new URL(baseUrl); } catch { return found; }
-  const paths = ["/contact", "/contact-us", "/about", "/about-us", "/contactus"];
-  for (const path of paths) {
+  const urls = await discoverContactUrls(baseUrl);
+  for (const url of urls) {
     try {
-      const url = `${base.origin}${path}`;
       const links = await fetchSiteLinks(url);
       for (const [ch, val] of Object.entries(links)) {
         if (!found[ch]) found[ch] = val;
       }
-      if (found.email) break; // 找到 email 就停
+      if (found.email && found.phone) break; // 找到主要的就停
     } catch { /* 略過 */ }
   }
   return found;
