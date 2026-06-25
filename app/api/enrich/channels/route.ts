@@ -535,7 +535,7 @@ export async function POST(request: NextRequest) {
         brands = [brand];
       } else if (Array.isArray(body.brand_ids) && body.brand_ids.length > 0) {
         isBatch = true;
-        const ids = (body.brand_ids as string[]).slice(0, 200);
+        const ids = (body.brand_ids as string[]).slice(0, 500);
         const { data } = await supabase.from("brands").select("id, name, registered_name, brand_channels(channel)").in("id", ids);
         brands = data || [];
       } else if (body.all) {
