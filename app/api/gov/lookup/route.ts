@@ -65,7 +65,37 @@ async function searchByTaxId(taxId: string): Promise<GcisCompany[]> {
 async function searchByName(name: string, activeOnly = true): Promise<GcisCompany[]> {
   const statusClause = activeOnly ? ` and Company_Status eq '01'` : "";
   const filter = encodeURIComponent(`Company_Name like '%${name}%'${statusClause}`);
-  return gcisFetch(`${GCIS}/${BY_NAME}?$format=json&$filter=${filter}&$skip=0&$top=5`);
+  return gcisFetch(`${GCIS}/${BY_NAME}?$format=json&$filter=${filter}&$skip=0&$top=10`);
+}
+
+// 經濟部 findbiz 商業登記（獨資/合夥，GCIS 查不到的商號）
+async function searchFindbiz(name: string): Promise<GcisCompany[]> {
+  try {
+    const url = `https://findbiz.nat.gov.tw/fts/query/QueryBar/queryInit.do?request_locale=zh_TW&fhl=zh_TW&queryType=cmpyType&queryString=${encodeURIComponent(name)}&isAlive=1`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return [];
+    const html = await res.text();
+    // 解析搜尋結果：統一編號 8 碼 + 公司名稱
+    const results: GcisCompany[] = [];
+    const rows = html.matchAll(/<tr[^>]*class="[^"]*datarow[^"]*"[^>]*>([\s\S]*?)<\/tr>/gi);
+    for (const row of rows) {
+      const cells = [...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map(m => m[1].replace(/<[^>]*>/g, "").trim());
+      // findbiz 表格欄位順序：統一編號、公司名稱、代表人、公司所在地、核准設立日期、狀態
+      if (cells.length >= 4 && /^\d{8}$/.test(cells[0])) {
+        results.push({
+          Business_Accounting_NO: cells[0],
+          Company_Name: cells[1] || name,
+          Responsible_Name: cells[2] || undefined,
+          Company_Location: cells[3] || undefined,
+        });
+      }
+      if (results.length >= 5) break;
+    }
+    return results;
+  } catch { return []; }
 }
 
 // 名稱比對信心度：登記名包含品牌名（或反之）→ high
@@ -297,7 +327,6 @@ function cleanGovName(s: string): string {
 function getNameVariants(brandName: string): string[] {
   const raw0 = brandName.split(/[｜|│]/)[0].trim();
   const cjk = cleanGovName(brandName);
-  // 清乾淨後若太短（不足 2 字）則退回原字串，避免搜不到
   const raw = cjk.length >= 2 ? cjk : raw0;
   const seen = new Set<string>();
   const result: string[] = [];
@@ -306,7 +335,14 @@ function getNameVariants(brandName: string): string[] {
   if (raw.length > 10) push(raw.slice(0, 10));
   if (raw.length > 7) push(raw.slice(0, 7));
   if (raw.length > 5) push(raw.slice(0, 5));
+  // 更積極：前 4 字、前 3 字（很多公司名只有 3-4 個中文字）
+  if (raw.length > 4) push(raw.slice(0, 4));
+  if (raw.length > 3) push(raw.slice(0, 3));
   push(raw.replace(VENUE_RE, "").trim());
+  // 去通路詞後再試短版
+  const stripped = raw.replace(VENUE_RE, "").trim();
+  if (stripped.length > 4) push(stripped.slice(0, 4));
+  if (stripped.length > 3) push(stripped.slice(0, 3));
   return result;
 }
 
@@ -457,7 +493,7 @@ type EmitStep = (text: string) => void;
 
 async function matchBrand(
   supabase: SupabaseServerClient,
-  brand: { id: string; name: string; brand_key?: string | null; tax_id?: string | null; website?: string | null },
+  brand: { id: string; name: string; brand_key?: string | null; tax_id?: string | null; website?: string | null; stores?: { address?: string }[] },
   emit?: EmitStep,
 ) {
   const step = (text: string) => emit?.(text);
@@ -581,6 +617,50 @@ async function matchBrand(
       if (candidates.length > 0) {
         step(`[GCIS] ✓ 命中 ${candidates[0].Company_Name}`);
         break;
+      }
+    }
+
+    // ── Step 5.5：findbiz.nat.gov.tw（商業登記，GCIS 查不到的獨資/合夥商號）──
+    if (candidates.length === 0) {
+      for (const q of getNameVariants(baseName).slice(0, 3)) {
+        step(`[findbiz] 搜尋「${q}」…`);
+        candidates = await searchFindbiz(q);
+        if (candidates.length > 0) {
+          resolvedTaxId = candidates[0].Business_Accounting_NO;
+          source = "findbiz";
+          step(`[findbiz] ✓ 命中 ${candidates[0].Company_Name}（${resolvedTaxId}）`);
+          break;
+        }
+      }
+    }
+
+    // ── Step 5.6：用門市地址輔助 Google 搜尋（品牌名＋地址關鍵字 → 統編）──
+    if (candidates.length === 0 && googleApiKey && cseId) {
+      const addr = (brand.stores || []).find((s) => s.address)?.address || "";
+      const addrCity = addr.match(/[一-鿿]{2,3}[市縣]/)?.[0] || "";
+      if (addrCity) {
+        step(`[Google+地址] 搜尋「${baseName.slice(0, 8)} ${addrCity} 統一編號」…`);
+        const q = encodeURIComponent(`"${cleanGovName(baseName).slice(0, 8)}" "${addrCity}" 統一編號`);
+        try {
+          const url = `https://www.googleapis.com/customsearch/v1?key=${googleApiKey}&cx=${cseId}&q=${q}&num=5&hl=zh-TW&gl=tw`;
+          const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+          await logApiUsage("cse", 1);
+          if (res.ok) {
+            const data = (await res.json()) as { items?: { snippet?: string }[] };
+            const text = (data.items || []).map((i) => i.snippet || "").join(" ");
+            const taxMatch = text.match(/統[一]?編號?[：:\s]{0,3}(\d{8})/);
+            if (taxMatch?.[1]) {
+              step(`[Google+地址] ✓ 找到統編 ${taxMatch[1]}，查 GCIS…`);
+              const taxCands = await searchByTaxId(taxMatch[1]);
+              if (taxCands.length > 0) { candidates = taxCands; resolvedTaxId = taxMatch[1]; source = "google_addr"; }
+              else {
+                const mygov = await fetchMygovSearch(taxMatch[1]);
+                if (mygov) { candidates = [mygov]; resolvedTaxId = taxMatch[1]; source = "google_addr_mygov"; }
+              }
+              if (candidates.length > 0) step(`[Google+地址] ✓ 命中 ${candidates[0].Company_Name}`);
+            }
+          }
+        } catch { /* CSE 失敗 → 略過 */ }
       }
     }
 
@@ -768,7 +848,7 @@ export async function POST(request: NextRequest) {
       (async () => {
         try {
           send({ type: "step", text: `開始比對「${brand.name}」…` });
-          const result = await matchBrand(supabase, { ...brand, website }, (text) => send({ type: "step", text }));
+          const result = await matchBrand(supabase, { ...brand, website, stores: ((brand as any).stores || []) as { address?: string }[] }, (text) => send({ type: "step", text }));
           send({ type: "done", data: result });
         } catch (e) {
           send({ type: "error", text: e instanceof Error ? e.message : "比對失敗" });
@@ -786,7 +866,7 @@ export async function POST(request: NextRequest) {
     if (body.all || (Array.isArray(body.brand_ids) && (body.brand_ids as string[]).length > 0)) {
       type BatchBrand = { id: string; name: string; brand_key?: string | null; tax_id?: string | null; gov_checked_at?: string | null; brand_channels?: { channel: string; value: string }[]; stores?: { website?: string | null }[] };
       let brands: BatchBrand[] = [];
-      const SELECT = "id, name, brand_key, tax_id, gov_checked_at, brand_channels(channel, value), stores(website)";
+      const SELECT = "id, name, brand_key, tax_id, gov_checked_at, brand_channels(channel, value), stores(website, address)";
       // 排序：沒比對過(null)優先，其次最久沒比對的；本次最多處理 200 個
       const BATCH_LIMIT = 200;
       const byChecked = (a: BatchBrand, b: BatchBrand) =>
@@ -833,8 +913,9 @@ export async function POST(request: NextRequest) {
         const processGov = async (idx: number) => {
           const b = list[idx];
           const website = extractWebsite(b as unknown as { stores?: { website?: string | null }[]; brand_channels?: { channel: string; value: string }[] });
+          const stores = (b as any).stores || [];
           try {
-            const r = await matchBrand(supabase, { ...b, website }, (text) => send({ type: "step", text }));
+            const r = await matchBrand(supabase, { ...b, website, stores }, (text) => send({ type: "step", text }));
             results.push(r);
             doneCount++;
             const ok = r.matched;
