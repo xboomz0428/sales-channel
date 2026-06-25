@@ -1471,7 +1471,7 @@ function WebsiteScraperPanel({ onClose, onDone, industries, filterCity, filterIn
           {/* 依數量 */}
           {mode === "limit" && (
             <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
-              {[20, 50, 100].map((n) => (
+              {[50, 100, 200, 300].map((n) => (
                 <button key={n} onClick={() => setLimit(n)}
                   style={{ flex: 1, padding: "9px 0", borderRadius: 10, fontSize: 13, fontWeight: limit === n ? 700 : 400, border: `1px solid ${limit === n ? C.primary : C.border}`, background: limit === n ? C.p50 : "transparent", color: limit === n ? C.primary : C.muted, cursor: "pointer", minWidth: 60 }}>
                   {n} 個

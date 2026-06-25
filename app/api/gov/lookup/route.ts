@@ -868,7 +868,7 @@ export async function POST(request: NextRequest) {
       let brands: BatchBrand[] = [];
       const SELECT = "id, name, brand_key, tax_id, gov_checked_at, brand_channels(channel, value), stores(website, address)";
       // 排序：沒比對過(null)優先，其次最久沒比對的；本次最多處理 200 個
-      const BATCH_LIMIT = 200;
+      const BATCH_LIMIT = 500;
       const byChecked = (a: BatchBrand, b: BatchBrand) =>
         (a.gov_checked_at ? new Date(a.gov_checked_at).getTime() : 0) - (b.gov_checked_at ? new Date(b.gov_checked_at).getTime() : 0);
 

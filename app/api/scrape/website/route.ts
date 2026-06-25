@@ -222,13 +222,14 @@ export async function POST(request: NextRequest) {
   (async () => {
     const sb = getSupabaseServerClient();
     try {
-      let brands: { id: string; name: string }[] = [];
+      type WebBrand = { id: string; name: string; channel_count?: number };
+      let brands: WebBrand[] = [];
 
       // 指定品牌 IDs
       if (Array.isArray(body.brand_ids) && (body.brand_ids as string[]).length > 0) {
-        const ids = (body.brand_ids as string[]).slice(0, 200);
-        const { data } = await sb.from("brands").select("id,name").in("id", ids);
-        brands = data ?? [];
+        const ids = (body.brand_ids as string[]).slice(0, 300);
+        const { data } = await sb.from("brands").select("id, name, brand_channels(channel)").in("id", ids);
+        brands = (data ?? []).map((b: any) => ({ id: b.id, name: b.name, channel_count: (b.brand_channels || []).length }));
       } else if (body.brand_id) {
         const { data } = await sb.from("brands").select("id,name").eq("id", String(body.brand_id)).single();
         if (data) brands = [data];
@@ -265,8 +266,12 @@ export async function POST(request: NextRequest) {
         return;
       }
 
+      // 沒爬過的（0 管道）優先，其次管道少的先
+      brands.sort((a, b) => (a.channel_count ?? 0) - (b.channel_count ?? 0));
+      const neverScraped = brands.filter((b) => (b.channel_count ?? 0) === 0).length;
+
       const WEB_CONCURRENCY = Math.min(20, Math.max(5, Math.ceil(brands.length / 30) * 5));
-      await emit({ type: "step", text: `開始爬取 ${brands.length} 個品牌官網（${WEB_CONCURRENCY} 並行）…` });
+      await emit({ type: "step", text: `開始爬取 ${brands.length} 個品牌官網（${WEB_CONCURRENCY} 並行，優先未爬過的 ${neverScraped} 個）…` });
 
       let enriched = 0, skipped = 0, totalCh = 0;
 
