@@ -51,9 +51,13 @@ export async function POST(req: Request) {
       .eq('id', messageId);
     await supabaseAdmin
       .from('brands')
-      .update({ stage: '已聯繫', last_contacted_at: new Date().toISOString() })
+      .update({ status: 'contacted', updated_at: new Date().toISOString() })
       .eq('id', msg.brand_id)
-      .eq('stage', '新名單');
+      .eq('status', 'new');
+    // 寫入聯繫紀錄
+    await supabaseAdmin
+      .from('outreach_logs')
+      .insert({ brand_id: msg.brand_id, channel: 'email', summary: `📧 手動寄送 Email`, created_at: new Date().toISOString() });
 
     return NextResponse.json({ ok: true, channel: msg.channel, brandStage: '已聯繫' });
   } catch (err) {

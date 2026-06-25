@@ -139,14 +139,40 @@ export async function dispatchEmail(messageId: string): Promise<DispatchResult> 
       return { ok: false, error: r.error || "寄送失敗" };
     }
 
+    const sentAt = new Date().toISOString();
     await supabaseAdmin
       .from("outreach_messages")
       .update({
         status: "sent",
-        sent_at: new Date().toISOString(),
+        sent_at: sentAt,
         provider_message_id: r.providerMessageId || null,
       })
       .eq("id", messageId);
+
+    // 更新品牌狀態 + 寫入聯繫紀錄
+    if (msg.brand_id) {
+      // 狀態推進：新名單 → 已聯繫
+      await supabaseAdmin
+        .from("brands")
+        .update({ status: "contacted", updated_at: sentAt })
+        .eq("id", msg.brand_id)
+        .eq("status", "new");
+      // 寫入聯繫紀錄（outreach_logs）
+      await supabaseAdmin
+        .from("outreach_logs")
+        .insert({
+          brand_id: msg.brand_id,
+          channel: "email",
+          summary: `📧 寄送電子報「${subject || "（無主旨）"}」至 ${msg.to_email}`,
+          created_at: sentAt,
+        });
+      // 更新照護計畫的最後聯繫日
+      await supabaseAdmin
+        .from("care_plans")
+        .update({ last_contact_date: sentAt.slice(0, 10) })
+        .eq("brand_id", msg.brand_id);
+    }
+
     return { ok: true };
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : "寄送失敗";
