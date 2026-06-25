@@ -867,15 +867,21 @@ function Col3({
   brand,
   logs,
   onAddLog,
+  onEditLog,
+  onDeleteLog,
 }: {
   brand: BrandDetail;
   logs: LogItem[];
   onAddLog: (text: string) => void;
+  onEditLog?: (id: string | number, summary: string) => void;
+  onDeleteLog?: (id: string | number) => void;
 }) {
   const [nextDate, setNextDate] = useState("2026-06-18");
   const [nextNote, setNextNote] = useState("寄正式報價單，附帶採購建議方案");
   const [addOpen, setAddOpen] = useState(false);
   const [newLog, setNewLog] = useState("");
+  const [editingLogId, setEditingLogId] = useState<string | number | null>(null);
+  const [editingText, setEditingText] = useState("");
 
   return (
     <div>
@@ -904,13 +910,30 @@ function Col3({
             <div style={{ width: 28, height: 28, borderRadius: "50%", background: C.surface, border: `2px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, zIndex: 1, fontSize: 13 }}>
               {LOG_EM[log.ch] || "•"}
             </div>
-            <div style={{ flex: 1, background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`, padding: "10px 14px" }}>
+            <div style={{ flex: 1, background: C.surface, borderRadius: 12, border: `1px solid ${editingLogId === log.id ? C.primary : C.border}`, padding: "10px 14px" }}>
               <div style={{ fontSize: 11, color: C.muted, marginBottom: 4, display: "flex", gap: 8, alignItems: "center" }}>
                 <strong style={{ color: C.text, fontSize: 12 }}>{log.date}</strong>
                 <span style={{ padding: "1px 7px", borderRadius: 999, background: C.surf2, color: C.muted, fontSize: 10 }}>{log.ch}</span>
+                <span style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+                  <button onClick={() => { setEditingLogId(log.id); setEditingText(log.summary); }} style={{ border: "none", background: "none", color: C.muted, cursor: "pointer", fontSize: 11, padding: "2px 4px" }}>✏️</button>
+                  <button onClick={() => { if (confirm("確定刪除此聯繫紀錄？")) onDeleteLog?.(log.id); }} style={{ border: "none", background: "none", color: C.danger, cursor: "pointer", fontSize: 11, padding: "2px 4px" }}>✕</button>
+                </span>
               </div>
-              <div style={{ fontSize: 14, color: C.text, lineHeight: 1.55 }}>{log.summary}</div>
-              {log.next && <div style={{ fontSize: 12, color: C.primary, marginTop: 6, fontWeight: 500 }}>→ {log.next}</div>}
+              {editingLogId === log.id ? (
+                <div>
+                  <textarea value={editingText} onChange={(e) => setEditingText(e.target.value)} rows={2}
+                    style={{ width: "100%", border: "none", background: C.surf2, borderRadius: 8, fontSize: 14, color: C.text, lineHeight: 1.6, resize: "none", outline: "none", padding: "8px 10px", boxSizing: "border-box" }} />
+                  <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                    <button onClick={() => { onEditLog?.(log.id, editingText.trim()); setEditingLogId(null); }}
+                      style={{ padding: "5px 12px", borderRadius: 8, border: "none", background: C.primary, color: "white", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>儲存</button>
+                    <button onClick={() => setEditingLogId(null)}
+                      style={{ padding: "5px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontSize: 12, cursor: "pointer" }}>取消</button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: 14, color: C.text, lineHeight: 1.55 }}>{log.summary}</div>
+              )}
+              {log.next && editingLogId !== log.id && <div style={{ fontSize: 12, color: C.primary, marginTop: 6, fontWeight: 500 }}>→ {log.next}</div>}
             </div>
           </div>
         ))}
@@ -1100,6 +1123,24 @@ export default function BrandDetailPage() {
     }
   };
 
+  const editLog = async (id: string | number, summary: string) => {
+    setLogs((prev) => prev.map((l) => l.id === id ? { ...l, summary } : l));
+    fetch("/api/outreach", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, summary }),
+    }).catch(() => {});
+  };
+
+  const deleteLog = async (id: string | number) => {
+    setLogs((prev) => prev.filter((l) => l.id !== id));
+    fetch("/api/outreach", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    }).catch(() => {});
+  };
+
   const handleContactSaved = (c: ContactItem) => {
     setContacts((prev) => {
       const idx = prev.findIndex((x) => x.id === c.id);
@@ -1237,7 +1278,7 @@ export default function BrandDetailPage() {
               <Col2 brand={brand} contacts={contacts} carePlan={carePlan} onAdd={() => setContactModal({ mode: "add" })} onEdit={(c) => setContactModal({ mode: "edit", contact: c })} onDelete={handleDeleteContact} onEditCarePlan={() => setCarePlanModal(true)} />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <Col3 brand={brand} logs={logs} onAddLog={addLog} />
+              <Col3 brand={brand} logs={logs} onAddLog={addLog} onEditLog={editLog} onDeleteLog={deleteLog} />
             </div>
           </div>
         </div>
@@ -1245,7 +1286,7 @@ export default function BrandDetailPage() {
         <div className="m-only">
           {tab === "info" && <Col1 brand={brand} channelLinks={channelLinks} onEditReg={() => setRegModalOpen(true)} onAddChannel={() => setChannelModal("add")} onEditChannel={(ch, val) => setChannelModal({ channel: ch, value: val })} onDeleteChannel={handleDeleteChannel} />}
           {tab === "contacts" && <Col2 brand={brand} contacts={contacts} carePlan={carePlan} onAdd={() => setContactModal({ mode: "add" })} onEdit={(c) => setContactModal({ mode: "edit", contact: c })} onDelete={handleDeleteContact} onEditCarePlan={() => setCarePlanModal(true)} />}
-          {tab === "logs" && <Col3 brand={brand} logs={logs} onAddLog={addLog} />}
+          {tab === "logs" && <Col3 brand={brand} logs={logs} onAddLog={addLog} onEditLog={editLog} onDeleteLog={deleteLog} />}
         </div>
       </div>
 

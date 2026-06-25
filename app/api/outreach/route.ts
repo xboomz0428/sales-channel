@@ -93,3 +93,57 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+/**
+ * PATCH /api/outreach
+ * 修改聯繫紀錄（body: { id, channel?, summary?, next_action?, next_action_date? }）
+ */
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const supabase = getSupabaseServerClient();
+    if (!body.id) {
+      return NextResponse.json({ success: false, error: "缺少紀錄 ID" }, { status: 400 });
+    }
+    const patch: Record<string, unknown> = {};
+    if (body.channel !== undefined) patch.channel = body.channel;
+    if (body.summary !== undefined) patch.summary = body.summary;
+    if (body.next_action !== undefined) patch.next_action = body.next_action;
+    if (body.next_action_date !== undefined) patch.next_action_date = body.next_action_date;
+    if (body.log_type !== undefined) patch.log_type = body.log_type;
+
+    const { data, error } = await supabase
+      .from("outreach_logs")
+      .update(patch)
+      .eq("id", body.id)
+      .select()
+      .single();
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+    return NextResponse.json({ success: true, data });
+  } catch {
+    return NextResponse.json({ success: false, error: "更新失敗" }, { status: 500 });
+  }
+}
+
+/**
+ * DELETE /api/outreach
+ * 刪除聯繫紀錄（body: { id }）
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const supabase = getSupabaseServerClient();
+    if (!body.id) {
+      return NextResponse.json({ success: false, error: "缺少紀錄 ID" }, { status: 400 });
+    }
+    const { error } = await supabase.from("outreach_logs").delete().eq("id", body.id);
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+    return NextResponse.json({ success: true });
+  } catch {
+    return NextResponse.json({ success: false, error: "刪除失敗" }, { status: 500 });
+  }
+}
