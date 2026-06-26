@@ -286,6 +286,13 @@ export default function EmailDashboardPage() {
         tbody tr { cursor: pointer; }
         tbody tr:hover { background: #f8f6ee; }
         .subj { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        /* 手機：表格密度縮減，過寬時卡片內水平捲動（不撐破頁面） */
+        @media (max-width: 767px) {
+          .card { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+          th { font-size: 12px; padding: 7px 7px; }
+          td { font-size: 13px; padding: 9px 7px; }
+          .subj { max-width: 130px; }
+        }
         .badge { color: #fff; font-size: 13px; padding: 3px 11px; border-radius: 999px; font-weight: 600; }
         .overlay { position: fixed; inset: 0; background: rgba(40, 44, 36, 0.4); display: flex; justify-content: flex-end; }
         .drawer { width: min(560px, 94vw); background: #fffdf8; height: 100%; padding: 22px; overflow: auto; display: flex; flex-direction: column; }

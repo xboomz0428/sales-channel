@@ -622,6 +622,15 @@ export default function NewsletterPage() {
         .rstat div { flex: 1; background: #f6f4ec; border-radius: 10px; padding: 14px; text-align: center; }
         .rstat b { font-family: 'Noto Serif TC', serif; font-size: 24px; display: block; }
         .rstat span { font-size: 12px; color: #8a8472; }
+        /* 手機：寄送列自動換行，狀態獨佔一行、按鈕平均撐開不溢出 */
+        @media (max-width: 767px) {
+          .sendbar { flex-wrap: wrap; padding: 10px 14px 14px; gap: 8px; }
+          .sendbar .summary { width: 100%; font-size: 13px; }
+          .sendbar .dupchk { font-size: 12px; }
+          .sendbar .autolink { padding: 8px 8px; }
+          .sendbar .btn { flex: 1; text-align: center; padding: 11px 10px; }
+          .pbar { width: 90px; }
+        }
       `}</style>
     </div>
   );
