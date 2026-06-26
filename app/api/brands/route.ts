@@ -34,46 +34,72 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, data: rows, count: rows.length });
     }
 
+    // 名單列表模式：只帶列表真正用到的欄位（管道、城市、商機、護理），
+    // 不帶門市明細/評論/工商，payload 大幅縮小，並改用並行分頁加速。
+    if (searchParams.get("view") === "list") {
+      const sel = `*,
+        brand_channels(channel, value),
+        stores(city),
+        opportunities(stage, est_annual_value, probability, stage_entered_at, lost_reason),
+        care_plans(tier, last_order_date, reorder_cycle_days)`;
+      const listQuery = () => {
+        let q = supabase.from("brands").select(sel);
+        if (industry) q = q.eq("industry", industry);
+        if (status) q = q.eq("status", status);
+        if (search) q = q.ilike("name", `%${search}%`);
+        return q;
+      };
+      // 先取總數，再並行抓所有分頁（取代原本逐頁等待）
+      let countQ = supabase.from("brands").select("id", { count: "exact", head: true });
+      if (industry) countQ = countQ.eq("industry", industry);
+      if (status) countQ = countQ.eq("status", status);
+      if (search) countQ = countQ.ilike("name", `%${search}%`);
+      const { count } = await countQ;
+      const PAGE = 1000;
+      const pages = Math.max(1, Math.ceil((count ?? 0) / PAGE));
+      const settled = await Promise.all(
+        Array.from({ length: pages }, (_, i) => listQuery().range(i * PAGE, i * PAGE + PAGE - 1))
+      );
+      const rows: Record<string, unknown>[] = [];
+      for (const r of settled) {
+        if (r.error) return NextResponse.json({ success: false, error: r.error.message }, { status: 500 });
+        if (r.data) rows.push(...(r.data as Record<string, unknown>[]));
+      }
+      return NextResponse.json({ success: true, data: rows, count: rows.length });
+    }
+
     // gov_records 只帶待人工確認的低信心比對（採集中心「比對結果」分頁用）
     // store_reviews 只帶最新 5 筆（在 JS 層截取，Supabase JS 不支援 nested limit）
-    let query = supabase
-      .from("brands")
-      .select(`*,
+    const fullSelect = `*,
         brand_channels(channel, value),
         stores(id, name, address, city, phone, rating, review_count, gmaps_url, store_reviews(rating, text, author_name, relative_time)),
         gov_records(id, tax_id, name, owner_name, address, match_confidence),
         opportunities(stage, est_annual_value, probability, stage_entered_at, lost_reason),
         care_plans(tier, last_order_date, reorder_cycle_days)
-      `)
-      .eq("gov_records.match_confidence", "low");
+      `;
+    const fullQuery = () => {
+      let q = supabase.from("brands").select(fullSelect).eq("gov_records.match_confidence", "low");
+      if (industry) q = q.eq("industry", industry);
+      if (status) q = q.eq("status", status);
+      if (search) q = q.ilike("name", `%${search}%`);
+      return q;
+    };
 
-    // 篩選條件
-    if (industry) {
-      query = query.eq("industry", industry);
-    }
-    if (status) {
-      query = query.eq("status", status);
-    }
-    if (search) {
-      query = query.ilike("name", `%${search}%`);
-    }
-
-    // Supabase PostgREST max-rows 預設 1000，需分頁取回全部
+    // 先取總數，再並行抓所有分頁（取代原本逐頁等待，減少往返時間）
+    let cQ = supabase.from("brands").select("id", { count: "exact", head: true });
+    if (industry) cQ = cQ.eq("industry", industry);
+    if (status) cQ = cQ.eq("status", status);
+    if (search) cQ = cQ.ilike("name", `%${search}%`);
+    const { count: fullCount } = await cQ;
     const PAGE = 1000;
-    let all: Record<string, unknown>[] = [];
-    let offset = 0;
-    while (true) {
-      const { data: page, error: pageErr } = await query.range(offset, offset + PAGE - 1);
-      if (pageErr) {
-        return NextResponse.json(
-          { success: false, error: pageErr.message },
-          { status: 500 }
-        );
-      }
-      if (!page || page.length === 0) break;
-      all = all.concat(page);
-      if (page.length < PAGE) break;
-      offset += PAGE;
+    const fullPages = Math.max(1, Math.ceil((fullCount ?? 0) / PAGE));
+    const fullSettled = await Promise.all(
+      Array.from({ length: fullPages }, (_, i) => fullQuery().range(i * PAGE, i * PAGE + PAGE - 1))
+    );
+    const all: Record<string, unknown>[] = [];
+    for (const r of fullSettled) {
+      if (r.error) return NextResponse.json({ success: false, error: r.error.message }, { status: 500 });
+      if (r.data) all.push(...(r.data as Record<string, unknown>[]));
     }
 
     return NextResponse.json({

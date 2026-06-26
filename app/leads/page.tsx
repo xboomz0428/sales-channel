@@ -1664,7 +1664,7 @@ export default function LeadsPage() {
 
   const loadBrands = () => {
     setLoading(true);
-    fetch("/api/brands")
+    fetch("/api/brands?view=list")
       .then((r) => r.json())
       .then((result) => {
         if (result.success && Array.isArray(result.data) && result.data.length > 0) {
@@ -1729,7 +1729,7 @@ export default function LeadsPage() {
   };
 
   const refreshBrand = (id: BrandVM["id"]) => {
-    fetch("/api/brands")
+    fetch("/api/brands?view=list")
       .then((r) => r.json())
       .then((result) => {
         if (result.success && Array.isArray(result.data)) {
