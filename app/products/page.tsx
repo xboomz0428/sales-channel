@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { C } from "@/lib/design";
 import MobileTabBar from "@/components/MobileTabBar";
 
@@ -77,6 +77,34 @@ export default function ProductsPage() {
   const [quoteBuilder, setQuoteBuilder] = useState(false);
   // 報價單檢視
   const [viewQuote, setViewQuote] = useState<Quote | null>(null);
+  // xlsx 匯入
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const importRef = React.useRef<HTMLInputElement>(null);
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setImportMsg(null);
+    const form = new FormData();
+    form.append("file", file);
+    try {
+      const res = await fetch("/api/products/import", { method: "POST", body: form });
+      const d = await res.json();
+      if (d.success) {
+        setImportMsg({ ok: true, text: `匯入完成：新增 ${d.inserted} 筆、更新 ${d.updated} 筆${d.failed ? `、失敗 ${d.failed} 筆` : ""}，共 ${d.total} 筆` });
+        loadProducts();
+      } else {
+        setImportMsg({ ok: false, text: d.error || "匯入失敗" });
+      }
+    } catch {
+      setImportMsg({ ok: false, text: "連線失敗" });
+    }
+    setImporting(false);
+    if (importRef.current) importRef.current.value = "";
+    setTimeout(() => setImportMsg(null), 10000);
+  };
 
   const loadProducts = () => {
     fetch("/api/products?all=true")
@@ -112,12 +140,19 @@ export default function ProductsPage() {
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
         <h1 style={{ fontSize: 17, fontWeight: 600, color: C.text, margin: 0 }}>產品與報價</h1>
         <span className="d-only" style={{ fontSize: 13, color: C.muted }}>— 維護產品資料、快速建立客製化報價單</span>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           {tab === "products" ? (
-            <button onClick={() => setEditProduct(emptyProduct())} className="pressable"
-              style={{ padding: "7px 14px", borderRadius: 9, border: "none", background: C.primary, color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-              ＋ 新增產品
-            </button>
+            <>
+              <input ref={importRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={handleImport} />
+              <button onClick={() => importRef.current?.click()} disabled={importing} className="pressable"
+                style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 13, cursor: importing ? "default" : "pointer" }}>
+                {importing ? "匯入中…" : "📥 匯入 xlsx"}
+              </button>
+              <button onClick={() => setEditProduct(emptyProduct())} className="pressable"
+                style={{ padding: "7px 14px", borderRadius: 9, border: "none", background: C.primary, color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                ＋ 新增產品
+              </button>
+            </>
           ) : (
             <button onClick={() => setQuoteBuilder(true)} className="pressable"
               style={{ padding: "7px 14px", borderRadius: 9, border: "none", background: C.primary, color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
@@ -126,6 +161,12 @@ export default function ProductsPage() {
           )}
         </div>
       </div>
+
+      {importMsg && (
+        <div style={{ padding: "10px 20px", background: importMsg.ok ? C.successBg : C.dangerBg, borderBottom: `1px solid ${C.border}`, fontSize: 13, color: importMsg.ok ? C.success : C.danger, flexShrink: 0 }}>
+          {importMsg.ok ? "✓ " : "✗ "}{importMsg.text}
+        </div>
+      )}
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: 4, padding: "8px 20px", background: C.surface, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
@@ -591,12 +632,24 @@ function QuoteView({ quote, onClose, onChanged }: { quote: Quote; onClose: () =>
           </div>
         )}
       </div>
-      <div style={{ padding: "14px 20px", borderTop: `1px solid ${C.border}`, display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
-        <button onClick={copyText} style={{ padding: "9px 18px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 13, cursor: "pointer" }}>📋 複製內容</button>
-        <button onClick={sendEmail} disabled={sending} style={{ padding: "9px 18px", borderRadius: 9, border: "none", background: sending ? C.surf2 : C.accent, color: sending ? C.muted : C.accentDk, fontSize: 13, fontWeight: 700, cursor: sending ? "default" : "pointer" }}>
-          {sending ? "寄送中…" : "✉ 寄給客戶"}
+      <div style={{ padding: "14px 20px", borderTop: `1px solid ${C.border}`, display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+        <button onClick={copyText} style={{ padding: "9px 14px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 13, cursor: "pointer" }}>📋 複製</button>
+        <button onClick={() => window.open(`/quotes/${quote.id}/print`, "_blank")}
+          style={{ padding: "9px 14px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 13, cursor: "pointer" }} title="開啟專業報價單列印頁（可存 PDF）">
+          🖨 PDF
         </button>
-        <button onClick={onClose} style={{ padding: "9px 20px", borderRadius: 9, border: "none", background: C.primary, color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>關閉</button>
+        <button onClick={() => window.location.href = `/api/quotes/${quote.id}/export?format=excel`}
+          style={{ padding: "9px 14px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: "#217346", fontSize: 13, fontWeight: 700, cursor: "pointer" }} title="下載 Excel 報價單">
+          📊 Excel
+        </button>
+        <button onClick={() => window.location.href = `/api/quotes/${quote.id}/export?format=word`}
+          style={{ padding: "9px 14px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: "#2B579A", fontSize: 13, fontWeight: 700, cursor: "pointer" }} title="下載 Word 報價單">
+          📝 Word
+        </button>
+        <button onClick={sendEmail} disabled={sending} style={{ padding: "9px 16px", borderRadius: 9, border: "none", background: sending ? C.surf2 : C.accent, color: sending ? C.muted : C.accentDk, fontSize: 13, fontWeight: 700, cursor: sending ? "default" : "pointer" }}>
+          {sending ? "寄送中…" : "✉ 寄出"}
+        </button>
+        <button onClick={onClose} style={{ padding: "9px 18px", borderRadius: 9, border: "none", background: C.primary, color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>關閉</button>
       </div>
     </Overlay>
   );

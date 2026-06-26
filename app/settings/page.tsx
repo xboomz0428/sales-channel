@@ -143,6 +143,8 @@ export default function SettingsPage() {
   const [secretVals, setSecretVals] = useState<Record<string, string>>({});
   const [savingKeys, setSavingKeys] = useState(false);
   const [savedKeys, setSavedKeys] = useState<string | null>(null);
+  const [testingLine, setTestingLine] = useState(false);
+  const [lineTestMsg, setLineTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const loadSecrets = () => {
     fetch("/api/settings/secrets")
@@ -175,6 +177,20 @@ export default function SettingsPage() {
   }, []);
 
   const [fieldStatus, setFieldStatus] = useState<Record<string, { ok: boolean; error?: string }>>({});
+
+  const testLine = async () => {
+    setTestingLine(true);
+    setLineTestMsg(null);
+    try {
+      const res = await fetch("/api/settings/test-line", { method: "POST" });
+      const d = await res.json();
+      setLineTestMsg({ ok: d.success, text: d.success ? "LINE 測試訊息已送出！請確認 LINE 是否收到。" : (d.error || "推播失敗") });
+    } catch {
+      setLineTestMsg({ ok: false, text: "連線失敗" });
+    }
+    setTestingLine(false);
+    setTimeout(() => setLineTestMsg(null), 8000);
+  };
 
   const saveSecrets = async () => {
     setSavingKeys(true);
@@ -332,14 +348,26 @@ export default function SettingsPage() {
               </div>
             ))}
             {savedKeys && <div style={{ fontSize: 13, color: savedKeys.startsWith("✓") ? C.success : C.danger, marginBottom: 10 }}>{savedKeys}</div>}
-            <button
-              onClick={saveSecrets}
-              disabled={savingKeys}
-              className="pressable"
-              style={{ width: "100%", padding: "12px 0", borderRadius: 12, border: "none", background: C.primary, color: "white", fontWeight: 700, fontSize: 15, cursor: savingKeys ? "default" : "pointer" }}
-            >
-              {savingKeys ? "儲存中…" : "儲存 API 金鑰"}
-            </button>
+            {lineTestMsg && <div style={{ fontSize: 13, color: lineTestMsg.ok ? C.success : C.danger, marginBottom: 10 }}>{lineTestMsg.ok ? "✓ " : "✗ "}{lineTestMsg.text}</div>}
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                onClick={saveSecrets}
+                disabled={savingKeys}
+                className="pressable"
+                style={{ flex: 1, padding: "12px 0", borderRadius: 12, border: "none", background: C.primary, color: "white", fontWeight: 700, fontSize: 15, cursor: savingKeys ? "default" : "pointer" }}
+              >
+                {savingKeys ? "儲存中…" : "儲存 API 金鑰"}
+              </button>
+              <button
+                onClick={testLine}
+                disabled={testingLine}
+                className="pressable"
+                title="測試 LINE Messaging API，確認推播是否正常"
+                style={{ padding: "12px 18px", borderRadius: 12, border: `1px solid ${C.border}`, background: testingLine ? C.surf2 : "#06C755", color: testingLine ? C.muted : "white", fontWeight: 700, fontSize: 14, cursor: testingLine ? "default" : "pointer", whiteSpace: "nowrap" }}
+              >
+                {testingLine ? "發送中…" : "📲 測試 LINE"}
+              </button>
+            </div>
           </Section>
         )}
 

@@ -149,6 +149,45 @@ export async function GET(req: Request) {
       }
     } catch { /* 退信掃描失敗不影響其他工作 */ }
 
+    // ── 序列推進（原 outreach-advance）────────────────
+    try {
+      const { data: dueEnroll } = await supabaseAdmin
+        .from("outreach_enrollments")
+        .select("id, brand_id, sequence_id, current_step")
+        .eq("status", "active")
+        .lte("next_action_at", nowIso)
+        .limit(300);
+      let advancedSeq = 0;
+      for (const e of dueEnroll || []) {
+        const nextStepOrder = e.current_step + 1;
+        const { data: nextStep } = await supabaseAdmin
+          .from("outreach_sequence_steps")
+          .select("wait_days, channel, goal")
+          .eq("sequence_id", e.sequence_id)
+          .eq("step_order", nextStepOrder)
+          .maybeSingle();
+        if (!nextStep) {
+          await supabaseAdmin.from("outreach_enrollments")
+            .update({ status: "done", next_action_at: null })
+            .eq("id", e.id).eq("status", "active");
+          continue;
+        }
+        const at = new Date();
+        at.setDate(at.getDate() + (nextStep.wait_days || 0));
+        const { data: upd } = await supabaseAdmin.from("outreach_enrollments")
+          .update({ current_step: nextStepOrder, next_action_at: at.toISOString() })
+          .eq("id", e.id).eq("current_step", e.current_step).eq("status", "active").select("id");
+        if (upd && upd.length) {
+          advancedSeq++;
+          await supabaseAdmin.from("followups").insert({
+            brand_id: e.brand_id, due_date: at.toISOString(), done: false,
+            note: `外聯序列第 ${nextStepOrder} 步(${nextStep.channel})${nextStep.goal ? `:${nextStep.goal}` : ""}`,
+          });
+        }
+      }
+      if (advancedSeq > 0) notes.push(`🔄 序列推進 ${advancedSeq} 筆`);
+    } catch { /* 序列推進失敗不影響其他工作 */ }
+
     // ── LINE 通知 ────────────────────────────────────
     if (notes.length > 0) {
       const summary = `【電子報自動化】\n${notes.join("\n")}\n合計成功 ${totalSent}、失敗 ${totalFailed}。`;
