@@ -145,6 +145,20 @@ export default function SettingsPage() {
   const [savedKeys, setSavedKeys] = useState<string | null>(null);
   const [testingLine, setTestingLine] = useState(false);
   const [lineTestMsg, setLineTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [tab, setTab] = useState<"usage" | "api" | "global">("usage");
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+
+  const uploadLogo = async (file: File) => {
+    setUploadingLogo(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      const d = await res.json();
+      if (d.success && d.url) setSecretVals((p) => ({ ...p, COMPANY_LOGO_URL: d.url }));
+    } catch { /* 上傳失敗忽略 */ }
+    setUploadingLogo(false);
+  };
 
   const loadSecrets = () => {
     fetch("/api/settings/secrets")
@@ -267,111 +281,174 @@ export default function SettingsPage() {
     }
   }
 
+  // 公司資料群組移到「全域」頁籤，其餘金鑰留在「API」頁籤
+  const isCompanyGroup = (name: string) => name.includes("公司資料");
+  const companyGroups = secretGroups.filter((g) => isCompanyGroup(g.group));
+  const apiGroups = secretGroups.filter((g) => !isCompanyGroup(g.group));
+
+  // 單一機密欄位輸入框（API 與全域頁籤共用）
+  const renderSecretField = (f: SecretField) => {
+    if (f.key === "COMPANY_LOGO_URL") return null; // Logo 用專屬上傳區呈現
+    const fs = fieldStatus[f.key];
+    const borderColor = fs ? (fs.ok ? C.success : C.danger) : C.border;
+    return (
+      <div key={f.key} style={{ marginBottom: 11 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>{f.label}</span>
+          {f.set && <span style={{ fontSize: 10, color: C.success, background: C.successBg, borderRadius: 999, padding: "1px 7px" }}>已設定{f.source === "env" ? "（環境變數）" : ""}</span>}
+          {f.secret && f.masked && <span style={{ fontSize: 10, color: C.muted, fontFamily: "monospace" }}>{f.masked}</span>}
+          {fs && fs.ok && <span style={{ fontSize: 10, color: C.success }}>✓ 已儲存</span>}
+          {fs && !fs.ok && <span style={{ fontSize: 10, color: C.danger }}>✗ {fs.error || "儲存失敗"}</span>}
+        </div>
+        {f.type === "select" ? (
+          <select value={secretVals[f.key] ?? ""} onChange={(e) => setSecretVals((p) => ({ ...p, [f.key]: e.target.value }))}
+            style={{ width: "100%", padding: "9px 11px", borderRadius: 9, border: `2px solid ${borderColor}`, background: C.surf2, fontSize: 14, color: C.text, boxSizing: "border-box", transition: "border-color 300ms" }}>
+            {(f.options || []).map((o) => <option key={o} value={o}>{o === "" ? "（自動 / 未指定）" : o}</option>)}
+          </select>
+        ) : (
+          <input type={f.type === "password" ? "password" : "text"} value={secretVals[f.key] ?? ""}
+            placeholder={f.secret && f.set ? "已設定，留空不變更" : (f.placeholder || "")} autoComplete="off"
+            onChange={(e) => setSecretVals((p) => ({ ...p, [f.key]: e.target.value }))}
+            style={{ width: "100%", padding: "9px 11px", borderRadius: 9, border: `2px solid ${borderColor}`, background: C.surf2, fontSize: 14, color: C.text, boxSizing: "border-box", fontFamily: f.type === "password" ? "monospace" : "inherit", transition: "border-color 300ms" }} />
+        )}
+      </div>
+    );
+  };
+
+  // 儲存／測試按鈕列（共用）
+  const saveBar = (withLineTest: boolean) => (
+    <>
+      {savedKeys && <div style={{ fontSize: 13, color: savedKeys.startsWith("✓") ? C.success : C.danger, marginBottom: 10 }}>{savedKeys}</div>}
+      {lineTestMsg && <div style={{ fontSize: 13, color: lineTestMsg.ok ? C.success : C.danger, marginBottom: 10 }}>{lineTestMsg.ok ? "✓ " : "✗ "}{lineTestMsg.text}</div>}
+      <div style={{ display: "flex", gap: 10 }}>
+        <button onClick={saveSecrets} disabled={savingKeys} className="pressable"
+          style={{ flex: 1, padding: "12px 0", borderRadius: 12, border: "none", background: C.primary, color: "white", fontWeight: 700, fontSize: 15, cursor: savingKeys ? "default" : "pointer" }}>
+          {savingKeys ? "儲存中…" : "儲存設定"}
+        </button>
+        {withLineTest && (
+          <button onClick={testLine} disabled={testingLine} className="pressable" title="測試 LINE Messaging API，確認推播是否正常"
+            style={{ padding: "12px 18px", borderRadius: 12, border: `1px solid ${C.border}`, background: testingLine ? C.surf2 : "#06C755", color: testingLine ? C.muted : "white", fontWeight: 700, fontSize: 14, cursor: testingLine ? "default" : "pointer", whiteSpace: "nowrap" }}>
+            {testingLine ? "發送中…" : "📲 測試 LINE"}
+          </button>
+        )}
+      </div>
+    </>
+  );
+
+  const TABS: { id: typeof tab; label: string }[] = [
+    { id: "usage", label: "用量與警告" },
+    { id: "api", label: "API 金鑰" },
+    { id: "global", label: "全域設定" },
+  ];
+
   return (
     <>
       {/* Top bar */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-        <h1 style={{ fontSize: 17, fontWeight: 600, color: C.text, margin: 0 }}>API 設定</h1>
-        <span style={{ fontSize: 13, color: C.muted }}>整合狀態 · Google API 用量監控</span>
+        <h1 style={{ fontSize: 17, fontWeight: 600, color: C.text, margin: 0 }}>設定</h1>
+        <span className="d-only" style={{ fontSize: 13, color: C.muted }}>用量警告 · API 金鑰 · 公司資料／Logo／角色</span>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "20px", paddingBottom: 100, maxWidth: 780, margin: "0 auto", width: "100%" }}>
-        {/* 整合狀態總覽 */}
-        {integrations.length > 0 && (
-          <Section title="整合狀態">
-            <div style={{ fontSize: 12, color: C.muted, marginBottom: 14 }}>
-              各項 API / 金鑰是否已設定。設定方式見 <a href="/guide" style={{ color: C.primary, fontWeight: 600 }}>使用說明</a>（金鑰填在環境變數，本頁不顯示金鑰內容）。
-            </div>
-            {integrations.map((g) => (
-              <div key={g.group} style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, marginBottom: 7 }}>{g.group}</div>
-                {g.items.map((it) => (
-                  <div key={it.key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 10, background: C.surf2, marginBottom: 6 }}>
-                    <span style={{ width: 9, height: 9, borderRadius: "50%", background: it.configured ? C.success : "#D9B68C", flexShrink: 0 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{it.label}</div>
-                      <div style={{ fontSize: 11, color: C.muted }}>{it.detail}</div>
-                    </div>
-                    <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: it.configured ? C.successBg : "#F5EDDD", color: it.configured ? C.success : C.accentDk, flexShrink: 0 }}>
-                      {it.configured ? "已設定" : "未設定"}
-                    </span>
+      {/* 頁籤列 */}
+      <div style={{ display: "flex", gap: 4, padding: "8px 20px", background: C.surface, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+        {TABS.map((t) => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            style={{ padding: "7px 18px", borderRadius: 8, fontSize: 13, fontWeight: tab === t.id ? 700 : 400, border: "none", background: tab === t.id ? C.p50 : "transparent", color: tab === t.id ? C.primary : C.muted, cursor: "pointer" }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px 100px", width: "100%", boxSizing: "border-box" }}>
+        {/* ── API 金鑰頁籤 ─────────────────────────── */}
+        {tab === "api" && (
+          <>
+            {integrations.length > 0 && (
+              <Section title="整合狀態">
+                <div style={{ fontSize: 12, color: C.muted, marginBottom: 14 }}>
+                  各項 API / 金鑰是否已設定。申請方式見 <a href="/guide" style={{ color: C.primary, fontWeight: 600 }}>使用說明</a>。
+                </div>
+                {integrations.map((g) => (
+                  <div key={g.group} style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, marginBottom: 7 }}>{g.group}</div>
+                    {g.items.map((it) => (
+                      <div key={it.key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: 10, background: C.surf2, marginBottom: 6 }}>
+                        <span style={{ width: 9, height: 9, borderRadius: "50%", background: it.configured ? C.success : "#D9B68C", flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{it.label}</div>
+                          <div style={{ fontSize: 11, color: C.muted }}>{it.detail}</div>
+                        </div>
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: it.configured ? C.successBg : "#F5EDDD", color: it.configured ? C.success : C.accentDk, flexShrink: 0 }}>
+                          {it.configured ? "已設定" : "未設定"}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 ))}
-              </div>
-            ))}
-          </Section>
-        )}
+              </Section>
+            )}
 
-        {/* API 金鑰設定（可直接輸入，存進資料庫立即生效） */}
-        {secretGroups.length > 0 && (
-          <Section title="API 金鑰設定">
-            <div style={{ fontSize: 12, color: C.muted, marginBottom: 16, lineHeight: 1.6 }}>
-              直接在此輸入並儲存，立即生效（存在資料庫，不需改環境變數）。機密欄位已設定者顯示遮罩，<b>留空表示不變更</b>；要更換才輸入新值。申請方式見 <a href="/guide" style={{ color: C.primary, fontWeight: 600 }}>使用說明</a>。
-            </div>
-            {secretGroups.map((g) => (
-              <div key={g.group} style={{ marginBottom: 18 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 4 }}>{g.group}</div>
-                {g.note && <div style={{ fontSize: 11, color: C.muted, marginBottom: 10 }}>{g.note}</div>}
-                {g.fields.map((f) => {
-                  const fs = fieldStatus[f.key];
-                  const borderColor = fs ? (fs.ok ? C.success : C.danger) : C.border;
-                  return (
-                  <div key={f.key} style={{ marginBottom: 11 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>{f.label}</span>
-                      {f.set && <span style={{ fontSize: 10, color: C.success, background: C.successBg, borderRadius: 999, padding: "1px 7px" }}>已設定{f.source === "env" ? "（環境變數）" : ""}</span>}
-                      {f.secret && f.masked && <span style={{ fontSize: 10, color: C.muted, fontFamily: "monospace" }}>{f.masked}</span>}
-                      {fs && fs.ok && <span style={{ fontSize: 10, color: C.success }}>✓ 已儲存</span>}
-                      {fs && !fs.ok && <span style={{ fontSize: 10, color: C.danger }}>✗ {fs.error || "儲存失敗"}</span>}
-                    </div>
-                    {f.type === "select" ? (
-                      <select
-                        value={secretVals[f.key] ?? ""}
-                        onChange={(e) => setSecretVals((p) => ({ ...p, [f.key]: e.target.value }))}
-                        style={{ width: "100%", padding: "9px 11px", borderRadius: 9, border: `2px solid ${borderColor}`, background: C.surf2, fontSize: 14, color: C.text, boxSizing: "border-box", transition: "border-color 300ms" }}
-                      >
-                        {(f.options || []).map((o) => <option key={o} value={o}>{o === "" ? "（自動 / 未指定）" : o}</option>)}
-                      </select>
-                    ) : (
-                      <input
-                        type={f.type === "password" ? "password" : "text"}
-                        value={secretVals[f.key] ?? ""}
-                        placeholder={f.secret && f.set ? "已設定，留空不變更" : (f.placeholder || "")}
-                        autoComplete="off"
-                        onChange={(e) => setSecretVals((p) => ({ ...p, [f.key]: e.target.value }))}
-                        style={{ width: "100%", padding: "9px 11px", borderRadius: 9, border: `2px solid ${borderColor}`, background: C.surf2, fontSize: 14, color: C.text, boxSizing: "border-box", fontFamily: f.type === "password" ? "monospace" : "inherit", transition: "border-color 300ms" }}
-                      />
-                    )}
+            {apiGroups.length > 0 && (
+              <Section title="API 金鑰設定">
+                <div style={{ fontSize: 12, color: C.muted, marginBottom: 16, lineHeight: 1.6 }}>
+                  直接在此輸入並儲存，立即生效（存在資料庫，不需改環境變數）。機密欄位已設定者顯示遮罩，<b>留空表示不變更</b>。
+                </div>
+                {apiGroups.map((g) => (
+                  <div key={g.group} style={{ marginBottom: 18 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 4 }}>{g.group}</div>
+                    {g.note && <div style={{ fontSize: 11, color: C.muted, marginBottom: 10 }}>{g.note}</div>}
+                    {g.fields.map(renderSecretField)}
                   </div>
-                  );
-                })}
-              </div>
-            ))}
-            {savedKeys && <div style={{ fontSize: 13, color: savedKeys.startsWith("✓") ? C.success : C.danger, marginBottom: 10 }}>{savedKeys}</div>}
-            {lineTestMsg && <div style={{ fontSize: 13, color: lineTestMsg.ok ? C.success : C.danger, marginBottom: 10 }}>{lineTestMsg.ok ? "✓ " : "✗ "}{lineTestMsg.text}</div>}
-            <div style={{ display: "flex", gap: 10 }}>
-              <button
-                onClick={saveSecrets}
-                disabled={savingKeys}
-                className="pressable"
-                style={{ flex: 1, padding: "12px 0", borderRadius: 12, border: "none", background: C.primary, color: "white", fontWeight: 700, fontSize: 15, cursor: savingKeys ? "default" : "pointer" }}
-              >
-                {savingKeys ? "儲存中…" : "儲存 API 金鑰"}
-              </button>
-              <button
-                onClick={testLine}
-                disabled={testingLine}
-                className="pressable"
-                title="測試 LINE Messaging API，確認推播是否正常"
-                style={{ padding: "12px 18px", borderRadius: 12, border: `1px solid ${C.border}`, background: testingLine ? C.surf2 : "#06C755", color: testingLine ? C.muted : "white", fontWeight: 700, fontSize: 14, cursor: testingLine ? "default" : "pointer", whiteSpace: "nowrap" }}
-              >
-                {testingLine ? "發送中…" : "📲 測試 LINE"}
-              </button>
-            </div>
-          </Section>
+                ))}
+                {saveBar(true)}
+              </Section>
+            )}
+          </>
         )}
 
-        {loading ? (
+        {/* ── 全域設定頁籤（公司資料 / Logo / 角色）──── */}
+        {tab === "global" && (
+          <>
+            {companyGroups.map((g) => (
+              <Section key={g.group} title={g.group}>
+                {g.note && <div style={{ fontSize: 12, color: C.muted, marginBottom: 14 }}>{g.note}</div>}
+
+                {/* Logo 上傳 */}
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontSize: 12, color: C.text, fontWeight: 600, marginBottom: 6 }}>公司 Logo</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+                    <div style={{ width: 88, height: 88, borderRadius: 12, border: `1px dashed ${C.border}`, background: C.surf2, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 }}>
+                      {secretVals.COMPANY_LOGO_URL
+                        ? <img src={secretVals.COMPANY_LOGO_URL} alt="logo" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+                        : <span style={{ fontSize: 11, color: C.muted }}>無 Logo</span>}
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <label style={{ display: "inline-block", padding: "8px 14px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 13, cursor: uploadingLogo ? "default" : "pointer" }}>
+                        {uploadingLogo ? "上傳中…" : "⬆ 上傳 Logo"}
+                        <input type="file" accept="image/*" style={{ display: "none" }} disabled={uploadingLogo}
+                          onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadLogo(f); e.target.value = ""; }} />
+                      </label>
+                      {secretVals.COMPANY_LOGO_URL && (
+                        <button onClick={() => setSecretVals((p) => ({ ...p, COMPANY_LOGO_URL: "" }))}
+                          style={{ padding: "6px 12px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.danger, fontSize: 12, cursor: "pointer" }}>移除 Logo</button>
+                      )}
+                      <div style={{ fontSize: 11, color: C.muted }}>顯示在報價單抬頭。建議方形或橫式透明 PNG。</div>
+                    </div>
+                  </div>
+                </div>
+
+                {g.fields.map(renderSecretField)}
+                {saveBar(false)}
+              </Section>
+            ))}
+            <div style={{ background: C.surf2, borderRadius: 12, padding: "14px 16px", fontSize: 12, color: C.muted, lineHeight: 1.8 }}>
+              「團隊成員／業務」以逗號分隔填寫，會用於報價單的「報價業務」選擇。公司資料與 Logo 會即時套用到報價單檢視、列印 PDF 與 Excel／Word 匯出。
+            </div>
+          </>
+        )}
+
+        {/* ── 用量與警告頁籤 ───────────────────────── */}
+        {tab === "usage" && (loading ? (
           <div style={{ textAlign: "center", padding: "80px 0", color: C.muted }}>
             <div className="spin" style={{ width: 28, height: 28, border: `3px solid ${C.border}`, borderTopColor: C.primary, borderRadius: "50%", margin: "0 auto 14px" }} />
             載入中…
@@ -558,7 +635,7 @@ export default function SettingsPage() {
               <div style={{ marginTop: 6 }}>匯率以 1 USD ≈ NT${USD_TWD} 計算，僅供參考。</div>
             </div>
           </>
-        )}
+        ))}
       </div>
 
       <MobileTabBar />

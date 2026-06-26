@@ -300,8 +300,25 @@ export default function EmailEditorPage() {
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const [frameH, setFrameH] = useState(640);
+
+  // 量測預覽 iframe 內容高度，讓預覽顯示完整長度（不被裁切/內捲）
+  const measureFrame = () => {
+    const doc = frameRef.current?.contentWindow?.document;
+    if (doc) {
+      const h = Math.max(doc.documentElement.scrollHeight, doc.body?.scrollHeight || 0);
+      if (h > 0) setFrameH(h + 8);
+    }
+  };
 
   const html = useMemo(() => renderEmailHtml(blocks, subject), [blocks, subject]);
+  // 內容變動後重新量測（含圖片載入延遲）
+  useEffect(() => {
+    const t1 = setTimeout(measureFrame, 60);
+    const t2 = setTimeout(measureFrame, 400);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [html]);
 
   // 卡片式拖拉排序：把 dragId 區塊移到 targetId 位置
   const dropOnto = (targetId: string) => {
@@ -686,8 +703,15 @@ export default function EmailEditorPage() {
 
         {/* 預覽欄 */}
         <section className="preview">
-          <div className="plabel">即時預覽</div>
-          <iframe title="preview" srcDoc={html} className="frame" />
+          <div className="plabel">即時預覽（完整內容）</div>
+          <iframe
+            ref={frameRef}
+            title="preview"
+            srcDoc={html}
+            className="frame"
+            style={{ height: frameH }}
+            onLoad={measureFrame}
+          />
         </section>
       </div>
 
@@ -1072,6 +1096,7 @@ export default function EmailEditorPage() {
           overflow: hidden;
           display: flex;
           flex-direction: column;
+          align-self: start;
         }
         .plabel {
           font-size: 12px;
@@ -1081,9 +1106,10 @@ export default function EmailEditorPage() {
         }
         .frame {
           width: 100%;
-          height: 640px;
+          min-height: 320px;
           border: none;
           background: #f3f0e7;
+          display: block;
         }
       `}</style>
     </div>

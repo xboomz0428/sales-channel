@@ -27,6 +27,8 @@ const GROUPS: { group: string; note?: string; fields: Field[] }[] = [
       { key: "COMPANY_EMAIL", label: "Email", placeholder: "service@wesmilegood.com" },
       { key: "COMPANY_WEBSITE", label: "網站", placeholder: "www.heroherb.co" },
       { key: "COMPANY_ADDRESS", label: "公司地址", placeholder: "請填入完整地址" },
+      { key: "COMPANY_LOGO_URL", label: "公司 Logo 網址", placeholder: "可用下方上傳" },
+      { key: "COMPANY_SALES_REPS", label: "團隊成員／業務（逗號分隔）", placeholder: "例：王小明, 陳大華" },
     ],
   },
   {

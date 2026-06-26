@@ -20,5 +20,6 @@ export async function getCompany(): Promise<CompanyInfo> {
     email: pick("email"),
     website: pick("website"),
     address: pick("address"),
+    logo: pick("logo"),
   };
 }

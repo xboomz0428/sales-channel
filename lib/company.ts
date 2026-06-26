@@ -12,6 +12,7 @@ export interface CompanyInfo {
   email: string;
   website: string;
   address: string;
+  logo: string;
 }
 
 export const DEFAULT_COMPANY: CompanyInfo = {
@@ -23,6 +24,7 @@ export const DEFAULT_COMPANY: CompanyInfo = {
   email: "service@wesmilegood.com",
   website: "www.heroherb.co",
   address: "",
+  logo: "",
 };
 
 /** app_settings 對應 key */
@@ -35,4 +37,5 @@ export const COMPANY_KEYS: Record<keyof CompanyInfo, string> = {
   email: "COMPANY_EMAIL",
   website: "COMPANY_WEBSITE",
   address: "COMPANY_ADDRESS",
+  logo: "COMPANY_LOGO_URL",
 };
