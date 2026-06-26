@@ -2,6 +2,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import crypto from "node:crypto";
 import { getCfg } from "@/lib/settings";
 import { resolveEmailProvider, sendViaResend, sendViaSendgrid, sendViaSmtp } from "@/lib/outreach/emailProvider";
+import { addToBlacklist, classifyBounce } from "@/lib/outreach/blacklist";
 
 interface DispatchResult {
   ok: boolean;
@@ -19,11 +20,12 @@ export async function dispatchEmail(messageId: string): Promise<DispatchResult> 
     return { ok: false, error: "訊息不存在或無收件人 email" };
   }
 
-  // 檢查黑名單：曾經寄送失敗的信箱跳過
+  // 檢查黑名單：只有「已封鎖（blocked）」的信箱才跳過（軟退信未達門檻不擋）
   const { data: blocked } = await supabaseAdmin
     .from("email_blacklist")
-    .select("email, reason, fail_count")
+    .select("email, reason, fail_count, blocked")
     .eq("email", msg.to_email.toLowerCase())
+    .eq("blocked", true)
     .maybeSingle();
   if (blocked) {
     await supabaseAdmin
@@ -134,8 +136,9 @@ export async function dispatchEmail(messageId: string): Promise<DispatchResult> 
         .from("outreach_messages")
         .update({ status: "failed", error_detail: (r.error || "寄送失敗").slice(0, 500) })
         .eq("id", messageId);
-      // 自動加入黑名單（累加失敗次數）
-      await addToBlacklist(msg.to_email, "failed");
+      // 自動加入黑名單：依錯誤訊息判斷硬/軟退信（軟退信未達門檻不立即封鎖）
+      const cls = classifyBounce(r.error || "");
+      await addToBlacklist(msg.to_email, cls === "soft" ? "soft" : "failed", (r.error || "寄送失敗").slice(0, 200));
       return { ok: false, error: r.error || "寄送失敗" };
     }
 
@@ -180,19 +183,7 @@ export async function dispatchEmail(messageId: string): Promise<DispatchResult> 
       .from("outreach_messages")
       .update({ status: "failed", error_detail: errMsg.slice(0, 500) })
       .eq("id", messageId);
-    await addToBlacklist(msg.to_email, "failed");
+    await addToBlacklist(msg.to_email, "failed", errMsg.slice(0, 200));
     return { ok: false, error: errMsg };
   }
-}
-
-async function addToBlacklist(email: string, reason: string) {
-  const addr = email.toLowerCase();
-  try {
-    const { data } = await supabaseAdmin.from("email_blacklist").select("fail_count").eq("email", addr).maybeSingle();
-    if (data) {
-      await supabaseAdmin.from("email_blacklist").update({ fail_count: (data.fail_count || 0) + 1, last_fail: new Date().toISOString(), reason }).eq("email", addr);
-    } else {
-      await supabaseAdmin.from("email_blacklist").insert({ email: addr, reason, fail_count: 1 });
-    }
-  } catch { /* 黑名單寫入失敗不影響主流程 */ }
 }

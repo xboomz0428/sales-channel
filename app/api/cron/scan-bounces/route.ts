@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { requireCron, errorResponse } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { listMessages, getMessageText } from '@/lib/channels/gmail';
+import { classifyBounce, addToBlacklist } from '@/lib/outreach/blacklist';
+import { notifyLine } from '@/lib/notify/line';
 
 export const runtime = 'nodejs';
 
@@ -31,24 +33,36 @@ export async function GET(req: Request) {
       50
     );
 
-    let bounced = 0;
+    let hard = 0, soft = 0, ignored = 0;
     for (const id of ids) {
-      const text = (await getMessageText(id)).toLowerCase();
+      const text = (await getMessageText(id));
+      const lower = text.toLowerCase();
       for (const m of recent) {
         const email = (m.to_email || '').toLowerCase();
-        if (email && text.includes(email)) {
-          const { data: upd } = await supabaseAdmin
-            .from('outreach_messages')
-            .update({ status: 'bounced', error_detail: 'mail delivery failed (bounce)' })
-            .eq('id', m.id)
-            .eq('status', 'sent')
-            .select('id');
-          if (upd && upd.length) bounced++;
+        if (!email || !lower.includes(email)) continue;
+
+        const kind = classifyBounce(text);
+        if (kind === 'none') { ignored++; continue; } // 純延遲通知，不算退信
+
+        const { data: upd } = await supabaseAdmin
+          .from('outreach_messages')
+          .update({ status: 'bounced', error_detail: `${kind === 'hard' ? '硬退信（信箱不存在）' : '軟退信（暫時性）'}` })
+          .eq('id', m.id)
+          .eq('status', 'sent')
+          .select('id');
+        if (upd && upd.length) {
+          // 硬退信永久封鎖；軟退信累計到門檻才封鎖
+          await addToBlacklist(email, kind === 'hard' ? 'hard' : 'soft', kind === 'hard' ? '硬退信' : '軟退信');
+          kind === 'hard' ? hard++ : soft++;
         }
       }
     }
 
-    return NextResponse.json({ scannedBounceMails: ids.length, candidates: recent.length, bounced });
+    if (hard + soft > 0) {
+      await notifyLine(`【退信清理】硬退信 ${hard} 封（已永久排除）、軟退信 ${soft} 封。`);
+    }
+
+    return NextResponse.json({ scannedBounceMails: ids.length, candidates: recent.length, hard, soft, ignored });
   } catch (err) {
     return errorResponse(err);
   }

@@ -151,10 +151,41 @@ export default function EmailDashboardPage() {
             </div>
           )}
 
+          {/* 模板成效排行（依開信率，至少寄 5 封才參與排名）*/}
+          {(() => {
+            const all = data?.byTemplate || [];
+            const ranked = [...all]
+              .filter((r) => r.sent >= 5 && r.template !== '（無模板）')
+              .sort((a, b) => (b.openRate - a.openRate) || (b.clickRate - a.clickRate));
+            if (ranked.length === 0) return null;
+            const medal = ['🥇', '🥈', '🥉'];
+            const bestClick = Math.max(...ranked.map((r) => r.clickRate));
+            return (
+              <div className="card">
+                <div className="ck">模板成效排行 <span className="rkhint">依開信率（≥5 封）</span></div>
+                <table>
+                  <thead><tr><th>名次</th><th>模板</th><th>寄送</th><th>開信率</th><th>點擊率</th><th>回覆率</th></tr></thead>
+                  <tbody>
+                    {ranked.map((r, i) => (
+                      <tr key={i} className={i === 0 ? 'rk1' : ''}>
+                        <td className="rkno">{medal[i] || `#${i + 1}`}</td>
+                        <td className="subj">{r.template}</td>
+                        <td>{r.sent}</td>
+                        <td><b>{r.openRate}%</b></td>
+                        <td className={r.clickRate === bestClick && bestClick > 0 ? 'rkbest' : ''}>{r.clickRate}%</td>
+                        <td>{r.replyRate}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
+
           {/* 依模板分析 */}
           {(data?.byTemplate?.length || 0) > 0 && (
             <div className="card">
-              <div className="ck">依模板成效</div>
+              <div className="ck">依模板成效（依寄送量）</div>
               <table>
                 <thead><tr><th>模板</th><th>寄送</th><th>開信率</th><th>點擊率</th><th>回覆率</th></tr></thead>
                 <tbody>
@@ -236,6 +267,10 @@ export default function EmailDashboardPage() {
         @media (max-width: 760px) { .cards { grid-template-columns: repeat(2, 1fr); } }
         .card { background: #fffdf8; border: 1px solid #e3ded3; border-radius: 14px; padding: 18px; }
         .ck { font-size: 14px; color: #8a8472; font-weight: 500; }
+        .rkhint { font-size: 11px; color: #b0a892; font-weight: 400; }
+        .rkno { font-size: 16px; white-space: nowrap; }
+        .rk1 { background: #fbf7e8; }
+        .rkbest { color: #2f7d6b; font-weight: 700; }
         .cv { font-family: 'Noto Serif TC', serif; font-size: 32px; font-weight: 700; margin: 6px 0; }
         .cs { font-size: 13px; color: #a59f8e; }
         .chart { margin-bottom: 18px; }

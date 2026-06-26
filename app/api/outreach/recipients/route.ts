@@ -79,8 +79,9 @@ export async function GET(req: Request) {
     // 3) 讀取黑名單（寄送失敗的信箱，排除不寄）+ 手動排除名單
     const blackSet = new Set<string>();
     try {
-      const { data: bl } = await supabaseAdmin.from('email_blacklist').select('email');
-      for (const b of bl || []) blackSet.add(b.email.toLowerCase());
+      // 只排除已封鎖（硬退信、或軟退信達門檻）的信箱
+      const { data: bl } = await supabaseAdmin.from('email_blacklist').select('email, blocked');
+      for (const b of bl || []) if (b.blocked !== false) blackSet.add(b.email.toLowerCase());
     } catch { /* 黑名單讀取失敗不影響 */ }
     try {
       const { data: ex } = await supabaseAdmin.from('newsletter_exclusions').select('email');
