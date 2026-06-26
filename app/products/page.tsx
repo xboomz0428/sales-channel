@@ -224,6 +224,16 @@ function ProductGrid({ products, onEdit, onChanged }: { products: Product[]; onE
     });
     onChanged();
   };
+  const deleteProduct = async (p: Product) => {
+    if (!confirm(`確定永久刪除「${p.name}」？此操作無法復原。\n（若只是暫時不用，建議改用「停用」）`)) return;
+    const res = await fetch(`/api/products/${p.id}`, { method: "DELETE" });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok || !d.success) {
+      alert(d.error || "刪除失敗");
+      return;
+    }
+    onChanged();
+  };
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
       {products.map((p) => {
@@ -264,9 +274,10 @@ function ProductGrid({ products, onEdit, onChanged }: { products: Product[]; onE
 
             <div style={{ display: "flex", gap: 6, marginTop: 12, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
               <button onClick={() => onEdit(p)} style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 12, cursor: "pointer" }}>編輯</button>
-              <button onClick={() => toggleActive(p)} style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: p.is_active ? C.danger : C.success, fontSize: 12, cursor: "pointer" }}>
+              <button onClick={() => toggleActive(p)} style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: p.is_active ? "#D97706" : C.success, fontSize: 12, cursor: "pointer" }}>
                 {p.is_active ? "停用" : "啟用"}
               </button>
+              <button onClick={() => deleteProduct(p)} title="永久刪除" style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.danger, fontSize: 12, cursor: "pointer" }}>刪除</button>
             </div>
           </div>
         );
@@ -537,6 +548,15 @@ function QuoteView({ quote, onClose, onChanged }: { quote: Quote; onClose: () =>
     onChanged();
   };
 
+  const deleteQuote = async () => {
+    if (!confirm(`確定刪除報價單「${quote.quote_no || ""}」？此操作無法復原。`)) return;
+    const res = await fetch(`/api/quotes/${quote.id}`, { method: "DELETE" });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok || !d.success) { alert(d.error || "刪除失敗"); return; }
+    onChanged();
+    onClose();
+  };
+
   const sendEmail = async () => {
     setSending(true);
     setSendMsg(null);
@@ -632,7 +652,8 @@ function QuoteView({ quote, onClose, onChanged }: { quote: Quote; onClose: () =>
           </div>
         )}
       </div>
-      <div style={{ padding: "14px 20px", borderTop: `1px solid ${C.border}`, display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+      <div style={{ padding: "14px 20px", borderTop: `1px solid ${C.border}`, display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap", alignItems: "center" }}>
+        <button onClick={deleteQuote} title="刪除報價單" style={{ padding: "9px 14px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.danger, fontSize: 13, cursor: "pointer", marginRight: "auto" }}>🗑 刪除</button>
         <button onClick={copyText} style={{ padding: "9px 14px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 13, cursor: "pointer" }}>📋 複製</button>
         <button onClick={() => window.open(`/quotes/${quote.id}/print`, "_blank")}
           style={{ padding: "9px 14px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 13, cursor: "pointer" }} title="開啟專業報價單列印頁（可存 PDF）">

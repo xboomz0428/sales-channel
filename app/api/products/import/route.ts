@@ -56,8 +56,11 @@ export async function POST(request: NextRequest) {
     for (const row of rows) {
       const name = colName >= 0 ? String(row[colName] || "").trim() : "";
       if (!name || name.startsWith("合計") || name.startsWith("小計")) continue;
+      // 跳過重複出現的標題列 / 範例列（避免把欄位名稱當成產品匯入）
+      if (name === "產品名稱" || name === "品名" || name === "商品名稱") continue;
 
       const sku       = colSku >= 0 ? String(row[colSku] || "").trim() : null;
+      if (sku === "型號" || sku === "貨號") continue;
       const barcode   = colBarcode >= 0 ? String(row[colBarcode] || "").trim() : null;
       const nameEn    = colNameEn >= 0 ? String(row[colNameEn] || "").trim() : null;
       const spec      = colSpec >= 0 ? String(row[colSpec] || "").trim() : null;
