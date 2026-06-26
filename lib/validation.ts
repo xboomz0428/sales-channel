@@ -88,4 +88,5 @@ export const newsletterSendSchema: Schema = {
   templateId: { type: "string", required: true },
   brandIds: { type: "string[]" },
   manualEmails: { type: "string[]" },
+  skipDuplicates: { type: "boolean" },
 };

@@ -15,8 +15,10 @@ export async function POST(req: Request) {
     await requireUser();
     const body = await parseBody(req, newsletterSendSchema);
     const templateId = body.templateId as string;
-    const brandIds: string[] = Array.isArray(body.brandIds) ? body.brandIds : [];
-    const manualEmails: { name: string; email: string }[] = Array.isArray(body.manualEmails) ? body.manualEmails : [];
+    let brandIds: string[] = Array.isArray(body.brandIds) ? body.brandIds : [];
+    let manualEmails: { name: string; email: string }[] = Array.isArray(body.manualEmails) ? body.manualEmails : [];
+    // 預設略過已寄送過相同模板的收件人（前端可關閉）
+    const skipDuplicates = body.skipDuplicates !== false;
 
     if (brandIds.length === 0 && manualEmails.length === 0) {
       throw new HttpError(400, '至少提供 brandIds 或 manualEmails');
@@ -28,6 +30,30 @@ export async function POST(req: Request) {
       .eq('id', templateId)
       .single();
     if (!tpl || !tpl.body_html) throw new HttpError(400, '模板不存在或非 HTML 電子報');
+
+    // ── 重複寄送判斷：先查此模板已成功寄出的對象，過濾掉 ──────────
+    let skipped = 0;
+    if (skipDuplicates) {
+      const SENT_STATUS = ['sent', 'delivered', 'read', 'replied'];
+      const { data: prevMsgs } = await supabaseAdmin
+        .from('outreach_messages')
+        .select('brand_id, to_email, status')
+        .eq('template_id', templateId)
+        .in('status', SENT_STATUS);
+      const sentBrandIds = new Set((prevMsgs || []).map((m: any) => m.brand_id).filter(Boolean));
+      const sentEmails = new Set((prevMsgs || []).map((m: any) => (m.to_email || '').toLowerCase()).filter(Boolean));
+
+      const beforeBrand = brandIds.length;
+      const beforeManual = manualEmails.length;
+      brandIds = brandIds.filter((id) => !sentBrandIds.has(id));
+      manualEmails = manualEmails.filter((m) => !sentEmails.has((m.email || '').toLowerCase()));
+      skipped = (beforeBrand - brandIds.length) + (beforeManual - manualEmails.length);
+    }
+
+    if (brandIds.length === 0 && manualEmails.length === 0) {
+      // 全部都是重複，沒有要寄的
+      return NextResponse.json({ batchId: null, total: 0, sent: 0, failed: 0, queued: 0, skipped });
+    }
 
     const totalCount = brandIds.length + manualEmails.length;
 
@@ -132,7 +158,7 @@ export async function POST(req: Request) {
         .eq('id', batchId);
     }
 
-    return NextResponse.json({ batchId, total: totalCount, sent, failed, queued });
+    return NextResponse.json({ batchId, total: totalCount, sent, failed, queued, skipped });
   } catch (err) {
     return errorResponse(err);
   }

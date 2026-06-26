@@ -76,12 +76,16 @@ export async function GET(req: Request) {
       } catch { /* 聯絡人讀取失敗 → 略過 */ }
     }
 
-    // 3) 讀取黑名單（寄送失敗的信箱，排除不寄）
+    // 3) 讀取黑名單（寄送失敗的信箱，排除不寄）+ 手動排除名單
     const blackSet = new Set<string>();
     try {
       const { data: bl } = await supabaseAdmin.from('email_blacklist').select('email');
-      for (const b of bl || []) blackSet.add(b.email);
+      for (const b of bl || []) blackSet.add(b.email.toLowerCase());
     } catch { /* 黑名單讀取失敗不影響 */ }
+    try {
+      const { data: ex } = await supabaseAdmin.from('newsletter_exclusions').select('email');
+      for (const e of ex || []) blackSet.add(e.email.toLowerCase());
+    } catch { /* 排除名單讀取失敗不影響 */ }
 
     // 4) 合併（優先序：採集 → 聯絡人 → 名單），排除黑名單
     let recipients = brands
@@ -110,10 +114,22 @@ export async function GET(req: Request) {
 
     if (source) recipients = recipients.filter((r) => r.source === source);
 
-    // 統計給前端分群用
-    const industries = [...new Set(recipients.map((r) => r.industry).filter(Boolean))].sort();
-    const stages = [...new Set(recipients.map((r) => r.stage).filter(Boolean))].sort();
-    const sources = [...new Set(recipients.map((r) => r.source))];
+    // 篩選選項：用「全部品牌」算（不受目前篩選影響），下拉選單才會永遠保有所有類型
+    let industries: string[] = [];
+    let stages: string[] = [];
+    try {
+      const allMeta = await fetchAll((from, to) =>
+        supabaseAdmin.from('brands').select('industry, status').range(from, to)
+      );
+      industries = [...new Set(allMeta.map((b: any) => b.industry).filter(Boolean))].sort();
+      stages = [...new Set(allMeta.map((b: any) => b.status).filter(Boolean))].sort();
+    } catch {
+      // 退回用目前名單推算
+      industries = [...new Set(recipients.map((r) => r.industry).filter(Boolean))].sort();
+      stages = [...new Set(recipients.map((r) => r.stage).filter(Boolean))].sort();
+    }
+    // 來源為固定四種，永遠完整顯示
+    const sources = ['採集', '聯絡人', '名單', '手動'];
 
     return NextResponse.json({
       recipients,

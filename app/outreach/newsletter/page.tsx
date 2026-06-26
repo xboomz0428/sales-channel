@@ -22,6 +22,7 @@ interface SendResult {
   sent: number;
   failed: number;
   queued: number;
+  skipped: number;
 }
 
 const STAGE_LABEL: Record<string, string> = {
@@ -44,6 +45,9 @@ export default function NewsletterPage() {
   const [source, setSource] = useState('');
   const [confirm, setConfirm] = useState(false);
   const [sending, setSending] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [skipDup, setSkipDup] = useState(true); // 略過已寄送過相同模板的收件人
+  const [removing, setRemoving] = useState(false);
   const [result, setResult] = useState<SendResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [cfg, setCfg] = useState<{ mode: string; fromEmail: string | null; providerLabel?: string } | null>(null);
@@ -156,9 +160,18 @@ export default function NewsletterPage() {
     setSelected((s) => { const n = new Set(s); n.delete(id); return n; });
   };
 
+  // 每批最多 30 封（後端單次上限 PER_CALL=30），前端自動分批送完
+  const BATCH_SIZE = 30;
+  function chunk<T>(arr: T[], size: number): T[][] {
+    const out: T[][] = [];
+    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+    return out;
+  }
+
   async function doSend() {
     setSending(true);
     setConfirm(false);
+    let sent = 0, failed = 0, queued = 0, skipped = 0;
     try {
       // 品牌 ID 和手動收件人分開處理
       const brandIds = [...selected].filter((id) => !id.startsWith('manual_'));
@@ -166,38 +179,83 @@ export default function NewsletterPage() {
       const manualRecips = manualIds
         .map((id) => recipients.find((r) => r.id === id))
         .filter((r): r is Recipient => !!r && !!r.email);
-      let sent = 0, failed = 0, queued = 0;
 
-      // 名單品牌批次寄送
-      if (brandIds.length > 0) {
+      const total = brandIds.length + manualRecips.length;
+      setProgress({ done: 0, total });
+      let done = 0;
+
+      // 名單品牌：自動分批，每批 ≤ 30
+      for (const batch of chunk(brandIds, BATCH_SIZE)) {
         const res = await fetch('/api/outreach/newsletter/send', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ templateId: tplId, brandIds }),
+          body: JSON.stringify({ templateId: tplId, brandIds: batch, skipDuplicates: skipDup }),
         });
-        const data = await res.json();
-        if (res.ok) { sent += data.sent || 0; failed += data.failed || 0; queued += data.queued || 0; }
-        else { failed += brandIds.length; }
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) { sent += data.sent || 0; failed += data.failed || 0; queued += data.queued || 0; skipped += data.skipped || 0; }
+        else { failed += batch.length; }
+        done += batch.length;
+        setProgress({ done, total });
       }
 
-      // 手動收件人走 manualEmails
-      if (manualRecips.length > 0) {
+      // 手動收件人：同樣分批
+      for (const batch of chunk(manualRecips, BATCH_SIZE)) {
         const res = await fetch('/api/outreach/newsletter/send', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ templateId: tplId, manualEmails: manualRecips.map((r) => ({ name: r.name, email: r.email! })) }),
+          body: JSON.stringify({ templateId: tplId, manualEmails: batch.map((r) => ({ name: r.name, email: r.email! })), skipDuplicates: skipDup }),
         });
-        const data = await res.json();
-        if (res.ok) { sent += data.sent || 0; failed += data.failed || 0; } else { failed += manualRecips.length; }
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) { sent += data.sent || 0; failed += data.failed || 0; skipped += data.skipped || 0; }
+        else { failed += batch.length; }
+        done += batch.length;
+        setProgress({ done, total });
       }
 
-      setResult({ total: brandIds.length + manualRecips.length, sent, failed, queued });
+      setResult({ total, sent, failed, queued, skipped });
       setSelected(new Set());
       loadHistory();
     } catch {
       alert('連線失敗');
     } finally {
       setSending(false);
+      setProgress(null);
+    }
+  }
+
+  // 移除選取名單（未來篩選不再顯示）
+  async function removeSelected() {
+    if (selected.size === 0) return;
+    if (!window.confirm(`確定將選取的 ${selected.size} 位移出名單？未來篩選將不再顯示（可至排除名單復原）。`)) return;
+    setRemoving(true);
+    try {
+      const chosen = [...selected]
+        .map((id) => recipients.find((r) => r.id === id))
+        .filter((r): r is Recipient => !!r);
+      // 手動收件人 → 直接刪除；一般品牌 → 加入排除名單
+      const manualOnes = chosen.filter((r) => r.id.startsWith('manual_'));
+      const brandOnes = chosen.filter((r) => !r.id.startsWith('manual_') && r.email);
+      if (brandOnes.length > 0) {
+        await fetch('/api/outreach/exclude', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ items: brandOnes.map((r) => ({ email: r.email, brand_id: r.id })) }),
+        });
+      }
+      for (const m of manualOnes) {
+        await fetch('/api/outreach/manual-recipients', {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: m.id.replace(/^manual_/, '') }),
+        });
+      }
+      const removedIds = new Set(chosen.map((r) => r.id));
+      setRecipients((prev) => prev.filter((r) => !removedIds.has(r.id)));
+      setSelected(new Set());
+    } catch {
+      alert('移除失敗');
+    } finally {
+      setRemoving(false);
     }
   }
 
@@ -252,6 +310,14 @@ export default function NewsletterPage() {
             <button className="addbtn" onClick={() => setManualOpen(!manualOpen)}>＋ 手動新增</button>
             <button className="addbtn hist" onClick={() => { setHistoryOpen(!historyOpen); if (!historyOpen) loadHistory(); }}>📋 發送紀錄</button>
           </div>
+          {selected.size > 0 && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+              <span className="muted small" style={{ flex: 1 }}>已選 {selected.size} 位</span>
+              <button className="rmsel" onClick={removeSelected} disabled={removing}>
+                {removing ? '移除中…' : `🗑 移除選取（${selected.size}）`}
+              </button>
+            </div>
+          )}
           {manualOpen && (
             <div className="manualadd">
               <input className="in" value={manualName} onChange={(e) => setManualName(e.target.value)} placeholder="名稱（選填）" style={{ flex: 1 }} />
@@ -355,12 +421,20 @@ export default function NewsletterPage() {
       {/* 寄送列 */}
       <div className="sendbar">
         <div className="summary">
-          {canSend ? (
-            <>準備寄送「<strong>{tpl?.name}</strong>」給 <strong>{selected.size}</strong> 位</>
+          {sending && progress ? (
+            <span>寄送中… <strong>{progress.done}/{progress.total}</strong>
+              <span className="pbar"><span className="pbarfill" style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }} /></span>
+            </span>
+          ) : canSend ? (
+            <>準備寄送「<strong>{tpl?.name}</strong>」給 <strong>{selected.size}</strong> 位{selected.size > BATCH_SIZE && <span className="muted small">（自動分 {Math.ceil(selected.size / BATCH_SIZE)} 批）</span>}</>
           ) : (
             <span className="muted">請選擇至少一位名單與一個模板</span>
           )}
         </div>
+        <label className="dupchk" title="若收件人先前已收過此模板，預設略過不重複寄送">
+          <input type="checkbox" checked={skipDup} onChange={(e) => setSkipDup(e.target.checked)} />
+          略過已寄過此模板
+        </label>
         <button className="btn solid" disabled={!canSend || sending} onClick={() => setConfirm(true)}>
           {sending ? '寄送中…' : '寄送'}
         </button>
@@ -375,7 +449,10 @@ export default function NewsletterPage() {
               即將把「<strong>{tpl?.name}</strong>」寄給 <strong>{selected.size}</strong> 位收件人。
               此動作會實際寄出 email,無法收回。
             </p>
-            <p className="muted small">單次最多寄出 30 封,超出會排隊。</p>
+            <p className="muted small">
+              系統會自動分批寄送（每批 {BATCH_SIZE} 封{selected.size > BATCH_SIZE ? `，共 ${Math.ceil(selected.size / BATCH_SIZE)} 批` : ''}）。
+              {skipDup ? '已開啟略過重複：先前收過此模板者不會重寄。' : '已關閉略過重複：相同模板會再寄一次。'}
+            </p>
             <div className="dbtns">
               <button className="btn ghost" onClick={() => setConfirm(false)}>取消</button>
               <button className="btn solid" onClick={doSend}>確認寄送</button>
@@ -392,8 +469,9 @@ export default function NewsletterPage() {
             <div className="rstat">
               <div><b>{result.sent}</b><span>成功</span></div>
               <div><b>{result.failed}</b><span>失敗</span></div>
-              <div><b>{result.queued}</b><span>排隊</span></div>
+              <div><b>{result.skipped}</b><span>略過重複</span></div>
             </div>
+            {result.queued > 0 && <p className="muted small" style={{ textAlign: 'center' }}>另有 {result.queued} 封排隊中</p>}
             <div className="dbtns">
               <a className="btn ghost" href="/outreach/email-dashboard">看儀表板</a>
               <button className="btn solid" onClick={() => setResult(null)}>關閉</button>
@@ -452,7 +530,14 @@ export default function NewsletterPage() {
         .previewbox { border: 1px solid #e3ded3; border-radius: 10px; overflow: hidden; height: 420px; background: #f3f0e7; margin-top: 10px; }
         .frame { width: 100%; height: 100%; border: none; }
         .sendbar { position: fixed; left: 0; right: 0; bottom: 0; background: #fffdf8; border-top: 1px solid #e3ded3; padding: 14px 22px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-        .summary { font-size: 14px; }
+        .summary { font-size: 14px; flex: 1; }
+        .rmsel { border: 1px solid #d9b3a8; background: #fbeee9; color: #a4452f; border-radius: 8px; padding: 7px 12px; font-size: 12px; cursor: pointer; font-family: inherit; white-space: nowrap; }
+        .rmsel:hover { background: #f6e2da; }
+        .rmsel:disabled { opacity: 0.5; cursor: default; }
+        .dupchk { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #5a6b4f; cursor: pointer; white-space: nowrap; user-select: none; }
+        .dupchk input { width: 15px; height: 15px; accent-color: #4a6b3f; cursor: pointer; }
+        .pbar { display: inline-block; width: 140px; height: 7px; background: #e6e2d6; border-radius: 999px; margin-left: 10px; vertical-align: middle; overflow: hidden; }
+        .pbarfill { display: block; height: 100%; background: #4a6b3f; border-radius: 999px; transition: width 0.25s ease; }
         .btn { border: none; border-radius: 999px; padding: 10px 24px; font-size: 14px; cursor: pointer; font-family: inherit; text-decoration: none; display: inline-block; }
         .btn.solid { background: #4a6b3f; color: #fff; }
         .btn.solid:disabled { opacity: 0.45; cursor: default; }
