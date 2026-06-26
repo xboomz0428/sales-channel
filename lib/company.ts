@@ -13,6 +13,7 @@ export interface CompanyInfo {
   website: string;
   address: string;
   logo: string;
+  salesReps: string[]; // 團隊成員／業務（供報價業務選擇）
 }
 
 export const DEFAULT_COMPANY: CompanyInfo = {
@@ -25,10 +26,11 @@ export const DEFAULT_COMPANY: CompanyInfo = {
   website: "www.heroherb.co",
   address: "",
   logo: "",
+  salesReps: [],
 };
 
-/** app_settings 對應 key */
-export const COMPANY_KEYS: Record<keyof CompanyInfo, string> = {
+/** app_settings 對應 key（字串欄位） */
+export const COMPANY_KEYS = {
   name: "COMPANY_NAME",
   brand: "COMPANY_BRAND",
   taxId: "COMPANY_TAX_ID",
@@ -38,4 +40,4 @@ export const COMPANY_KEYS: Record<keyof CompanyInfo, string> = {
   website: "COMPANY_WEBSITE",
   address: "COMPANY_ADDRESS",
   logo: "COMPANY_LOGO_URL",
-};
+} as const;

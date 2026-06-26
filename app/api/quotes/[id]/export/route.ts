@@ -75,8 +75,8 @@ function exportExcel(
 
   // 表頭欄位
   const header = showList
-    ? ["品項名稱", "型號", "規格", "標準售價", "單價", "數量", "總價"]
-    : ["品項名稱", "型號", "規格", "單價", "數量", "總價"];
+    ? ["品項名稱", "型號", "規格", "通路價格", "進貨價格", "數量", "總價"]
+    : ["品項名稱", "型號", "規格", "進貨價格", "數量", "總價"];
 
   const sellerLine = [COMPANY.name, COMPANY.taxId ? `統編 ${COMPANY.taxId}` : "", `電話 ${COMPANY.phone}`, quote.sales_rep ? `業務 ${quote.sales_rep}` : ""].filter(Boolean).join("　");
   const buyerParts = [`客戶：${customerName}`];
@@ -106,8 +106,6 @@ function exportExcel(
       return row;
     }),
     pad([]),
-    totalRow("小計", quote.subtotal as number, NC),
-    ...((quote.discount_amt as number) > 0 ? [totalRow("折讓", -(quote.discount_amt as number), NC)] : []),
     totalRow("總計", quote.total as number, NC),
     pad([]),
     pad([`備註：${quote.note || ""}`]),
@@ -166,8 +164,8 @@ async function exportWord(
 
   const showList = !!quote.show_list_price;
   const headers = showList
-    ? ["品項名稱", "型號", "規格", "標準售價", "單價", "數量", "總價"]
-    : ["品項名稱", "型號", "規格", "單價", "數量", "總價"];
+    ? ["品項名稱", "型號", "規格", "通路價格", "進貨價格", "數量", "總價"]
+    : ["品項名稱", "型號", "規格", "進貨價格", "數量", "總價"];
   const NC = headers.length;
 
   const headerRow = new TableRow({
@@ -219,10 +217,6 @@ async function exportWord(
       ],
     });
 
-  summaryRows.push(sumRow("小計", money(quote.subtotal as number)));
-  if ((quote.discount_amt as number) > 0) {
-    summaryRows.push(sumRow("折讓", `-${money(quote.discount_amt as number)}`));
-  }
   summaryRows.push(sumRow("總計", money(quote.total as number), true));
 
   const doc = new Document({

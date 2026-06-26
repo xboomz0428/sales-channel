@@ -179,8 +179,8 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
                 <th style={{ width: quote.show_list_price ? "32%" : "40%" }}>品項名稱</th>
                 <th>型號</th>
                 <th>規格</th>
-                {quote.show_list_price && <th className="right">標準售價</th>}
-                <th className="right">單價</th>
+                {quote.show_list_price && <th className="right">通路價格</th>}
+                <th className="right">進貨價格</th>
                 <th className="right">數量</th>
                 <th className="right">總價</th>
               </tr>
@@ -191,7 +191,7 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
                   <td>{it.name}</td>
                   <td><div className="spec">{it.sku || "—"}</div></td>
                   <td><div className="spec">{it.spec || "—"}</div></td>
-                  {quote.show_list_price && <td className="right" style={{ color: "#999", textDecoration: "line-through" }}>{it.list_price != null ? money(it.list_price) : "—"}</td>}
+                  {quote.show_list_price && <td className="right" style={{ color: "#999" }}>{it.list_price != null ? money(it.list_price) : "—"}</td>}
                   <td className="right">{money(it.unit_price)}</td>
                   <td className="right">{it.qty} {it.unit}</td>
                   <td className="right" style={{ fontWeight: 700 }}>{money(it.unit_price * it.qty)}</td>
@@ -203,16 +203,6 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
           {/* Totals */}
           <div className="total-section">
             <div style={{ maxWidth: 320, marginLeft: "auto" }}>
-              <div className="total-row">
-                <span>小計</span>
-                <span style={{ fontVariantNumeric: "tabular-nums" }}>{money(quote.subtotal)}</span>
-              </div>
-              {quote.discount_amt > 0 && (
-                <div className="total-row" style={{ color: "#C0392B" }}>
-                  <span>折扣（{quote.discount_pct}%）</span>
-                  <span style={{ fontVariantNumeric: "tabular-nums" }}>-{money(quote.discount_amt)}</span>
-                </div>
-              )}
               <div className="total-final">
                 <span className="total-final-label">總計金額</span>
                 <span className="total-final-value">{money(quote.total)}</span>

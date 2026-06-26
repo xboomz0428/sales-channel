@@ -725,7 +725,6 @@ function QuoteBuilder({ products, brands, onClose, onSaved }: { products: Produc
   const [customerName, setCustomerName] = useState("");
   const [brandSearch, setBrandSearch] = useState("");
   const [items, setItems] = useState<QuoteItem[]>([]);
-  const [discountPct, setDiscountPct] = useState(0);
   const [note, setNote] = useState("付款條件：月結 30 天　|　運費：滿 5,000 免運");
   const [validDays, setValidDays] = useState(30);
   const [saving, setSaving] = useState(false);
@@ -735,21 +734,25 @@ function QuoteBuilder({ products, brands, onClose, onSaved }: { products: Produc
   const [buyerContact, setBuyerContact] = useState("");
   const [buyerPhone, setBuyerPhone] = useState("");
   const [showListPrice, setShowListPrice] = useState(false);
+  const [company, setCompany] = useState<CompanyInfo>(DEFAULT_COMPANY);
+
+  useEffect(() => {
+    fetch("/api/company").then((r) => r.json()).then((d) => { if (d.success) setCompany(d.data); }).catch(() => {});
+  }, []);
 
   const addProduct = (p: Product) => {
     setItems((prev) => {
       const exist = prev.find((it) => it.product_id === p.id);
       if (exist) return prev.map((it) => it.product_id === p.id ? { ...it, qty: it.qty + 1 } : it);
-      return [...prev, { product_id: p.id, name: p.name, sku: p.sku, spec: p.spec, unit: p.unit, unit_price: p.channel_price, list_price: p.list_price, qty: Math.max(1, p.min_order) }];
+      // list_price 快照存「通路價格」；unit_price 為可直接編輯的「進貨價格」(預設=通路價)
+      return [...prev, { product_id: p.id, name: p.name, sku: p.sku, spec: p.spec, unit: p.unit, unit_price: p.channel_price, list_price: p.channel_price, qty: Math.max(1, p.min_order) }];
     });
   };
   const updateItem = (i: number, patch: Partial<QuoteItem>) =>
     setItems((prev) => prev.map((it, idx) => idx === i ? { ...it, ...patch } : it));
   const removeItem = (i: number) => setItems((prev) => prev.filter((_, idx) => idx !== i));
 
-  const subtotal = useMemo(() => items.reduce((s, it) => s + (Number(it.unit_price) || 0) * (Number(it.qty) || 0), 0), [items]);
-  const discountAmt = Math.round((subtotal * discountPct) / 100);
-  const total = subtotal - discountAmt;
+  const total = useMemo(() => items.reduce((s, it) => s + (Number(it.unit_price) || 0) * (Number(it.qty) || 0), 0), [items]);
 
   const filteredBrands = brandSearch
     ? brands.filter((b) => b.name.includes(brandSearch)).slice(0, 8)
@@ -768,7 +771,7 @@ function QuoteBuilder({ products, brands, onClose, onSaved }: { products: Produc
         buyer_contact: buyerContact || null,
         buyer_phone: buyerPhone || null,
         show_list_price: showListPrice,
-        discount_pct: discountPct, note, valid_days: validDays, items,
+        discount_pct: 0, note, valid_days: validDays, items,
       }),
     });
     setSaving(false);
@@ -820,18 +823,32 @@ function QuoteBuilder({ products, brands, onClose, onSaved }: { products: Produc
           {/* 對方公司其他資訊 + 我方業務（皆非必填，可收折） */}
           <details style={{ marginBottom: 14, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
             <summary style={{ padding: "8px 11px", fontSize: 12, color: C.muted, cursor: "pointer", background: C.surf2, fontWeight: 600 }}>客戶聯絡資訊／我方業務（選填）</summary>
-            <div style={{ padding: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-              <div><label style={{ fontSize: 10, color: C.muted, display: "block", marginBottom: 3 }}>對方統一編號</label><input style={inputStyle} value={buyerTaxId} onChange={(e) => setBuyerTaxId(e.target.value)} placeholder="8 碼統編" /></div>
-              <div><label style={{ fontSize: 10, color: C.muted, display: "block", marginBottom: 3 }}>聯絡窗口</label><input style={inputStyle} value={buyerContact} onChange={(e) => setBuyerContact(e.target.value)} placeholder="姓名／職稱" /></div>
-              <div><label style={{ fontSize: 10, color: C.muted, display: "block", marginBottom: 3 }}>聯絡電話</label><input style={inputStyle} value={buyerPhone} onChange={(e) => setBuyerPhone(e.target.value)} placeholder="電話／手機" /></div>
-              <div><label style={{ fontSize: 10, color: C.muted, display: "block", marginBottom: 3 }}>報價業務（我方）</label><input style={inputStyle} value={salesRep} onChange={(e) => setSalesRep(e.target.value)} placeholder="承辦業務姓名" /></div>
+            <div style={{ padding: 12 }}>
+              {/* 我方公司基本資料（參考全域設定，唯讀） */}
+              <div style={{ background: C.surf2, borderRadius: 8, padding: "8px 10px", marginBottom: 10 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, marginBottom: 3 }}>我方（賣方）· 來自設定→全域</div>
+                <div style={{ fontSize: 12, color: C.text }}>{company.name}</div>
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>
+                  {[company.taxId && `統編 ${company.taxId}`, company.phone, company.address].filter(Boolean).join("　·　") || "（可在設定→全域填寫）"}
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+                <div>
+                  <label style={{ fontSize: 10, color: C.muted, display: "block", marginBottom: 3 }}>報價業務（我方）</label>
+                  <input style={inputStyle} list="salesrep-list" value={salesRep} onChange={(e) => setSalesRep(e.target.value)} placeholder={company.salesReps.length ? "選擇或輸入業務" : "承辦業務姓名"} />
+                  <datalist id="salesrep-list">{company.salesReps.map((r) => <option key={r} value={r} />)}</datalist>
+                </div>
+                <div><label style={{ fontSize: 10, color: C.muted, display: "block", marginBottom: 3 }}>對方統一編號</label><input style={inputStyle} value={buyerTaxId} onChange={(e) => setBuyerTaxId(e.target.value)} placeholder="8 碼統編" /></div>
+                <div><label style={{ fontSize: 10, color: C.muted, display: "block", marginBottom: 3 }}>對方聯絡窗口</label><input style={inputStyle} value={buyerContact} onChange={(e) => setBuyerContact(e.target.value)} placeholder="姓名／職稱" /></div>
+                <div><label style={{ fontSize: 10, color: C.muted, display: "block", marginBottom: 3 }}>對方聯絡電話</label><input style={inputStyle} value={buyerPhone} onChange={(e) => setBuyerPhone(e.target.value)} placeholder="電話／手機" /></div>
+              </div>
             </div>
           </details>
 
-          {/* 標準售價顯示開關 */}
+          {/* 通路價格顯示開關 */}
           <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, fontSize: 12.5, color: C.text, cursor: "pointer" }}>
             <input type="checkbox" checked={showListPrice} onChange={(e) => setShowListPrice(e.target.checked)} style={{ width: 15, height: 15, cursor: "pointer", accentColor: C.primary }} />
-            在報價單顯示「標準售價」欄
+            在報價單顯示「通路價格」欄（對照用）
           </label>
 
           {/* 品項 */}
@@ -846,13 +863,16 @@ function QuoteBuilder({ products, brands, onClose, onSaved }: { products: Produc
                     <div style={{ fontSize: 11, color: C.muted }}>{it.sku ? `型號 ${it.sku}` : ""}{it.sku && it.spec ? " · " : ""}{it.spec || ""}</div>
                   </div>
                   {showListPrice && (
-                    <div style={{ width: 70, textAlign: "right" }} title="標準售價">
-                      <div style={{ fontSize: 9, color: C.muted }}>標準售價</div>
-                      <div style={{ fontSize: 12, color: C.muted, textDecoration: "line-through", fontVariantNumeric: "tabular-nums" }}>{it.list_price != null ? money(it.list_price) : "—"}</div>
+                    <div style={{ width: 70, textAlign: "right" }} title="通路價格">
+                      <div style={{ fontSize: 9, color: C.muted }}>通路價格</div>
+                      <div style={{ fontSize: 12, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{it.list_price != null ? money(it.list_price) : "—"}</div>
                     </div>
                   )}
-                  <input type="number" value={it.unit_price} onChange={(e) => updateItem(i, { unit_price: Number(e.target.value) })}
-                    style={{ width: 76, padding: "5px 7px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, textAlign: "right", background: C.surface, color: C.text }} title="單價" />
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 9, color: C.muted }}>進貨價格</div>
+                    <input type="number" value={it.unit_price} onChange={(e) => updateItem(i, { unit_price: Number(e.target.value) })}
+                      style={{ width: 76, padding: "5px 7px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, textAlign: "right", background: C.surface, color: C.text }} title="進貨價格（直接輸入，等於單品折扣後的價格）" />
+                  </div>
                   <span style={{ color: C.muted, fontSize: 12 }}>×</span>
                   <input type="number" value={it.qty} onChange={(e) => updateItem(i, { qty: Number(e.target.value) })}
                     style={{ width: 54, padding: "5px 7px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, textAlign: "right", background: C.surface, color: C.text }} title="數量" />
@@ -863,16 +883,9 @@ function QuoteBuilder({ products, brands, onClose, onSaved }: { products: Produc
             </div>
           )}
 
-          {/* 折扣 + 合計 */}
+          {/* 合計（單品折扣已直接反映在進貨價格，無總折扣列） */}
           <div style={{ marginTop: 14, padding: 12, background: C.surf2, borderRadius: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.muted, marginBottom: 6 }}>
-              <span>小計</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{money(subtotal)}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: C.muted, marginBottom: 6 }}>
-              <span>折扣 <input type="number" value={discountPct} onChange={(e) => setDiscountPct(Number(e.target.value))} style={{ width: 48, padding: "3px 6px", borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, textAlign: "right", background: C.surface, color: C.text }} /> %</span>
-              <span style={{ color: C.danger, fontVariantNumeric: "tabular-nums" }}>-{money(discountAmt)}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16, fontWeight: 700, color: C.text, borderTop: `1px solid ${C.border}`, paddingTop: 8, marginTop: 4 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16, fontWeight: 700, color: C.text }}>
               <span>總計</span><span style={{ color: C.primary, fontVariantNumeric: "tabular-nums" }}>{money(total)}</span>
             </div>
           </div>
@@ -1031,8 +1044,6 @@ function QuoteView({ quote, onClose, onChanged }: { quote: Quote; onClose: () =>
       "",
       ...items.map((it) => `${it.name}${it.spec ? `（${it.spec}）` : ""}　${money(it.unit_price)} × ${it.qty} = ${money((it.unit_price || 0) * it.qty)}`),
       "",
-      `小計：${money(quote.subtotal)}`,
-      ...(quote.discount_amt > 0 ? [`折扣（${quote.discount_pct}%）：-${money(quote.discount_amt)}`] : []),
       `總計：${money(quote.total)}`,
       "",
       quote.note || "",
@@ -1083,8 +1094,8 @@ function QuoteView({ quote, onClose, onChanged }: { quote: Quote; onClose: () =>
             <tr style={{ fontSize: 11, color: C.muted, textAlign: "left" }}>
               <th style={{ padding: "6px 4px", borderBottom: `1px solid ${C.border}` }}>品項</th>
               <th style={{ padding: "6px 4px", borderBottom: `1px solid ${C.border}` }}>型號</th>
-              {quote.show_list_price && <th style={{ padding: "6px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right" }}>標準售價</th>}
-              <th style={{ padding: "6px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right" }}>單價</th>
+              {quote.show_list_price && <th style={{ padding: "6px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right" }}>通路價格</th>}
+              <th style={{ padding: "6px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right" }}>進貨價格</th>
               <th style={{ padding: "6px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right" }}>數量</th>
               <th style={{ padding: "6px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right" }}>總價</th>
             </tr>
@@ -1096,7 +1107,7 @@ function QuoteView({ quote, onClose, onChanged }: { quote: Quote; onClose: () =>
                   {it.name}{it.spec ? <span style={{ color: C.muted, fontSize: 11 }}> {it.spec}</span> : ""}
                 </td>
                 <td style={{ padding: "9px 4px", borderBottom: `1px solid ${C.border}`, fontSize: 11, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{it.sku || "—"}</td>
-                {quote.show_list_price && <td style={{ padding: "9px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right", color: C.muted, textDecoration: "line-through", fontVariantNumeric: "tabular-nums" }}>{it.list_price != null ? money(it.list_price) : "—"}</td>}
+                {quote.show_list_price && <td style={{ padding: "9px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right", color: C.muted, fontVariantNumeric: "tabular-nums" }}>{it.list_price != null ? money(it.list_price) : "—"}</td>}
                 <td style={{ padding: "9px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(it.unit_price)}</td>
                 <td style={{ padding: "9px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right" }}>{it.qty} {it.unit}</td>
                 <td style={{ padding: "9px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{money((it.unit_price || 0) * it.qty)}</td>
@@ -1106,14 +1117,6 @@ function QuoteView({ quote, onClose, onChanged }: { quote: Quote; onClose: () =>
         </table>
 
         <div style={{ marginTop: 14, marginLeft: "auto", maxWidth: 240 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.muted, marginBottom: 5 }}>
-            <span>小計</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{money(quote.subtotal)}</span>
-          </div>
-          {quote.discount_amt > 0 && (
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.danger, marginBottom: 5 }}>
-              <span>折扣 {quote.discount_pct}%</span><span style={{ fontVariantNumeric: "tabular-nums" }}>-{money(quote.discount_amt)}</span>
-            </div>
-          )}
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16, fontWeight: 700, color: C.text, borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
             <span>總計</span><span style={{ color: C.primary, fontVariantNumeric: "tabular-nums" }}>{money(quote.total)}</span>
           </div>
