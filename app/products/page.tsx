@@ -74,6 +74,16 @@ export default function ProductsPage() {
   const [brands, setBrands] = useState<BrandLite[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<"card" | "list">("card");
+
+  useEffect(() => {
+    const saved = typeof window !== "undefined" ? window.localStorage.getItem("products_view") : null;
+    if (saved === "card" || saved === "list") setView(saved);
+  }, []);
+  const changeView = (v: "card" | "list") => {
+    setView(v);
+    try { window.localStorage.setItem("products_view", v); } catch { /* localStorage 不可用時忽略 */ }
+  };
 
   const loadCategories = () => {
     fetch("/api/product-categories")
@@ -182,22 +192,32 @@ export default function ProductsPage() {
       )}
 
       {/* Tabs */}
-      <div style={{ display: "flex", gap: 4, padding: "8px 20px", background: C.surface, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+      <div style={{ display: "flex", gap: 4, padding: "8px 20px", background: C.surface, borderBottom: `1px solid ${C.border}`, flexShrink: 0, alignItems: "center" }}>
         {([["products", `產品資料（${products.length}）`], ["quotes", `報價單（${quotes.length}）`]] as const).map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)}
             style={{ padding: "6px 16px", borderRadius: 8, fontSize: 13, fontWeight: tab === k ? 700 : 400, border: "none", background: tab === k ? C.p50 : "transparent", color: tab === k ? C.primary : C.muted, cursor: "pointer" }}>
             {label}
           </button>
         ))}
+        {/* 檢視切換：卡片 / 列表 */}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 2, padding: 2, background: C.surf2, borderRadius: 9 }}>
+          {([["card", "▦ 卡片"], ["list", "☰ 列表"]] as const).map(([v, label]) => (
+            <button key={v} onClick={() => changeView(v)}
+              title={v === "card" ? "卡片檢視" : "列表檢視"}
+              style={{ padding: "5px 12px", borderRadius: 7, fontSize: 12.5, fontWeight: view === v ? 700 : 400, border: "none", background: view === v ? C.surface : "transparent", color: view === v ? C.primary : C.muted, cursor: "pointer", boxShadow: view === v ? "0 1px 3px rgba(0,0,0,.08)" : "none" }}>
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "18px 20px 90px", background: C.bg }}>
         {loading ? (
           <div style={{ textAlign: "center", color: C.muted, padding: 40 }}>載入中…</div>
         ) : tab === "products" ? (
-          <ProductGrid products={products} categories={categories} onEdit={setEditProduct} onChanged={loadProducts} onCatChanged={loadCategories} />
+          <ProductGrid products={products} categories={categories} view={view} onEdit={setEditProduct} onChanged={loadProducts} onCatChanged={loadCategories} />
         ) : (
-          <QuoteList quotes={quotes} onView={setViewQuote} />
+          <QuoteList quotes={quotes} view={view} onView={setViewQuote} />
         )}
       </div>
 
@@ -227,8 +247,8 @@ export default function ProductsPage() {
 }
 
 // ── 產品卡片網格（依分類分組、可拖拉改分類）──────────
-function ProductGrid({ products, categories, onEdit, onChanged, onCatChanged }: {
-  products: Product[]; categories: Category[]; onEdit: (p: Product) => void; onChanged: () => void; onCatChanged: () => void;
+function ProductGrid({ products, categories, view, onEdit, onChanged, onCatChanged }: {
+  products: Product[]; categories: Category[]; view: "card" | "list"; onEdit: (p: Product) => void; onChanged: () => void; onCatChanged: () => void;
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [overCat, setOverCat] = useState<string | null>(null); // 拖到哪個分類（"" = 未分類）
@@ -318,6 +338,35 @@ function ProductGrid({ products, categories, onEdit, onChanged, onCatChanged }: 
             {g.items.length === 0 ? (
               <div style={{ fontSize: 12, color: C.muted, padding: "14px 0", textAlign: "center", border: `1px dashed ${C.border}`, borderRadius: 10 }}>
                 拖拉產品到這裡加入「{g.name}」
+              </div>
+            ) : view === "list" ? (
+              <div style={{ overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 640 }}>
+                  <thead>
+                    <tr style={{ fontSize: 11, color: C.muted, textAlign: "left", background: C.surf2 }}>
+                      <th style={{ padding: "8px 10px", width: 32 }}></th>
+                      <th style={{ padding: "8px 10px" }}>產品</th>
+                      <th style={{ padding: "8px 10px", textAlign: "right" }}>通路價</th>
+                      <th style={{ padding: "8px 10px", textAlign: "right" }}>建議售價</th>
+                      <th style={{ padding: "8px 10px", textAlign: "right" }}>毛利</th>
+                      <th style={{ padding: "8px 10px", textAlign: "center" }}>狀態</th>
+                      <th style={{ padding: "8px 10px", textAlign: "right" }}>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {g.items.map((p) => (
+                      <ProductRow
+                        key={p.id} p={p} accent={colorOf(p.category)}
+                        dragging={dragId === p.id}
+                        selected={selected.has(p.id)}
+                        onToggleSelect={() => toggleSel(p.id)}
+                        onDragStart={() => setDragId(p.id)}
+                        onDragEnd={() => { setDragId(null); setOverCat(null); }}
+                        onEdit={onEdit} onChanged={onChanged}
+                      />
+                    ))}
+                  </tbody>
+                </table>
               </div>
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
@@ -422,6 +471,58 @@ function ProductCard({ p, accent, dragging, selected, onToggleSelect, onDragStar
         <button onClick={deleteProduct} title="永久刪除" style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.danger, fontSize: 12, cursor: "pointer" }}>刪除</button>
       </div>
     </div>
+  );
+}
+
+// ── 單一產品列（列表檢視）────────────────────────────
+function ProductRow({ p, accent, dragging, selected, onToggleSelect, onDragStart, onDragEnd, onEdit, onChanged }: {
+  p: Product; accent: string; dragging: boolean; selected: boolean; onToggleSelect: () => void; onDragStart: () => void; onDragEnd: () => void; onEdit: (p: Product) => void; onChanged: () => void;
+}) {
+  const margin = p.channel_price > 0 ? Math.round(((p.channel_price - p.cost_price) / p.channel_price) * 100) : 0;
+  const toggleActive = async () => {
+    await fetch(`/api/products/${p.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_active: !p.is_active }) });
+    onChanged();
+  };
+  const deleteProduct = async () => {
+    if (!confirm(`確定永久刪除「${p.name}」？此操作無法復原。\n（若只是暫時不用，建議改用「停用」）`)) return;
+    const res = await fetch(`/api/products/${p.id}`, { method: "DELETE" });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok || !d.success) { alert(d.error || "刪除失敗"); return; }
+    onChanged();
+  };
+  const td: React.CSSProperties = { padding: "9px 10px", borderTop: `1px solid ${C.border}`, fontSize: 13, color: C.text, verticalAlign: "middle" };
+  const iconBtn: React.CSSProperties = { padding: "4px 8px", borderRadius: 7, border: `1px solid ${C.border}`, background: C.surface, fontSize: 12, cursor: "pointer" };
+  return (
+    <tr draggable onDragStart={onDragStart} onDragEnd={onDragEnd}
+      style={{ background: selected ? `${accent}10` : "transparent", opacity: dragging ? 0.4 : (p.is_active ? 1 : 0.55), cursor: "grab" }}>
+      <td style={{ ...td, textAlign: "center" }}>
+        <input type="checkbox" checked={selected} onChange={onToggleSelect} onClick={(e) => e.stopPropagation()} style={{ width: 15, height: 15, cursor: "pointer", accentColor: accent }} />
+      </td>
+      <td style={td}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: accent, flexShrink: 0 }} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 600 }}>{p.name}</div>
+            <div style={{ fontSize: 11, color: C.muted }}>{p.sku || ""}{p.spec ? `${p.sku ? " · " : ""}${p.spec}` : ""}</div>
+          </div>
+        </div>
+      </td>
+      <td style={{ ...td, textAlign: "right", fontWeight: 700, color: C.primary, fontVariantNumeric: "tabular-nums" }}>{money(p.channel_price)}</td>
+      <td style={{ ...td, textAlign: "right", color: C.muted, textDecoration: "line-through", fontVariantNumeric: "tabular-nums" }}>{money(p.list_price)}</td>
+      <td style={{ ...td, textAlign: "right", color: margin > 0 ? C.success : C.muted, fontWeight: 600 }}>{margin > 0 ? `${margin}%` : "—"}</td>
+      <td style={{ ...td, textAlign: "center" }}>
+        <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 999, background: p.is_active ? C.successBg : C.surf2, color: p.is_active ? C.success : C.muted }}>
+          {p.is_active ? "啟用中" : "已停用"}
+        </span>
+      </td>
+      <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
+        <div style={{ display: "inline-flex", gap: 5 }}>
+          <button onClick={() => onEdit(p)} style={iconBtn}>編輯</button>
+          <button onClick={toggleActive} style={{ ...iconBtn, color: p.is_active ? "#D97706" : C.success }}>{p.is_active ? "停用" : "啟用"}</button>
+          <button onClick={deleteProduct} style={{ ...iconBtn, color: C.danger }}>刪除</button>
+        </div>
+      </td>
+    </tr>
   );
 }
 
@@ -760,10 +861,50 @@ function QuoteBuilder({ products, brands, onClose, onSaved }: { products: Produc
 }
 
 // ── 報價單列表 ───────────────────────────────────────
-function QuoteList({ quotes, onView }: { quotes: Quote[]; onView: (q: Quote) => void }) {
+function QuoteList({ quotes, view, onView }: { quotes: Quote[]; view: "card" | "list"; onView: (q: Quote) => void }) {
   if (quotes.length === 0) {
     return <div style={{ textAlign: "center", color: C.muted, padding: 40 }}>尚無報價單，點右上「新增報價單」開始建立。</div>;
   }
+
+  if (view === "list") {
+    const td: React.CSSProperties = { padding: "10px 12px", borderTop: `1px solid ${C.border}`, fontSize: 13, color: C.text };
+    return (
+      <div style={{ overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 620 }}>
+          <thead>
+            <tr style={{ fontSize: 11, color: C.muted, textAlign: "left", background: C.surf2 }}>
+              <th style={{ padding: "8px 12px" }}>客戶</th>
+              <th style={{ padding: "8px 12px" }}>報價單號</th>
+              <th style={{ padding: "8px 12px", textAlign: "center" }}>項數</th>
+              <th style={{ padding: "8px 12px" }}>日期</th>
+              <th style={{ padding: "8px 12px", textAlign: "center" }}>狀態</th>
+              <th style={{ padding: "8px 12px", textAlign: "right" }}>金額</th>
+            </tr>
+          </thead>
+          <tbody>
+            {quotes.map((q) => {
+              const st = QUOTE_STATUS[q.status] || QUOTE_STATUS.draft;
+              return (
+                <tr key={q.id} onClick={() => onView(q)} className="pressable" style={{ cursor: "pointer" }}>
+                  <td style={{ ...td, fontWeight: 600 }}>{q.customer_name || q.brands?.name || "未指定客戶"}</td>
+                  <td style={{ ...td, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{q.quote_no}</td>
+                  <td style={{ ...td, textAlign: "center", color: C.muted }}>{q.quote_items?.length || 0}</td>
+                  <td style={{ ...td, color: C.muted }}>{new Date(q.created_at).toLocaleDateString("zh-TW")}</td>
+                  <td style={{ ...td, textAlign: "center" }}>
+                    <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 999, background: st.bg, color: st.fg }}>{st.label}</span>
+                  </td>
+                  <td style={{ ...td, textAlign: "right", fontWeight: 700, color: C.primary, fontVariantNumeric: "tabular-nums" }}>
+                    {money(q.total)}{q.discount_amt > 0 && <span style={{ fontSize: 10, color: C.muted, fontWeight: 400 }}> 折{q.discount_pct}%</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {quotes.map((q) => {
