@@ -5,6 +5,7 @@ import { dispatchEmail } from "@/lib/outreach/dispatchEmail";
 import { runSendBatch } from "@/lib/outreach/runSend";
 import { getSendCaps, sentToday } from "@/lib/outreach/throttle";
 import { notifyLine } from "@/lib/notify/line";
+import { buildDailyReport } from "@/lib/notify/dailyMetrics";
 import { scanBounces } from "@/lib/outreach/scanBounces";
 
 export const runtime = "nodejs";
@@ -188,10 +189,18 @@ export async function GET(req: Request) {
       if (advancedSeq > 0) notes.push(`🔄 序列推進 ${advancedSeq} 筆`);
     } catch { /* 序列推進失敗不影響其他工作 */ }
 
-    // ── LINE 通知 ────────────────────────────────────
-    if (notes.length > 0) {
-      const summary = `【電子報自動化】\n${notes.join("\n")}\n合計成功 ${totalSent}、失敗 ${totalFailed}。`;
-      await notifyLine(summary);
+    // ── LINE 早報（彙整：今日進度 + 平台數據 vs 昨日）──
+    // 把本次排程實際執行的動作（寄信/退信/序列）一併納入彙整
+    const execNotes = [...notes];
+    if (totalSent + totalFailed > 0) execNotes.push(`自動化合計：成功 ${totalSent}、失敗 ${totalFailed}`);
+    try {
+      const message = await buildDailyReport(execNotes);
+      await notifyLine(message);
+    } catch {
+      // 彙整失敗時退回簡易摘要，確保仍有通知
+      if (notes.length > 0) {
+        await notifyLine(`【電子報自動化】\n${notes.join("\n")}\n合計成功 ${totalSent}、失敗 ${totalFailed}。`);
+      }
     }
 
     return NextResponse.json({
