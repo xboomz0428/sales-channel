@@ -232,8 +232,21 @@ function ProductGrid({ products, categories, onEdit, onChanged, onCatChanged }: 
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [overCat, setOverCat] = useState<string | null>(null); // 拖到哪個分類（"" = 未分類）
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const colorOf = (catName: string | null) => categories.find((c) => c.name === catName)?.color || C.border;
+
+  const toggleSel = (id: string) => setSelected((s) => {
+    const n = new Set(s);
+    n.has(id) ? n.delete(id) : n.add(id);
+    return n;
+  });
+  const clearSel = () => setSelected(new Set());
+  const setGroupSel = (ids: string[], on: boolean) => setSelected((s) => {
+    const n = new Set(s);
+    ids.forEach((id) => (on ? n.add(id) : n.delete(id)));
+    return n;
+  });
 
   const reassign = async (productId: string, catName: string | null) => {
     setDragId(null); setOverCat(null);
@@ -243,6 +256,19 @@ function ProductGrid({ products, categories, onEdit, onChanged, onCatChanged }: 
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ category: catName }),
     });
+    onChanged();
+  };
+
+  // 批次移動已勾選產品到指定分類（"" = 未分類）
+  const bulkMove = async (catName: string) => {
+    if (selected.size === 0) return;
+    const res = await fetch(`/api/products/bulk`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: [...selected], category: catName || null }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok || !d.success) { alert(d.error || "移動失敗"); return; }
+    clearSel();
     onChanged();
   };
 
@@ -264,11 +290,13 @@ function ProductGrid({ products, categories, onEdit, onChanged, onCatChanged }: 
   return (
     <>
       <CategoryBar categories={categories} onChanged={onCatChanged} />
-      <div style={{ fontSize: 12, color: C.muted, margin: "4px 0 14px" }}>💡 拖拉產品卡片到其他分類即可改變分類</div>
+      <div style={{ fontSize: 12, color: C.muted, margin: "4px 0 14px" }}>💡 拖拉產品卡片到其他分類即可改變分類，或勾選多個產品批次移動</div>
 
       {groups.map((g) => {
         if (g.name === "" && g.items.length === 0) return null; // 未分類沒東西就不顯示
         const isOver = overCat === g.name && dragId;
+        const groupIds = g.items.map((p) => p.id);
+        const allSelInGroup = groupIds.length > 0 && groupIds.every((id) => selected.has(id));
         return (
           <div
             key={g.name || "__none__"}
@@ -280,6 +308,12 @@ function ProductGrid({ products, categories, onEdit, onChanged, onCatChanged }: 
               <span style={{ width: 12, height: 12, borderRadius: 3, background: g.name ? g.color : C.border }} />
               <span style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{g.name || "未分類"}</span>
               <span style={{ fontSize: 11, color: C.muted }}>（{g.items.length}）</span>
+              {g.items.length > 0 && (
+                <button onClick={() => setGroupSel(groupIds, !allSelInGroup)}
+                  style={{ fontSize: 11, color: C.primary, background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }}>
+                  {allSelInGroup ? "取消全選" : "全選此組"}
+                </button>
+              )}
             </div>
             {g.items.length === 0 ? (
               <div style={{ fontSize: 12, color: C.muted, padding: "14px 0", textAlign: "center", border: `1px dashed ${C.border}`, borderRadius: 10 }}>
@@ -291,6 +325,8 @@ function ProductGrid({ products, categories, onEdit, onChanged, onCatChanged }: 
                   <ProductCard
                     key={p.id} p={p} accent={colorOf(p.category)}
                     dragging={dragId === p.id}
+                    selected={selected.has(p.id)}
+                    onToggleSelect={() => toggleSel(p.id)}
                     onDragStart={() => setDragId(p.id)}
                     onDragEnd={() => { setDragId(null); setOverCat(null); }}
                     onEdit={onEdit} onChanged={onChanged}
@@ -301,13 +337,27 @@ function ProductGrid({ products, categories, onEdit, onChanged, onCatChanged }: 
           </div>
         );
       })}
+
+      {/* 批次操作列（有勾選才出現，固定底部） */}
+      {selected.size > 0 && (
+        <div style={{ position: "fixed", left: "50%", bottom: 78, transform: "translateX(-50%)", zIndex: 400, background: C.text, color: "white", borderRadius: 14, padding: "10px 14px", display: "flex", alignItems: "center", gap: 12, boxShadow: "0 12px 32px rgba(0,0,0,.28)", flexWrap: "wrap", maxWidth: "94vw" }}>
+          <span style={{ fontSize: 13, fontWeight: 700 }}>已選 {selected.size} 個</span>
+          <select defaultValue="" onChange={(e) => { if (e.target.value !== "") { bulkMove(e.target.value === "__none__" ? "" : e.target.value); e.target.value = ""; } }}
+            style={{ padding: "7px 10px", borderRadius: 9, border: "none", fontSize: 13, background: "white", color: C.text, cursor: "pointer", fontWeight: 600 }}>
+            <option value="">移動到分類…</option>
+            {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+            <option value="__none__">未分類</option>
+          </select>
+          <button onClick={clearSel} style={{ padding: "7px 12px", borderRadius: 9, border: "1px solid rgba(255,255,255,.3)", background: "transparent", color: "white", fontSize: 13, cursor: "pointer" }}>取消選取</button>
+        </div>
+      )}
     </>
   );
 }
 
 // ── 單一產品卡片 ─────────────────────────────────────
-function ProductCard({ p, accent, dragging, onDragStart, onDragEnd, onEdit, onChanged }: {
-  p: Product; accent: string; dragging: boolean; onDragStart: () => void; onDragEnd: () => void; onEdit: (p: Product) => void; onChanged: () => void;
+function ProductCard({ p, accent, dragging, selected, onToggleSelect, onDragStart, onDragEnd, onEdit, onChanged }: {
+  p: Product; accent: string; dragging: boolean; selected: boolean; onToggleSelect: () => void; onDragStart: () => void; onDragEnd: () => void; onEdit: (p: Product) => void; onChanged: () => void;
 }) {
   const margin = p.channel_price > 0 ? Math.round(((p.channel_price - p.cost_price) / p.channel_price) * 100) : 0;
   const toggleActive = async () => {
@@ -326,13 +376,17 @@ function ProductCard({ p, accent, dragging, onDragStart, onDragEnd, onEdit, onCh
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      style={{ background: C.surface, border: `1px solid ${C.border}`, borderLeft: `4px solid ${accent}`, borderRadius: 14, padding: 16, opacity: dragging ? 0.4 : (p.is_active ? 1 : 0.55), cursor: "grab" }}
+      style={{ background: selected ? `${accent}10` : C.surface, border: selected ? `1px solid ${accent}` : `1px solid ${C.border}`, borderLeft: `4px solid ${accent}`, borderRadius: 14, padding: 16, opacity: dragging ? 0.4 : (p.is_active ? 1 : 0.55), cursor: "grab", boxShadow: selected ? `0 0 0 2px ${accent}33` : "none" }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{p.name}</div>
-          <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
-            {p.sku ? `${p.sku}` : ""}{p.spec ? `${p.sku ? " · " : ""}${p.spec}` : ""}
+        <div style={{ display: "flex", gap: 9, alignItems: "flex-start" }}>
+          <input type="checkbox" checked={selected} onChange={onToggleSelect} onClick={(e) => e.stopPropagation()}
+            title="勾選以批次操作" style={{ marginTop: 3, width: 16, height: 16, cursor: "pointer", accentColor: accent }} />
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{p.name}</div>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+              {p.sku ? `${p.sku}` : ""}{p.spec ? `${p.sku ? " · " : ""}${p.spec}` : ""}
+            </div>
           </div>
         </div>
         {p.category && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 999, background: `${accent}22`, color: accent, whiteSpace: "nowrap", fontWeight: 700 }}>{p.category}</span>}
@@ -378,6 +432,27 @@ function CategoryBar({ categories, onChanged }: { categories: Category[]; onChan
   const [draftName, setDraftName] = useState("");
   const [draftColor, setDraftColor] = useState(CAT_COLORS[0]);
   const [err, setErr] = useState("");
+  // 分類拖拉排序：本地順序副本，拖放即時重排再持久化
+  const [localCats, setLocalCats] = useState<Category[]>(categories);
+  const [dragCatId, setDragCatId] = useState<string | null>(null);
+  useEffect(() => { setLocalCats(categories); }, [categories]);
+
+  const onDropCat = async (targetId: string) => {
+    if (!dragCatId || dragCatId === targetId) { setDragCatId(null); return; }
+    const from = localCats.findIndex((c) => c.id === dragCatId);
+    const to = localCats.findIndex((c) => c.id === targetId);
+    if (from < 0 || to < 0) { setDragCatId(null); return; }
+    const next = [...localCats];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setLocalCats(next);
+    setDragCatId(null);
+    await fetch("/api/product-categories", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order: next.map((c, i) => ({ id: c.id, sort_order: i })) }),
+    });
+    onChanged();
+  };
 
   const startAdd = () => { setAdding(true); setEditId(null); setDraftName(""); setDraftColor(CAT_COLORS[categories.length % CAT_COLORS.length]); setErr(""); };
   const startEdit = (c: Category) => { setEditId(c.id); setAdding(false); setDraftName(c.name); setDraftColor(c.color); setErr(""); };
@@ -408,9 +483,16 @@ function CategoryBar({ categories, onChanged }: { categories: Category[]; onChan
     <div style={{ marginBottom: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <span style={{ fontSize: 12, fontWeight: 700, color: C.muted }}>分類：</span>
-        {categories.map((c) => (
+        {localCats.map((c) => (
           <button key={c.id} onClick={() => startEdit(c)}
-            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 11px", borderRadius: 999, border: editId === c.id ? `2px solid ${c.color}` : `1px solid ${C.border}`, background: editId === c.id ? `${c.color}14` : C.surface, cursor: "pointer", fontSize: 12.5 }}>
+            draggable
+            onDragStart={() => setDragCatId(c.id)}
+            onDragEnd={() => setDragCatId(null)}
+            onDragOver={(e) => { if (dragCatId) e.preventDefault(); }}
+            onDrop={() => onDropCat(c.id)}
+            title="拖拉可排序，點擊可編輯"
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 11px", borderRadius: 999, border: editId === c.id ? `2px solid ${c.color}` : `1px solid ${C.border}`, background: editId === c.id ? `${c.color}14` : C.surface, cursor: "grab", fontSize: 12.5, opacity: dragCatId === c.id ? 0.4 : 1 }}>
+            <span style={{ color: C.muted, fontSize: 11, cursor: "grab" }}>⠿</span>
             <span style={{ width: 10, height: 10, borderRadius: 3, background: c.color }} />
             <span style={{ color: C.text, fontWeight: 600 }}>{c.name}</span>
             <span style={{ color: C.muted }}>{c.count ?? 0}</span>
