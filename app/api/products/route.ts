@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
+import { ensureCategory } from "@/lib/ensureCategory";
 
 /**
  * GET  /api/products       產品列表
@@ -51,6 +52,8 @@ export async function POST(request: NextRequest) {
       image_url: body.image_url || null,
       sort_order: Number(body.sort_order) || 0,
     };
+
+    if (insert.category) await ensureCategory(insert.category);
 
     const { data, error } = await supabase.from("products").insert([insert]).select().single();
     if (error) {

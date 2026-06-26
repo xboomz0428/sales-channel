@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
+import { ensureCategory } from "@/lib/ensureCategory";
 
 /**
  * PATCH  /api/products/:id          更新產品
@@ -21,6 +22,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     for (const key of ["list_price", "channel_price", "cost_price", "min_order", "lead_days", "sort_order"]) {
       if (body[key] !== undefined) patch[key] = Number(body[key]) || 0;
     }
+
+    if (body.category !== undefined && body.category) await ensureCategory(String(body.category));
 
     const { data, error } = await supabase
       .from("products")
