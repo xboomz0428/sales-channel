@@ -2,5 +2,10 @@
   "version": 2,
   "buildCommand": "npm run build",
   "devCommand": "npm run dev",
-  "installCommand": "npm install"
+  "installCommand": "npm install",
+  "crons": [
+    { "path": "/api/cron/outreach", "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/outreach-advance", "schedule": "0 1 * * *" },
+    { "path": "/api/cron/scan-bounces", "schedule": "30 */6 * * *" }
+  ]
 }

@@ -48,6 +48,10 @@ export default function NewsletterPage() {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [skipDup, setSkipDup] = useState(true); // 略過已寄送過相同模板的收件人
   const [removing, setRemoving] = useState(false);
+  // ① 排程寄送
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState('');
+  const [scheduling, setScheduling] = useState(false);
   const [result, setResult] = useState<SendResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [cfg, setCfg] = useState<{ mode: string; fromEmail: string | null; providerLabel?: string } | null>(null);
@@ -259,6 +263,40 @@ export default function NewsletterPage() {
     }
   }
 
+  // ① 建立排程寄送
+  async function doSchedule() {
+    if (!scheduleAt) { alert('請選擇排程時間'); return; }
+    const when = new Date(scheduleAt);
+    if (isNaN(when.getTime()) || when.getTime() < Date.now()) { alert('排程時間需晚於現在'); return; }
+    setScheduling(true);
+    try {
+      const brandIds = [...selected].filter((id) => !id.startsWith('manual_'));
+      const manualRecips = [...selected]
+        .filter((id) => id.startsWith('manual_'))
+        .map((id) => recipients.find((r) => r.id === id))
+        .filter((r): r is Recipient => !!r && !!r.email)
+        .map((r) => ({ name: r.name, email: r.email! }));
+      const res = await fetch('/api/outreach/schedule', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ templateId: tplId, brandIds, manualEmails: manualRecips, scheduledAt: when.toISOString(), skipDuplicates: skipDup }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setScheduleOpen(false);
+        setScheduleAt('');
+        setSelected(new Set());
+        alert(`已排程：${when.toLocaleString('zh-TW')} 寄出`);
+      } else {
+        alert(json.error || '排程失敗');
+      }
+    } catch {
+      alert('連線失敗');
+    } finally {
+      setScheduling(false);
+    }
+  }
+
   const canSend = tplId && selected.size > 0;
 
   return (
@@ -435,10 +473,41 @@ export default function NewsletterPage() {
           <input type="checkbox" checked={skipDup} onChange={(e) => setSkipDup(e.target.checked)} />
           略過已寄過此模板
         </label>
+        <a className="autolink" href="/outreach/automation" title="排程清單、自動跟進、節流設定">⚙ 自動化</a>
+        <button className="btn ghost" disabled={!canSend || sending} onClick={() => { setScheduleOpen(true); }}>
+          🕒 排程
+        </button>
         <button className="btn solid" disabled={!canSend || sending} onClick={() => setConfirm(true)}>
           {sending ? '寄送中…' : '寄送'}
         </button>
       </div>
+
+      {/* 排程對話框 */}
+      {scheduleOpen && (
+        <div className="overlay" onClick={() => setScheduleOpen(false)}>
+          <div className="dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>排程寄送</h3>
+            <p>把「<strong>{tpl?.name}</strong>」排定在指定時間自動寄給 <strong>{selected.size}</strong> 位。</p>
+            <input
+              className="in"
+              type="datetime-local"
+              value={scheduleAt}
+              min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
+              onChange={(e) => setScheduleAt(e.target.value)}
+              style={{ marginTop: 8 }}
+            />
+            <p className="muted small" style={{ marginTop: 8 }}>
+              系統每 5 分鐘檢查一次，到時自動分批寄送並套用每日上限。{skipDup ? '已開啟略過重複。' : ''}
+            </p>
+            <div className="dbtns">
+              <button className="btn ghost" onClick={() => setScheduleOpen(false)}>取消</button>
+              <button className="btn solid" disabled={scheduling || !scheduleAt} onClick={doSchedule}>
+                {scheduling ? '建立中…' : '確認排程'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 確認對話框 */}
       {confirm && (
@@ -536,6 +605,8 @@ export default function NewsletterPage() {
         .rmsel:disabled { opacity: 0.5; cursor: default; }
         .dupchk { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #5a6b4f; cursor: pointer; white-space: nowrap; user-select: none; }
         .dupchk input { width: 15px; height: 15px; accent-color: #4a6b3f; cursor: pointer; }
+        .autolink { font-size: 13px; color: #4a6b3f; text-decoration: none; white-space: nowrap; padding: 8px 10px; border-radius: 8px; }
+        .autolink:hover { background: #eef0e6; }
         .pbar { display: inline-block; width: 140px; height: 7px; background: #e6e2d6; border-radius: 999px; margin-left: 10px; vertical-align: middle; overflow: hidden; }
         .pbarfill { display: block; height: 100%; background: #4a6b3f; border-radius: 999px; transition: width 0.25s ease; }
         .btn { border: none; border-radius: 999px; padding: 10px 24px; font-size: 14px; cursor: pointer; font-family: inherit; text-decoration: none; display: inline-block; }

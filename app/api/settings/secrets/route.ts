@@ -49,6 +49,22 @@ const GROUPS: { group: string; note?: string; fields: Field[] }[] = [
       { key: "GOOGLE_CSE_ID", label: "Custom Search 引擎 ID（CSE ID）", type: "password", secret: true },
     ],
   },
+  {
+    group: "LINE 進度通知",
+    note: "LINE Notify 已停止服務，改用 Messaging API 廣播。建一個 LINE 官方帳號(bot)、把自己加為好友，貼上長期 access token，再把「啟用」設為 true。",
+    fields: [
+      { key: "LINE_NOTIFY_ENABLED", label: "啟用 LINE 通知", type: "select", options: ["false", "true"] },
+      { key: "LINE_CHANNEL_ACCESS_TOKEN", label: "LINE Channel Access Token", type: "password", secret: true },
+    ],
+  },
+  {
+    group: "寄送節流 / 暖機",
+    note: "保護寄件信箱信譽：每日上限是一天最多寄幾封；每批上限是排程器每 5 分鐘最多寄幾封。超出當日上限會自動排隊，隔天再寄。",
+    fields: [
+      { key: "EMAIL_DAILY_CAP", label: "每日寄送上限", placeholder: "300" },
+      { key: "EMAIL_PER_RUN", label: "每批（每 5 分鐘）上限", placeholder: "40" },
+    ],
+  },
 ];
 
 const ALL_KEYS = GROUPS.flatMap((g) => g.fields.map((f) => f.key));
