@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
 
     let query = supabase
       .from("quotes")
-      .select("*, brands(name), quote_items(id, name, spec, unit, unit_price, qty, amount, sort_order)")
+      .select("*, brands(name), quote_items(id, name, sku, spec, unit, unit_price, list_price, qty, amount, sort_order)")
       .order("created_at", { ascending: false });
 
     if (brandId) query = query.eq("brand_id", brandId);
@@ -30,9 +30,11 @@ export async function GET(request: NextRequest) {
 interface QuoteItemInput {
   product_id?: string | null;
   name: string;
+  sku?: string | null;
   spec?: string;
   unit?: string;
   unit_price: number;
+  list_price?: number;
   qty: number;
 }
 
@@ -53,9 +55,11 @@ export async function POST(request: NextRequest) {
       return {
         product_id: it.product_id || null,
         name: it.name,
+        sku: it.sku || null,
         spec: it.spec || null,
         unit: it.unit || "組",
         unit_price,
+        list_price: it.list_price != null ? Number(it.list_price) || 0 : null,
         qty,
         amount: unit_price * qty,
         sort_order: i,
@@ -83,6 +87,11 @@ export async function POST(request: NextRequest) {
         quote_no: quoteNo,
         brand_id: body.brand_id || null,
         customer_name: body.customer_name || null,
+        sales_rep: body.sales_rep || null,
+        buyer_tax_id: body.buyer_tax_id || null,
+        buyer_contact: body.buyer_contact || null,
+        buyer_phone: body.buyer_phone || null,
+        show_list_price: !!body.show_list_price,
         title: body.title || "產品報價單",
         status: body.status || "draft",
         valid_days: Number(body.valid_days) || 30,

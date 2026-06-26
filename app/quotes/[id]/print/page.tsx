@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useState, use } from "react";
+import { COMPANY } from "@/lib/company";
 
 interface QuoteItem {
   id: string;
   name: string;
+  sku: string | null;
   spec: string | null;
   unit: string;
   unit_price: number;
+  list_price: number | null;
   qty: number;
   amount: number;
   sort_order: number;
@@ -16,6 +19,11 @@ interface Quote {
   id: string;
   quote_no: string | null;
   customer_name: string | null;
+  sales_rep: string | null;
+  buyer_tax_id: string | null;
+  buyer_contact: string | null;
+  buyer_phone: string | null;
+  show_list_price: boolean;
   title: string;
   valid_days: number;
   subtotal: number;
@@ -71,7 +79,7 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
         .quote-no { font-size: 12px; color: #9DC4A8; margin-top: 4px; }
         .accent-bar { height: 4px; background: linear-gradient(90deg, #7DB892, #B5D4C0); margin-top: 20px; border-radius: 2px; }
         .body { padding: 32px 40px; }
-        .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 28px; }
+        .meta-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 28px; }
         .meta-card { background: #F5F3EE; border-radius: 10px; padding: 14px 18px; }
         .meta-label { font-size: 10px; font-weight: 700; color: #8A8678; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
         .meta-value { font-size: 16px; font-weight: 700; color: #2E4535; }
@@ -135,9 +143,24 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
           {/* Meta info */}
           <div className="meta-grid">
             <div className="meta-card">
-              <div className="meta-label">客戶名稱</div>
+              <div className="meta-label">買方（客戶）</div>
               <div className="meta-value">{customerName || "——"}</div>
-              {quote.brands?.email && <div className="meta-sub">{quote.brands.email}</div>}
+              <div className="meta-sub">
+                {quote.buyer_tax_id && <div>統一編號：{quote.buyer_tax_id}</div>}
+                {quote.buyer_contact && <div>聯絡窗口：{quote.buyer_contact}</div>}
+                {quote.buyer_phone && <div>聯絡電話：{quote.buyer_phone}</div>}
+                {quote.brands?.email && <div>{quote.brands.email}</div>}
+              </div>
+            </div>
+            <div className="meta-card">
+              <div className="meta-label">賣方（我方）</div>
+              <div className="meta-value">{COMPANY.name}</div>
+              <div className="meta-sub">
+                {COMPANY.taxId && <div>統一編號：{COMPANY.taxId}</div>}
+                {COMPANY.address && <div>{COMPANY.address}</div>}
+                <div>電話：{COMPANY.phone}</div>
+                {quote.sales_rep && <div>報價業務：{quote.sales_rep}</div>}
+              </div>
             </div>
             <div className="meta-card">
               <div className="meta-label">報價日期</div>
@@ -151,18 +174,22 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
           <table>
             <thead>
               <tr>
-                <th style={{ width: "40%" }}>品項名稱</th>
+                <th style={{ width: quote.show_list_price ? "32%" : "40%" }}>品項名稱</th>
+                <th>型號</th>
                 <th>規格</th>
+                {quote.show_list_price && <th className="right">標準售價</th>}
                 <th className="right">單價</th>
                 <th className="right">數量</th>
-                <th className="right">小計</th>
+                <th className="right">總價</th>
               </tr>
             </thead>
             <tbody>
               {items.map((it, i) => (
                 <tr key={it.id || i}>
                   <td>{it.name}</td>
+                  <td><div className="spec">{it.sku || "—"}</div></td>
                   <td><div className="spec">{it.spec || "—"}</div></td>
+                  {quote.show_list_price && <td className="right" style={{ color: "#999", textDecoration: "line-through" }}>{it.list_price != null ? money(it.list_price) : "—"}</td>}
                   <td className="right">{money(it.unit_price)}</td>
                   <td className="right">{it.qty} {it.unit}</td>
                   <td className="right" style={{ fontWeight: 700 }}>{money(it.unit_price * it.qty)}</td>
@@ -203,9 +230,9 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
         {/* Footer */}
         <div className="footer">
           <div className="footer-left">
-            <div>威斯邁國際有限公司</div>
-            <div>電話：(02)2631-8499　傳真：(02)2631-9577</div>
-            <div>service@wesmilegood.com　|　www.heroherb.co</div>
+            <div>{COMPANY.name}{COMPANY.taxId ? `　統編：${COMPANY.taxId}` : ""}</div>
+            <div>電話：{COMPANY.phone}　傳真：{COMPANY.fax}</div>
+            <div>{COMPANY.email}　|　{COMPANY.website}</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <div className="footer-right">

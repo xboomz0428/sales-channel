@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { C } from "@/lib/design";
 import MobileTabBar from "@/components/MobileTabBar";
+import { COMPANY } from "@/lib/company";
 
 // ── 型別 ─────────────────────────────────────────────
 interface Product {
@@ -25,9 +26,11 @@ interface QuoteItem {
   id?: string;
   product_id?: string | null;
   name: string;
+  sku?: string | null;
   spec?: string | null;
   unit?: string;
   unit_price: number;
+  list_price?: number | null;
   qty: number;
   amount?: number;
 }
@@ -36,6 +39,11 @@ interface Quote {
   quote_no: string | null;
   brand_id: string | null;
   customer_name: string | null;
+  sales_rep?: string | null;
+  buyer_tax_id?: string | null;
+  buyer_contact?: string | null;
+  buyer_phone?: string | null;
+  show_list_price?: boolean;
   title: string;
   status: string;
   valid_days: number;
@@ -721,12 +729,18 @@ function QuoteBuilder({ products, brands, onClose, onSaved }: { products: Produc
   const [note, setNote] = useState("付款條件：月結 30 天　|　運費：滿 5,000 免運");
   const [validDays, setValidDays] = useState(30);
   const [saving, setSaving] = useState(false);
+  // 我方業務 + 對方公司資訊（皆非必填）
+  const [salesRep, setSalesRep] = useState("");
+  const [buyerTaxId, setBuyerTaxId] = useState("");
+  const [buyerContact, setBuyerContact] = useState("");
+  const [buyerPhone, setBuyerPhone] = useState("");
+  const [showListPrice, setShowListPrice] = useState(false);
 
   const addProduct = (p: Product) => {
     setItems((prev) => {
       const exist = prev.find((it) => it.product_id === p.id);
       if (exist) return prev.map((it) => it.product_id === p.id ? { ...it, qty: it.qty + 1 } : it);
-      return [...prev, { product_id: p.id, name: p.name, spec: p.spec, unit: p.unit, unit_price: p.channel_price, qty: Math.max(1, p.min_order) }];
+      return [...prev, { product_id: p.id, name: p.name, sku: p.sku, spec: p.spec, unit: p.unit, unit_price: p.channel_price, list_price: p.list_price, qty: Math.max(1, p.min_order) }];
     });
   };
   const updateItem = (i: number, patch: Partial<QuoteItem>) =>
@@ -749,6 +763,11 @@ function QuoteBuilder({ products, brands, onClose, onSaved }: { products: Produc
       body: JSON.stringify({
         brand_id: brandId || null,
         customer_name: customerName || (brands.find((b) => b.id === brandId)?.name) || null,
+        sales_rep: salesRep || null,
+        buyer_tax_id: buyerTaxId || null,
+        buyer_contact: buyerContact || null,
+        buyer_phone: buyerPhone || null,
+        show_list_price: showListPrice,
         discount_pct: discountPct, note, valid_days: validDays, items,
       }),
     });
@@ -780,9 +799,9 @@ function QuoteBuilder({ products, brands, onClose, onSaved }: { products: Produc
 
         {/* 右：報價內容 */}
         <div style={{ flex: "2 1 360px", overflowY: "auto", padding: 16, minWidth: 0 }}>
-          {/* 客戶 */}
-          <div style={{ marginBottom: 14, position: "relative" }}>
-            <label style={{ fontSize: 11, color: C.muted, fontWeight: 600, display: "block", marginBottom: 4 }}>客戶</label>
+          {/* 客戶（對方公司名稱） */}
+          <div style={{ marginBottom: 10, position: "relative" }}>
+            <label style={{ fontSize: 11, color: C.muted, fontWeight: 600, display: "block", marginBottom: 4 }}>對方公司名稱</label>
             <input style={inputStyle} value={brandId ? (brands.find((b) => b.id === brandId)?.name || customerName) : brandSearch}
               onChange={(e) => { setBrandSearch(e.target.value); setBrandId(""); setCustomerName(e.target.value); }}
               placeholder="搜尋名單或直接輸入客戶名稱…" />
@@ -798,6 +817,23 @@ function QuoteBuilder({ products, brands, onClose, onSaved }: { products: Produc
             )}
           </div>
 
+          {/* 對方公司其他資訊 + 我方業務（皆非必填，可收折） */}
+          <details style={{ marginBottom: 14, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
+            <summary style={{ padding: "8px 11px", fontSize: 12, color: C.muted, cursor: "pointer", background: C.surf2, fontWeight: 600 }}>客戶聯絡資訊／我方業務（選填）</summary>
+            <div style={{ padding: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+              <div><label style={{ fontSize: 10, color: C.muted, display: "block", marginBottom: 3 }}>對方統一編號</label><input style={inputStyle} value={buyerTaxId} onChange={(e) => setBuyerTaxId(e.target.value)} placeholder="8 碼統編" /></div>
+              <div><label style={{ fontSize: 10, color: C.muted, display: "block", marginBottom: 3 }}>聯絡窗口</label><input style={inputStyle} value={buyerContact} onChange={(e) => setBuyerContact(e.target.value)} placeholder="姓名／職稱" /></div>
+              <div><label style={{ fontSize: 10, color: C.muted, display: "block", marginBottom: 3 }}>聯絡電話</label><input style={inputStyle} value={buyerPhone} onChange={(e) => setBuyerPhone(e.target.value)} placeholder="電話／手機" /></div>
+              <div><label style={{ fontSize: 10, color: C.muted, display: "block", marginBottom: 3 }}>報價業務（我方）</label><input style={inputStyle} value={salesRep} onChange={(e) => setSalesRep(e.target.value)} placeholder="承辦業務姓名" /></div>
+            </div>
+          </details>
+
+          {/* 標準售價顯示開關 */}
+          <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, fontSize: 12.5, color: C.text, cursor: "pointer" }}>
+            <input type="checkbox" checked={showListPrice} onChange={(e) => setShowListPrice(e.target.checked)} style={{ width: 15, height: 15, cursor: "pointer", accentColor: C.primary }} />
+            在報價單顯示「標準售價」欄
+          </label>
+
           {/* 品項 */}
           {items.length === 0 ? (
             <div style={{ textAlign: "center", color: C.muted, padding: "30px 0", fontSize: 13, border: `1px dashed ${C.border}`, borderRadius: 10 }}>← 從左側點選產品加入</div>
@@ -807,8 +843,14 @@ function QuoteBuilder({ products, brands, onClose, onSaved }: { products: Produc
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 9, background: C.surf2 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</div>
-                    <div style={{ fontSize: 11, color: C.muted }}>{it.spec || ""}</div>
+                    <div style={{ fontSize: 11, color: C.muted }}>{it.sku ? `型號 ${it.sku}` : ""}{it.sku && it.spec ? " · " : ""}{it.spec || ""}</div>
                   </div>
+                  {showListPrice && (
+                    <div style={{ width: 70, textAlign: "right" }} title="標準售價">
+                      <div style={{ fontSize: 9, color: C.muted }}>標準售價</div>
+                      <div style={{ fontSize: 12, color: C.muted, textDecoration: "line-through", fontVariantNumeric: "tabular-nums" }}>{it.list_price != null ? money(it.list_price) : "—"}</div>
+                    </div>
+                  )}
                   <input type="number" value={it.unit_price} onChange={(e) => updateItem(i, { unit_price: Number(e.target.value) })}
                     style={{ width: 76, padding: "5px 7px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, textAlign: "right", background: C.surface, color: C.text }} title="單價" />
                   <span style={{ color: C.muted, fontSize: 12 }}>×</span>
@@ -1007,13 +1049,39 @@ function QuoteView({ quote, onClose, onChanged }: { quote: Quote; onClose: () =>
         </select>
       </div>
       <div style={{ padding: 20, overflowY: "auto" }}>
+        {/* 我方 / 對方公司資訊 */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <div style={{ background: C.surf2, borderRadius: 10, padding: "10px 12px" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, marginBottom: 4 }}>賣方（我方）</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{COMPANY.name}</div>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 2, lineHeight: 1.6 }}>
+              {COMPANY.taxId && <div>統編：{COMPANY.taxId}</div>}
+              {COMPANY.address && <div>{COMPANY.address}</div>}
+              <div>電話：{COMPANY.phone}</div>
+              {quote.sales_rep && <div>報價業務：{quote.sales_rep}</div>}
+            </div>
+          </div>
+          <div style={{ background: C.surf2, borderRadius: 10, padding: "10px 12px" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, marginBottom: 4 }}>買方（客戶）</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{quote.customer_name || quote.brands?.name || "—"}</div>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 2, lineHeight: 1.6 }}>
+              {quote.buyer_tax_id && <div>統編：{quote.buyer_tax_id}</div>}
+              {quote.buyer_contact && <div>窗口：{quote.buyer_contact}</div>}
+              {quote.buyer_phone && <div>電話：{quote.buyer_phone}</div>}
+              {!quote.buyer_tax_id && !quote.buyer_contact && !quote.buyer_phone && <div style={{ color: C.muted }}>—</div>}
+            </div>
+          </div>
+        </div>
+
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ fontSize: 11, color: C.muted, textAlign: "left" }}>
               <th style={{ padding: "6px 4px", borderBottom: `1px solid ${C.border}` }}>品項</th>
+              <th style={{ padding: "6px 4px", borderBottom: `1px solid ${C.border}` }}>型號</th>
+              {quote.show_list_price && <th style={{ padding: "6px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right" }}>標準售價</th>}
               <th style={{ padding: "6px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right" }}>單價</th>
               <th style={{ padding: "6px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right" }}>數量</th>
-              <th style={{ padding: "6px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right" }}>金額</th>
+              <th style={{ padding: "6px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right" }}>總價</th>
             </tr>
           </thead>
           <tbody>
@@ -1022,6 +1090,8 @@ function QuoteView({ quote, onClose, onChanged }: { quote: Quote; onClose: () =>
                 <td style={{ padding: "9px 4px", borderBottom: `1px solid ${C.border}` }}>
                   {it.name}{it.spec ? <span style={{ color: C.muted, fontSize: 11 }}> {it.spec}</span> : ""}
                 </td>
+                <td style={{ padding: "9px 4px", borderBottom: `1px solid ${C.border}`, fontSize: 11, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{it.sku || "—"}</td>
+                {quote.show_list_price && <td style={{ padding: "9px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right", color: C.muted, textDecoration: "line-through", fontVariantNumeric: "tabular-nums" }}>{it.list_price != null ? money(it.list_price) : "—"}</td>}
                 <td style={{ padding: "9px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(it.unit_price)}</td>
                 <td style={{ padding: "9px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right" }}>{it.qty} {it.unit}</td>
                 <td style={{ padding: "9px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{money((it.unit_price || 0) * it.qty)}</td>

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
+import { COMPANY } from "@/lib/company";
 import * as XLSX from "xlsx";
 import {
   Document, Packer, Paragraph, Table, TableRow, TableCell,
@@ -24,7 +25,7 @@ export async function GET(
 
     const { data: quote, error } = await supabase
       .from("quotes")
-      .select("*, brands(name, email), quote_items(id, name, spec, unit, unit_price, qty, amount, sort_order)")
+      .select("*, brands(name, email), quote_items(id, name, sku, spec, unit, unit_price, list_price, qty, amount, sort_order)")
       .eq("id", id)
       .single();
 
@@ -59,47 +60,72 @@ function exportExcel(
   money: (n: number) => string
 ): NextResponse {
   const wb = XLSX.utils.book_new();
+  const showList = !!quote.show_list_price;
+  const NC = showList ? 7 : 6; // 欄數
+  const pad = (arr: (string | number)[]): (string | number)[] => { while (arr.length < NC) arr.push(""); return arr; };
+  // 合計列：標籤放倒數第二欄、數值放最後一欄
+  const totalRow = (label: string, value: number, nc: number): (string | number)[] => {
+    const r: (string | number)[] = new Array(nc).fill("");
+    r[nc - 2] = label; r[nc - 1] = value;
+    return r;
+  };
+
+  // 表頭欄位
+  const header = showList
+    ? ["品項名稱", "型號", "規格", "標準售價", "單價", "數量", "總價"]
+    : ["品項名稱", "型號", "規格", "單價", "數量", "總價"];
+
+  const sellerLine = [COMPANY.name, COMPANY.taxId ? `統編 ${COMPANY.taxId}` : "", `電話 ${COMPANY.phone}`, quote.sales_rep ? `業務 ${quote.sales_rep}` : ""].filter(Boolean).join("　");
+  const buyerParts = [`客戶：${customerName}`];
+  if (quote.buyer_tax_id) buyerParts.push(`統編 ${quote.buyer_tax_id}`);
+  if (quote.buyer_contact) buyerParts.push(`窗口 ${quote.buyer_contact}`);
+  if (quote.buyer_phone) buyerParts.push(`電話 ${quote.buyer_phone}`);
 
   // 建立資料陣列
   const data: (string | number)[][] = [
-    ["威斯邁國際有限公司", "", "", "", ""],
-    ["HeroHerb 好漢草-漢方良品", "", "", "", ""],
-    ["服務信箱: service@wesmilegood.com", "", "", "", ""],
-    ["", "", "", "", ""],
-    [`報價單編號：${quote.quote_no || ""}`, "", "", `日期：${new Date(quote.created_at as string).toLocaleDateString("zh-TW")}`, ""],
-    [`客戶名稱：${customerName}`, "", "", `有效期限：${quote.valid_days} 天`, ""],
-    ["", "", "", "", ""],
-    ["品項名稱", "規格", "單價", "數量", "金額"],
-    ...items.map((it) => [
-      it.name as string,
-      (it.spec as string) || "",
-      it.unit_price as number,
-      it.qty as number,
-      (it.unit_price as number) * (it.qty as number),
-    ]),
-    ["", "", "", "", ""],
-    ["", "", "小計", "", quote.subtotal as number],
-    ...(quote.discount_amt as number) > 0
-      ? [["", "", `折扣 ${quote.discount_pct}%`, "", -(quote.discount_amt as number)]]
-      : [],
-    ["", "", "總計", "", quote.total as number],
-    ["", "", "", "", ""],
-    [`備註：${quote.note || ""}`, "", "", "", ""],
+    pad([COMPANY.name]),
+    pad([COMPANY.brand]),
+    pad([sellerLine]),
+    pad([]),
+    pad([`報價單編號：${quote.quote_no || ""}`, "", "", `日期：${new Date(quote.created_at as string).toLocaleDateString("zh-TW")}`]),
+    pad([buyerParts.join("　")]),
+    pad([`有效期限：${quote.valid_days} 天`]),
+    pad([]),
+    header,
+    ...items.map((it) => {
+      const row: (string | number)[] = [
+        it.name as string,
+        (it.sku as string) || "",
+        (it.spec as string) || "",
+      ];
+      if (showList) row.push(it.list_price != null ? (it.list_price as number) : "");
+      row.push(it.unit_price as number, it.qty as number, (it.unit_price as number) * (it.qty as number));
+      return row;
+    }),
+    pad([]),
+    totalRow("小計", quote.subtotal as number, NC),
+    ...((quote.discount_amt as number) > 0 ? [totalRow("折讓", -(quote.discount_amt as number), NC)] : []),
+    totalRow("總計", quote.total as number, NC),
+    pad([]),
+    pad([`備註：${quote.note || ""}`]),
   ];
 
   const ws = XLSX.utils.aoa_to_sheet(data);
 
   // 欄位寬度
-  ws["!cols"] = [{ wch: 36 }, { wch: 16 }, { wch: 14 }, { wch: 10 }, { wch: 14 }];
+  ws["!cols"] = showList
+    ? [{ wch: 30 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 8 }, { wch: 14 }]
+    : [{ wch: 32 }, { wch: 14 }, { wch: 16 }, { wch: 12 }, { wch: 8 }, { wch: 14 }];
 
-  // 合併儲存格（標題）
+  // 合併儲存格（公司抬頭橫跨整列）
+  const last = NC - 1;
   ws["!merges"] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: 4 } },
-    { s: { r: 1, c: 0 }, e: { r: 1, c: 4 } },
-    { s: { r: 2, c: 0 }, e: { r: 2, c: 4 } },
-    { s: { r: 4, c: 0 }, e: { r: 4, c: 2 } },
-    { s: { r: 5, c: 0 }, e: { r: 5, c: 2 } },
-    { s: { r: data.length - 1, c: 0 }, e: { r: data.length - 1, c: 4 } },
+    { s: { r: 0, c: 0 }, e: { r: 0, c: last } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: last } },
+    { s: { r: 2, c: 0 }, e: { r: 2, c: last } },
+    { s: { r: 5, c: 0 }, e: { r: 5, c: last } },
+    { s: { r: 6, c: 0 }, e: { r: 6, c: last } },
+    { s: { r: data.length - 1, c: 0 }, e: { r: data.length - 1, c: last } },
   ];
 
   XLSX.utils.book_append_sheet(wb, ws, "報價單");
@@ -134,13 +160,19 @@ async function exportWord(
   const noBorder = { style: BorderStyle.NONE, size: 0, color: "FFFFFF" };
   const cellBorder = { top: noBorder, bottom: noBorder, left: noBorder, right: noBorder };
 
+  const showList = !!quote.show_list_price;
+  const headers = showList
+    ? ["品項名稱", "型號", "規格", "標準售價", "單價", "數量", "總價"]
+    : ["品項名稱", "型號", "規格", "單價", "數量", "總價"];
+  const NC = headers.length;
+
   const headerRow = new TableRow({
     tableHeader: true,
-    children: ["品項名稱", "規格", "單價", "數量", "金額"].map((h) =>
+    children: headers.map((h) =>
       new TableCell({
         shading: { type: ShadingType.SOLID, color: primaryColor },
         borders: cellBorder,
-        width: h === "品項名稱" ? { size: 40, type: WidthType.PERCENTAGE } : undefined,
+        width: h === "品項名稱" ? { size: 30, type: WidthType.PERCENTAGE } : undefined,
         children: [new Paragraph({
           children: [new TextRun({ text: h, bold: true, size: 18, color: "FFFFFF" })],
           alignment: h === "品項名稱" ? AlignmentType.LEFT : AlignmentType.CENTER,
@@ -149,41 +181,32 @@ async function exportWord(
     ),
   });
 
-  const itemRows = items.map((it, idx) =>
-    new TableRow({
-      children: [
-        new TableCell({
-          shading: { type: ShadingType.SOLID, color: idx % 2 === 0 ? "FFFFFF" : lightGray },
-          borders: cellBorder,
-          children: [new Paragraph({ children: [normal(it.name as string, 20)] })],
-        }),
-        new TableCell({
-          shading: { type: ShadingType.SOLID, color: idx % 2 === 0 ? "FFFFFF" : lightGray },
-          borders: cellBorder,
-          children: [new Paragraph({ children: [normal((it.spec as string) || "", 18, "666666")], alignment: AlignmentType.CENTER })],
-        }),
-        ...["unit_price", "qty"].map((k) =>
-          new TableCell({
-            shading: { type: ShadingType.SOLID, color: idx % 2 === 0 ? "FFFFFF" : lightGray },
-            borders: cellBorder,
-            children: [new Paragraph({ children: [normal(k === "unit_price" ? money(it[k] as number) : String(it[k]), 20)], alignment: AlignmentType.RIGHT })],
-          })
-        ),
-        new TableCell({
-          shading: { type: ShadingType.SOLID, color: idx % 2 === 0 ? "FFFFFF" : lightGray },
-          borders: cellBorder,
-          children: [new Paragraph({ children: [bold(money((it.unit_price as number) * (it.qty as number)), 20, primaryColor)], alignment: AlignmentType.RIGHT })],
-        }),
-      ],
-    })
-  );
+  const cell = (idx: number, children: TextRun[], align: (typeof AlignmentType)[keyof typeof AlignmentType] = AlignmentType.LEFT) =>
+    new TableCell({
+      shading: { type: ShadingType.SOLID, color: idx % 2 === 0 ? "FFFFFF" : lightGray },
+      borders: cellBorder,
+      children: [new Paragraph({ children, alignment: align })],
+    });
+
+  const itemRows = items.map((it, idx) => {
+    const cells = [
+      cell(idx, [normal(it.name as string, 20)]),
+      cell(idx, [normal((it.sku as string) || "—", 18, "666666")], AlignmentType.CENTER),
+      cell(idx, [normal((it.spec as string) || "—", 18, "666666")], AlignmentType.CENTER),
+    ];
+    if (showList) cells.push(cell(idx, [normal(it.list_price != null ? money(it.list_price as number) : "—", 18, "999999")], AlignmentType.RIGHT));
+    cells.push(cell(idx, [normal(money(it.unit_price as number), 20)], AlignmentType.RIGHT));
+    cells.push(cell(idx, [normal(String(it.qty), 20)], AlignmentType.RIGHT));
+    cells.push(cell(idx, [bold(money((it.unit_price as number) * (it.qty as number)), 20, primaryColor)], AlignmentType.RIGHT));
+    return new TableRow({ children: cells });
+  });
 
   // 小計/折扣/總計 rows
   const summaryRows: TableRow[] = [];
   const sumRow = (label: string, value: string, isTotal = false) =>
     new TableRow({
       children: [
-        new TableCell({ borders: cellBorder, columnSpan: 4, children: [new Paragraph({ children: [isTotal ? bold(label, 22, primaryColor) : normal(label)], alignment: AlignmentType.RIGHT })] }),
+        new TableCell({ borders: cellBorder, columnSpan: NC - 1, children: [new Paragraph({ children: [isTotal ? bold(label, 22, primaryColor) : normal(label)], alignment: AlignmentType.RIGHT })] }),
         new TableCell({
           shading: isTotal ? { type: ShadingType.SOLID, color: primaryColor } : undefined,
           borders: cellBorder,
@@ -194,7 +217,7 @@ async function exportWord(
 
   summaryRows.push(sumRow("小計", money(quote.subtotal as number)));
   if ((quote.discount_amt as number) > 0) {
-    summaryRows.push(sumRow(`折扣 ${quote.discount_pct}%`, `-${money(quote.discount_amt as number)}`));
+    summaryRows.push(sumRow("折讓", `-${money(quote.discount_amt as number)}`));
   }
   summaryRows.push(sumRow("總計", money(quote.total as number), true));
 
@@ -211,16 +234,16 @@ async function exportWord(
       children: [
         // 公司標題
         new Paragraph({
-          children: [new TextRun({ text: "威斯邁國際有限公司", bold: true, size: 36, color: primaryColor })],
+          children: [new TextRun({ text: COMPANY.name, bold: true, size: 36, color: primaryColor })],
           heading: HeadingLevel.HEADING_1,
         }),
         new Paragraph({
-          children: [new TextRun({ text: "HeroHerb 好漢草 — 漢方良品", size: 24, color: accentColor })],
+          children: [new TextRun({ text: COMPANY.brand, size: 24, color: accentColor })],
         }),
         new Paragraph({
-          children: [new TextRun({ text: "service@wesmilegood.com　|　www.heroherb.co", size: 18, color: "888888" })],
-          spacing: { after: 300 },
+          children: [new TextRun({ text: [COMPANY.taxId ? `統一編號 ${COMPANY.taxId}` : "", `電話 ${COMPANY.phone}`, COMPANY.email, COMPANY.website].filter(Boolean).join("　|　"), size: 18, color: "888888" })],
         }),
+        ...(quote.sales_rep ? [new Paragraph({ children: [normal(`報價業務：${quote.sales_rep as string}`, 18, "666666")], spacing: { after: 300 } })] : [new Paragraph({ spacing: { after: 300 } })]),
 
         // 報價資訊
         new Paragraph({
@@ -232,6 +255,8 @@ async function exportWord(
           ],
         }),
         new Paragraph({ children: [bold("客戶名稱：", 20), normal(customerName, 20)] }),
+        ...(quote.buyer_tax_id ? [new Paragraph({ children: [bold("客戶統編：", 20), normal(quote.buyer_tax_id as string, 20)] })] : []),
+        ...(quote.buyer_contact || quote.buyer_phone ? [new Paragraph({ children: [bold("聯絡窗口：", 20), normal([quote.buyer_contact, quote.buyer_phone].filter(Boolean).join("　"), 20)] })] : []),
         new Paragraph({ children: [bold("報價日期：", 20), normal(new Date(quote.created_at as string).toLocaleDateString("zh-TW"), 20)] }),
         new Paragraph({
           children: [bold("報價有效期：", 20), normal(`${quote.valid_days} 天`, 20)],
@@ -256,7 +281,7 @@ async function exportWord(
         new Paragraph({
           border: { top: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" } },
           spacing: { before: 400 },
-          children: [normal("威斯邁國際有限公司　|　(02)2631-8499　|　www.heroherb.co", 16, "888888")],
+          children: [normal([COMPANY.name, COMPANY.phone, COMPANY.website].join("　|　"), 16, "888888")],
           alignment: AlignmentType.CENTER,
         }),
       ],

@@ -12,7 +12,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     const { id } = await params;
     const { data, error } = await supabase
       .from("quotes")
-      .select("*, brands(name, email), quote_items(id, name, spec, unit, unit_price, qty, amount, sort_order)")
+      .select("*, brands(name, email), quote_items(id, name, sku, spec, unit, unit_price, list_price, qty, amount, sort_order)")
       .eq("id", id)
       .single();
     if (error) {
@@ -31,7 +31,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const body = await request.json();
 
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
-    for (const key of ["status", "title", "customer_name", "note"]) {
+    for (const key of ["status", "title", "customer_name", "note", "sales_rep", "buyer_tax_id", "buyer_contact", "buyer_phone", "show_list_price"]) {
       if (body[key] !== undefined) patch[key] = body[key];
     }
 
