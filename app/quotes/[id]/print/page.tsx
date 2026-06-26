@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, use } from "react";
-import { COMPANY } from "@/lib/company";
+import { DEFAULT_COMPANY, CompanyInfo } from "@/lib/company";
 
 interface QuoteItem {
   id: string;
@@ -41,6 +41,7 @@ const money = (n: number) => `NT$ ${(n || 0).toLocaleString()}`;
 export default function PrintPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [quote, setQuote] = useState<Quote | null>(null);
+  const [company, setCompany] = useState<CompanyInfo>(DEFAULT_COMPANY);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -48,6 +49,7 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
       .then((r) => r.json())
       .then((d) => { if (d.success) setQuote(d.data); else setError(d.error); })
       .catch(() => setError("載入失敗"));
+    fetch(`/api/company`).then((r) => r.json()).then((d) => { if (d.success) setCompany(d.data); }).catch(() => {});
   }, [id]);
 
   useEffect(() => {
@@ -127,8 +129,8 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
         <div className="header">
           <div className="header-top">
             <div>
-              <div className="company-name">威斯邁國際有限公司</div>
-              <div className="brand-tagline">HeroHerb 好漢草 — 漢方良品｜草本的溫度 暖身也暖心</div>
+              <div className="company-name">{company.name}</div>
+              <div className="brand-tagline">{company.brand}</div>
             </div>
             <div className="quote-label">
               <div className="quote-title">報 價 單</div>
@@ -154,11 +156,11 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
             </div>
             <div className="meta-card">
               <div className="meta-label">賣方（我方）</div>
-              <div className="meta-value">{COMPANY.name}</div>
+              <div className="meta-value">{company.name}</div>
               <div className="meta-sub">
-                {COMPANY.taxId && <div>統一編號：{COMPANY.taxId}</div>}
-                {COMPANY.address && <div>{COMPANY.address}</div>}
-                <div>電話：{COMPANY.phone}</div>
+                {company.taxId && <div>統一編號：{company.taxId}</div>}
+                {company.address && <div>{company.address}</div>}
+                <div>電話：{company.phone}</div>
                 {quote.sales_rep && <div>報價業務：{quote.sales_rep}</div>}
               </div>
             </div>
@@ -230,9 +232,9 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
         {/* Footer */}
         <div className="footer">
           <div className="footer-left">
-            <div>{COMPANY.name}{COMPANY.taxId ? `　統編：${COMPANY.taxId}` : ""}</div>
-            <div>電話：{COMPANY.phone}　傳真：{COMPANY.fax}</div>
-            <div>{COMPANY.email}　|　{COMPANY.website}</div>
+            <div>{company.name}{company.taxId ? `　統編：${company.taxId}` : ""}</div>
+            <div>電話：{company.phone}　傳真：{company.fax}</div>
+            <div>{company.email}　|　{company.website}</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <div className="footer-right">

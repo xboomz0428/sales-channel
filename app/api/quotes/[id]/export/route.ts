@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
-import { COMPANY } from "@/lib/company";
+import { getCompany } from "@/lib/companyServer";
+import type { CompanyInfo } from "@/lib/company";
 import * as XLSX from "xlsx";
 import {
   Document, Packer, Paragraph, Table, TableRow, TableCell,
@@ -38,11 +39,12 @@ export async function GET(
     );
     const customerName = quote.customer_name || (quote.brands as Record<string, string> | null)?.name || "";
     const money = (n: number) => `NT$${(n || 0).toLocaleString()}`;
+    const company = await getCompany();
 
     if (format === "excel") {
-      return exportExcel(quote, items, customerName, money);
+      return exportExcel(quote, items, customerName, money, company);
     } else if (format === "word") {
-      return exportWord(quote, items, customerName, money);
+      return exportWord(quote, items, customerName, money, company);
     } else {
       return NextResponse.json({ error: "不支援的格式" }, { status: 400 });
     }
@@ -57,7 +59,8 @@ function exportExcel(
   quote: Record<string, unknown>,
   items: Record<string, unknown>[],
   customerName: string,
-  money: (n: number) => string
+  money: (n: number) => string,
+  COMPANY: CompanyInfo
 ): NextResponse {
   const wb = XLSX.utils.book_new();
   const showList = !!quote.show_list_price;
@@ -146,7 +149,8 @@ async function exportWord(
   quote: Record<string, unknown>,
   items: Record<string, unknown>[],
   customerName: string,
-  money: (n: number) => string
+  money: (n: number) => string,
+  COMPANY: CompanyInfo
 ): Promise<NextResponse> {
   const primaryColor = "2E4535"; // 深綠
   const accentColor = "5A8266";  // 中綠

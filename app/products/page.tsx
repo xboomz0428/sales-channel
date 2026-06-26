@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { C } from "@/lib/design";
 import MobileTabBar from "@/components/MobileTabBar";
-import { COMPANY } from "@/lib/company";
+import { DEFAULT_COMPANY, CompanyInfo } from "@/lib/company";
 
 // ── 型別 ─────────────────────────────────────────────
 interface Product {
@@ -979,7 +979,12 @@ function QuoteView({ quote, onClose, onChanged }: { quote: Quote; onClose: () =>
   const [status, setStatus] = useState(quote.status);
   const [sending, setSending] = useState(false);
   const [sendMsg, setSendMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [company, setCompany] = useState<CompanyInfo>(DEFAULT_COMPANY);
   const items = quote.quote_items || [];
+
+  useEffect(() => {
+    fetch("/api/company").then((r) => r.json()).then((d) => { if (d.success) setCompany(d.data); }).catch(() => {});
+  }, []);
 
   const updateStatus = async (s: string) => {
     setStatus(s);
@@ -1053,11 +1058,11 @@ function QuoteView({ quote, onClose, onChanged }: { quote: Quote; onClose: () =>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
           <div style={{ background: C.surf2, borderRadius: 10, padding: "10px 12px" }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, marginBottom: 4 }}>賣方（我方）</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{COMPANY.name}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{company.name}</div>
             <div style={{ fontSize: 11, color: C.muted, marginTop: 2, lineHeight: 1.6 }}>
-              {COMPANY.taxId && <div>統編：{COMPANY.taxId}</div>}
-              {COMPANY.address && <div>{COMPANY.address}</div>}
-              <div>電話：{COMPANY.phone}</div>
+              {company.taxId && <div>統編：{company.taxId}</div>}
+              {company.address && <div>{company.address}</div>}
+              <div>電話：{company.phone}</div>
               {quote.sales_rep && <div>報價業務：{quote.sales_rep}</div>}
             </div>
           </div>

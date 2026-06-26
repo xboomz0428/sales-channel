@@ -16,6 +16,20 @@ type Field = {
 
 const GROUPS: { group: string; note?: string; fields: Field[] }[] = [
   {
+    group: "公司資料（報價單顯示）",
+    note: "顯示在報價單抬頭與頁尾。統一編號、地址留空則該欄不顯示。",
+    fields: [
+      { key: "COMPANY_NAME", label: "公司名稱", placeholder: "威斯邁國際有限公司" },
+      { key: "COMPANY_BRAND", label: "品牌標語", placeholder: "HeroHerb 好漢草 — 漢方良品" },
+      { key: "COMPANY_TAX_ID", label: "統一編號", placeholder: "8 碼統編" },
+      { key: "COMPANY_PHONE", label: "電話", placeholder: "(02)2631-8499" },
+      { key: "COMPANY_FAX", label: "傳真", placeholder: "(02)2631-9577" },
+      { key: "COMPANY_EMAIL", label: "Email", placeholder: "service@wesmilegood.com" },
+      { key: "COMPANY_WEBSITE", label: "網站", placeholder: "www.heroherb.co" },
+      { key: "COMPANY_ADDRESS", label: "公司地址", placeholder: "請填入完整地址" },
+    ],
+  },
+  {
     group: "寄信服務（擇一即可）",
     note: "Gmail SMTP 最快（不需網域）；Resend / SendGrid 送達率較好。",
     fields: [
