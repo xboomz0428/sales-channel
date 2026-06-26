@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { TEMPLATE_VARS } from '@/lib/outreach/templateVars';
 
 type BlockType = 'heading' | 'text' | 'image' | 'button' | 'divider' | 'spacer' | 'file';
@@ -10,6 +10,7 @@ interface Block {
   id: string;
   type: BlockType;
   text?: string;
+  html?: string;     // 內文/標題的富文字（含選取文字的粗體/顏色）；無則用 text
   url?: string;      // image src / button link / file url
   alt?: string;
   fileName?: string; // 夾帶檔案顯示名稱
@@ -17,6 +18,19 @@ interface Block {
   color?: string;
   align?: Align;
   bold?: boolean;
+}
+
+// 富文字白名單清理：只保留粗體/斜體/底線/顏色/連結/換行，移除 script 與事件屬性
+function sanitizeRichHtml(raw: string): string {
+  if (!raw) return '';
+  let s = raw
+    .replace(/<\s*(script|style|iframe|object|embed)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+    .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
+    .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
+    .replace(/javascript:/gi, '');
+  // 將 div 換成換行（contentEditable 會用 div 包行）
+  s = s.replace(/<div>/gi, '<br/>').replace(/<\/div>/gi, '');
+  return s;
 }
 
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -180,9 +194,9 @@ function renderEmailHtml(blocks: Block[], subject: string): string {
     .map((b) => {
       switch (b.type) {
         case 'heading':
-          return `<tr><td style="padding:8px 0;${textStyle(b)}">${richText(b.text)}</td></tr>`;
+          return `<tr><td style="padding:8px 0;${textStyle(b)}">${b.html ? sanitizeRichHtml(b.html) : richText(b.text)}</td></tr>`;
         case 'text':
-          return `<tr><td style="padding:8px 0;${textStyle(b)}">${richText(b.text)}</td></tr>`;
+          return `<tr><td style="padding:8px 0;${textStyle(b)}">${b.html ? sanitizeRichHtml(b.html) : richText(b.text)}</td></tr>`;
         case 'image':
           return b.url
             ? `<tr><td style="padding:10px 0;text-align:${b.align || 'left'};"><img src="${esc(b.url)}" alt="${esc(b.alt)}" style="width:100%;max-width:600px;border-radius:8px;display:block;"/></td></tr>`
@@ -226,6 +240,51 @@ const BLOCK_LABEL: Record<BlockType, string> = {
 
 interface SavedTemplate { id: string; name: string; subject: string | null; body: string | null; body_html: string | null; blocks_json?: string | null }
 
+// 純文字 → 安全 HTML（escape + Markdown 連結 + 換行），供富文字編輯器初始內容
+function plainToHtml(s = ''): string {
+  const esc = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return esc
+    .replace(/\[([^\]]+)\]\(((?:https?:\/\/|mailto:|tel:)[^)\s]+)\)/g,
+      '<a href="$2" style="color:#4a6b3f;text-decoration:underline;">$1</a>')
+    .replace(/\n/g, '<br/>');
+}
+
+// 選取文字格式化（粗體 / 顏色 / 連結）— 作用於目前聚焦的富文字區塊
+function applySelFormat(cmd: string, value?: string) {
+  try { document.execCommand('styleWithCSS', false, 'true'); } catch { /* 部分瀏覽器不支援 */ }
+  document.execCommand(cmd, false, value);
+}
+
+// 富文字內文區塊：可選取局部文字加粗 / 改色 / 加連結（uncontrolled contentEditable）
+function RichTextBlock({ block, onChange, placeholder }: {
+  block: Block; onChange: (patch: Partial<Block>) => void; placeholder: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  // 僅在切換到不同區塊時重設內容，避免每次輸入打斷游標
+  useEffect(() => {
+    if (ref.current) {
+      const init = block.html ?? plainToHtml(block.text || '');
+      if (ref.current.innerHTML !== init) ref.current.innerHTML = init;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [block.id]);
+  const sync = () => {
+    const el = ref.current; if (!el) return;
+    onChange({ html: el.innerHTML, text: el.innerText });
+  };
+  return (
+    <div
+      ref={ref}
+      className="in ta rte"
+      contentEditable
+      suppressContentEditableWarning
+      data-ph={placeholder}
+      onInput={sync}
+      onBlur={sync}
+    />
+  );
+}
+
 export default function EmailEditorPage() {
   const [subject, setSubject] = useState('來自好漢草的問候');
   const [name, setName] = useState('電子報母版');
@@ -239,8 +298,26 @@ export default function EmailEditorPage() {
   const [aiIndustry, setAiIndustry] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
 
   const html = useMemo(() => renderEmailHtml(blocks, subject), [blocks, subject]);
+
+  // 卡片式拖拉排序：把 dragId 區塊移到 targetId 位置
+  const dropOnto = (targetId: string) => {
+    setBlocks((b) => {
+      if (!dragId || dragId === targetId) return b;
+      const from = b.findIndex((x) => x.id === dragId);
+      const to = b.findIndex((x) => x.id === targetId);
+      if (from < 0 || to < 0) return b;
+      const next = [...b];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+    setDragId(null);
+    setOverId(null);
+  };
 
   const loadTemplates = () => {
     fetch('/api/outreach/templates?channel=EM')
@@ -503,8 +580,20 @@ export default function EmailEditorPage() {
 
           <div className="blocks">
             {blocks.map((b, i) => (
-              <div key={b.id} className="block">
+              <div
+                key={b.id}
+                className={`block ${dragId === b.id ? 'dragging' : ''} ${overId === b.id && dragId && dragId !== b.id ? 'dragover' : ''}`}
+                onDragOver={(e) => { if (dragId) { e.preventDefault(); if (overId !== b.id) setOverId(b.id); } }}
+                onDrop={() => dropOnto(b.id)}
+              >
                 <div className="bhead">
+                  <span
+                    className="drag"
+                    draggable
+                    onDragStart={() => setDragId(b.id)}
+                    onDragEnd={() => { setDragId(null); setOverId(null); }}
+                    title="拖拉排序"
+                  >⠿</span>
                   <span className="tag">{BLOCK_LABEL[b.type]}</span>
                   <div className="bctl">
                     <button onClick={() => move(b.id, -1)} disabled={i === 0}>↑</button>
@@ -512,10 +601,10 @@ export default function EmailEditorPage() {
                     <button className="del" onClick={() => remove(b.id)}>✕</button>
                   </div>
                 </div>
-                {/* 文字格式工具列：字級／顏色／對齊／粗體／插入連結 */}
+                {/* 文字格式工具列：字級／對齊／整段粗體+顏色／選取文字粗體+顏色／連結 */}
                 {(b.type === 'heading' || b.type === 'text') && (
                   <div className="fmt">
-                    <select className="fmtsel" value={b.fontSize || (b.type === 'heading' ? 'xlarge' : 'normal')} onChange={(e) => update(b.id, { fontSize: e.target.value as FontSize })} title="字級">
+                    <select className="fmtsel" value={b.fontSize || (b.type === 'heading' ? 'xlarge' : 'normal')} onChange={(e) => update(b.id, { fontSize: e.target.value as FontSize })} title="整段字級">
                       {(['small', 'normal', 'large', 'xlarge'] as FontSize[]).map((s) => <option key={s} value={s}>{FONT_LABEL[s]}</option>)}
                     </select>
                     {(['left', 'center', 'right'] as Align[]).map((a) => (
@@ -523,19 +612,34 @@ export default function EmailEditorPage() {
                         {a === 'left' ? '⬅' : a === 'center' ? '↔' : '➡'}
                       </button>
                     ))}
-                    <button className={`fmtbtn ${b.bold ? 'on' : ''}`} onClick={() => update(b.id, { bold: !b.bold })} title="粗體"><b>B</b></button>
-                    <label className="fmtcolor" title="文字顏色">
+                    <button className={`fmtbtn ${b.bold ? 'on' : ''}`} onClick={() => update(b.id, { bold: !b.bold })} title="整段粗體"><b>B</b></button>
+                    <label className="fmtcolor" title="整段文字顏色">
                       <input type="color" value={b.color || (b.type === 'heading' ? '#2f3d2f' : '#3a3a3a')} onChange={(e) => update(b.id, { color: e.target.value })} />
                     </label>
-                    <button className="fmtbtn" onClick={() => insertLink(b.id, b.text || '')} title="插入超連結">🔗</button>
+                    <span className="fmtsep" />
+                    {/* 選取文字格式：先反白要改的字，再點這些按鈕 */}
+                    <button className="fmtbtn sel" onMouseDown={(e) => e.preventDefault()} onClick={() => applySelFormat('bold')} title="選取文字加粗"><b>B</b><sup>選</sup></button>
+                    <button className="fmtbtn sel" onMouseDown={(e) => e.preventDefault()} onClick={() => applySelFormat('italic')} title="選取文字斜體"><i>I</i></button>
+                    <button className="fmtbtn sel" onMouseDown={(e) => e.preventDefault()} onClick={() => applySelFormat('underline')} title="選取文字底線"><u>U</u></button>
+                    {['#2f3d2f', '#c0392b', '#b8860b', '#2b579a', '#7a4fb0', '#111111'].map((c) => (
+                      <button key={c} className="swatch" onMouseDown={(e) => e.preventDefault()} onClick={() => applySelFormat('foreColor', c)} title={`選取文字改成此色`} style={{ background: c }} />
+                    ))}
+                    <button className="fmtbtn sel" onMouseDown={(e) => e.preventDefault()} onClick={() => { const u = prompt('連結網址', 'https://'); if (u) applySelFormat('createLink', u); }} title="選取文字加連結">🔗</button>
                   </div>
                 )}
-                {(b.type === 'heading' || b.type === 'text' || b.type === 'button') && (
+                {(b.type === 'heading' || b.type === 'text') && (
+                  <RichTextBlock
+                    block={b}
+                    onChange={(patch) => update(b.id, patch)}
+                    placeholder="輸入文字。反白選取後可用上方按鈕設定粗細/顏色，或用 [文字](網址) 加超連結"
+                  />
+                )}
+                {b.type === 'button' && (
                   <textarea
                     className="in ta"
-                    rows={b.type === 'text' ? 3 : 1}
+                    rows={1}
                     value={b.text}
-                    placeholder={b.type === 'button' ? '按鈕文字' : '輸入文字，可用 [文字](網址) 加超連結'}
+                    placeholder="按鈕文字"
                     onChange={(e) => update(b.id, { text: e.target.value })}
                   />
                 )}
@@ -891,10 +995,54 @@ export default function EmailEditorPage() {
         }
         .bhead {
           display: flex;
-          justify-content: space-between;
           align-items: center;
+          gap: 8px;
           margin-bottom: 8px;
         }
+        .bctl { margin-left: auto; display: flex; gap: 4px; }
+        .drag {
+          cursor: grab;
+          color: #b1ab98;
+          font-size: 16px;
+          line-height: 1;
+          user-select: none;
+          padding: 0 2px;
+        }
+        .drag:active { cursor: grabbing; }
+        .block.dragging { opacity: 0.5; }
+        .block.dragover { border-color: #4a6b3f; box-shadow: 0 0 0 2px rgba(74,107,63,.18); }
+        .rte {
+          min-height: 64px;
+          padding: 9px 11px;
+          line-height: 1.6;
+          outline: none;
+          white-space: pre-wrap;
+          word-break: break-word;
+        }
+        .rte:focus { border-color: #4a6b3f; }
+        .rte:empty:before {
+          content: attr(data-ph);
+          color: #b1ab98;
+          pointer-events: none;
+        }
+        .rte a { color: #4a6b3f; text-decoration: underline; }
+        .fmtsep {
+          width: 1px;
+          align-self: stretch;
+          background: #e0dac9;
+          margin: 0 3px;
+        }
+        .fmtbtn.sel { color: #2f3d2f; }
+        .fmtbtn.sel sup { font-size: 8px; margin-left: 1px; }
+        .swatch {
+          width: 22px;
+          height: 22px;
+          border-radius: 6px;
+          border: 1px solid rgba(0,0,0,.15);
+          cursor: pointer;
+          padding: 0;
+        }
+        .swatch:hover { transform: scale(1.1); }
         .tag {
           font-size: 11px;
           background: #eef0e6;
