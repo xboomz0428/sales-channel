@@ -293,7 +293,9 @@ export default function EmailDashboardPage() {
           td { font-size: 13px; padding: 9px 7px; }
           .subj { max-width: 130px; }
         }
-        .badge { color: #fff; font-size: 13px; padding: 3px 11px; border-radius: 999px; font-weight: 600; }
+        .badge { color: #fff; font-size: 13px; padding: 3px 11px; border-radius: 999px; font-weight: 600; white-space: nowrap; display: inline-block; }
+        thead th, tbody td { white-space: nowrap; }
+        .subj { white-space: nowrap; }
         .overlay { position: fixed; inset: 0; background: rgba(40, 44, 36, 0.4); display: flex; justify-content: flex-end; }
         .drawer { width: min(560px, 94vw); background: #fffdf8; height: 100%; padding: 22px; overflow: auto; display: flex; flex-direction: column; }
         .dhead { display: flex; justify-content: space-between; gap: 12px; }

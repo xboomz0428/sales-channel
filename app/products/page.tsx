@@ -227,7 +227,7 @@ export default function ProductsPage() {
         ) : tab === "products" ? (
           <ProductGrid products={products} categories={categories} view={view} onEdit={setEditProduct} onChanged={loadProducts} onCatChanged={loadCategories} />
         ) : (
-          <QuoteList quotes={quotes} view={view} onView={setViewQuote} />
+          <QuoteList quotes={quotes} view={view} onView={setViewQuote} onChanged={loadQuotes} />
         )}
       </div>
 
@@ -353,14 +353,14 @@ function ProductGrid({ products, categories, view, onEdit, onChanged, onCatChang
               <div style={{ overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 640 }}>
                   <thead>
-                    <tr style={{ fontSize: 11, color: C.muted, textAlign: "left", background: C.surf2 }}>
-                      <th style={{ padding: "8px 10px", width: 32 }}></th>
-                      <th style={{ padding: "8px 10px" }}>產品</th>
-                      <th style={{ padding: "8px 10px", textAlign: "right" }}>通路價</th>
-                      <th style={{ padding: "8px 10px", textAlign: "right" }}>建議售價</th>
-                      <th style={{ padding: "8px 10px", textAlign: "right" }}>毛利</th>
-                      <th style={{ padding: "8px 10px", textAlign: "center" }}>狀態</th>
-                      <th style={{ padding: "8px 10px", textAlign: "right" }}>操作</th>
+                    <tr style={{ fontSize: 13, color: C.muted, textAlign: "left", background: C.surf2 }}>
+                      <th style={{ padding: "10px", width: 32 }}></th>
+                      <th style={{ padding: "10px" }}>產品</th>
+                      <th style={{ padding: "10px", textAlign: "right", whiteSpace: "nowrap" }}>通路價</th>
+                      <th style={{ padding: "10px", textAlign: "right", whiteSpace: "nowrap" }}>建議售價</th>
+                      <th style={{ padding: "10px", textAlign: "right" }}>毛利</th>
+                      <th style={{ padding: "10px", textAlign: "center" }}>狀態</th>
+                      <th style={{ padding: "10px", textAlign: "right" }}>操作</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -505,8 +505,8 @@ function ProductRow({ p, accent, dragging, selected, onToggleSelect, onDragStart
     if (!res.ok || !d.success) { alert(d.error || "刪除失敗"); return; }
     onChanged();
   };
-  const td: React.CSSProperties = { padding: "9px 10px", borderTop: `1px solid ${C.border}`, fontSize: 13, color: C.text, verticalAlign: "middle" };
-  const iconBtn: React.CSSProperties = { padding: "4px 8px", borderRadius: 7, border: `1px solid ${C.border}`, background: C.surface, fontSize: 12, cursor: "pointer" };
+  const td: React.CSSProperties = { padding: "11px 10px", borderTop: `1px solid ${C.border}`, fontSize: 15, color: C.text, verticalAlign: "middle" };
+  const iconBtn: React.CSSProperties = { padding: "5px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: C.surface, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" };
   return (
     <tr draggable onDragStart={onDragStart} onDragEnd={onDragEnd}
       style={{ background: selected ? `${accent}10` : "transparent", opacity: dragging ? 0.4 : (p.is_active ? 1 : 0.55), cursor: "grab" }}>
@@ -517,8 +517,8 @@ function ProductRow({ p, accent, dragging, selected, onToggleSelect, onDragStart
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ width: 8, height: 8, borderRadius: 2, background: accent, flexShrink: 0 }} />
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 600 }}>{p.name}</div>
-            <div style={{ fontSize: 11, color: C.muted }}>{[p.sku, p.spec, p.barcode && `條碼 ${p.barcode}`, p.shelf_life && `效期 ${p.shelf_life}`].filter(Boolean).join(" · ")}</div>
+            <div style={{ fontWeight: 600, fontSize: 15 }}>{p.name}</div>
+            <div style={{ fontSize: 12, color: C.muted }}>{[p.sku, p.spec, p.barcode && `條碼 ${p.barcode}`, p.shelf_life && `效期 ${p.shelf_life}`].filter(Boolean).join(" · ")}</div>
           </div>
         </div>
       </td>
@@ -526,7 +526,7 @@ function ProductRow({ p, accent, dragging, selected, onToggleSelect, onDragStart
       <td style={{ ...td, textAlign: "right", color: C.muted, textDecoration: "line-through", fontVariantNumeric: "tabular-nums" }}>{money(p.list_price)}</td>
       <td style={{ ...td, textAlign: "right", color: margin > 0 ? C.success : C.muted, fontWeight: 600 }}>{margin > 0 ? `${margin}%` : "—"}</td>
       <td style={{ ...td, textAlign: "center" }}>
-        <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 999, background: p.is_active ? C.successBg : C.surf2, color: p.is_active ? C.success : C.muted }}>
+        <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 999, background: p.is_active ? C.successBg : C.surf2, color: p.is_active ? C.success : C.muted, whiteSpace: "nowrap", display: "inline-block" }}>
           {p.is_active ? "啟用中" : "已停用"}
         </span>
       </td>
@@ -955,24 +955,34 @@ function QuoteBuilder({ products, brands, onClose, onSaved }: { products: Produc
 }
 
 // ── 報價單列表 ───────────────────────────────────────
-function QuoteList({ quotes, view, onView }: { quotes: Quote[]; view: "card" | "list"; onView: (q: Quote) => void }) {
+function QuoteList({ quotes, view, onView, onChanged }: { quotes: Quote[]; view: "card" | "list"; onView: (q: Quote) => void; onChanged: () => void }) {
+  const deleteQuote = async (e: React.MouseEvent, q: Quote) => {
+    e.stopPropagation();
+    if (!confirm(`確定刪除報價單「${q.quote_no || ""}」（${q.customer_name || q.brands?.name || "未指定客戶"}）？此操作無法復原。`)) return;
+    const res = await fetch(`/api/quotes/${q.id}`, { method: "DELETE" });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok || !d.success) { alert(d.error || "刪除失敗"); return; }
+    onChanged();
+  };
+
   if (quotes.length === 0) {
     return <div style={{ textAlign: "center", color: C.muted, padding: 40 }}>尚無報價單，點右上「新增報價單」開始建立。</div>;
   }
 
   if (view === "list") {
-    const td: React.CSSProperties = { padding: "10px 12px", borderTop: `1px solid ${C.border}`, fontSize: 13, color: C.text };
+    const td: React.CSSProperties = { padding: "11px 12px", borderTop: `1px solid ${C.border}`, fontSize: 14, color: C.text };
     return (
       <div style={{ overflowX: "auto", border: `1px solid ${C.border}`, borderRadius: 12, background: C.surface }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 620 }}>
           <thead>
-            <tr style={{ fontSize: 11, color: C.muted, textAlign: "left", background: C.surf2 }}>
-              <th style={{ padding: "8px 12px" }}>客戶</th>
-              <th style={{ padding: "8px 12px" }}>報價單號</th>
-              <th style={{ padding: "8px 12px", textAlign: "center" }}>項數</th>
-              <th style={{ padding: "8px 12px" }}>日期</th>
-              <th style={{ padding: "8px 12px", textAlign: "center" }}>狀態</th>
-              <th style={{ padding: "8px 12px", textAlign: "right" }}>金額</th>
+            <tr style={{ fontSize: 13, color: C.muted, textAlign: "left", background: C.surf2 }}>
+              <th style={{ padding: "10px 12px" }}>客戶</th>
+              <th style={{ padding: "10px 12px" }}>報價單號</th>
+              <th style={{ padding: "10px 12px", textAlign: "center" }}>項數</th>
+              <th style={{ padding: "10px 12px" }}>日期</th>
+              <th style={{ padding: "10px 12px", textAlign: "center" }}>狀態</th>
+              <th style={{ padding: "10px 12px", textAlign: "right" }}>金額</th>
+              <th style={{ padding: "10px 12px", textAlign: "center" }}>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -983,12 +993,16 @@ function QuoteList({ quotes, view, onView }: { quotes: Quote[]; view: "card" | "
                   <td style={{ ...td, fontWeight: 600 }}>{q.customer_name || q.brands?.name || "未指定客戶"}</td>
                   <td style={{ ...td, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{q.quote_no}</td>
                   <td style={{ ...td, textAlign: "center", color: C.muted }}>{q.quote_items?.length || 0}</td>
-                  <td style={{ ...td, color: C.muted }}>{new Date(q.created_at).toLocaleDateString("zh-TW")}</td>
+                  <td style={{ ...td, color: C.muted, whiteSpace: "nowrap" }}>{new Date(q.created_at).toLocaleDateString("zh-TW")}</td>
                   <td style={{ ...td, textAlign: "center" }}>
-                    <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 999, background: st.bg, color: st.fg }}>{st.label}</span>
+                    <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 999, background: st.bg, color: st.fg, whiteSpace: "nowrap", display: "inline-block" }}>{st.label}</span>
                   </td>
-                  <td style={{ ...td, textAlign: "right", fontWeight: 700, color: C.primary, fontVariantNumeric: "tabular-nums" }}>
-                    {money(q.total)}{q.discount_amt > 0 && <span style={{ fontSize: 10, color: C.muted, fontWeight: 400 }}> 折{q.discount_pct}%</span>}
+                  <td style={{ ...td, textAlign: "right", fontWeight: 700, color: C.primary, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                    {money(q.total)}
+                  </td>
+                  <td style={{ ...td, textAlign: "center" }}>
+                    <button onClick={(e) => deleteQuote(e, q)} title="刪除報價單"
+                      style={{ padding: "5px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: C.surface, color: C.danger, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>刪除</button>
                   </td>
                 </tr>
               );
@@ -1017,8 +1031,9 @@ function QuoteList({ quotes, view, onView }: { quotes: Quote[]; view: "card" | "
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 17, fontWeight: 700, color: C.primary, fontVariantNumeric: "tabular-nums" }}>{money(q.total)}</div>
-              {q.discount_amt > 0 && <div style={{ fontSize: 11, color: C.muted }}>折 {q.discount_pct}%</div>}
             </div>
+            <button onClick={(e) => deleteQuote(e, q)} title="刪除報價單"
+              style={{ padding: "6px 11px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.danger, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>🗑</button>
           </div>
         );
       })}
