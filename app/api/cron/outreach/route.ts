@@ -5,17 +5,21 @@ import { dispatchEmail } from "@/lib/outreach/dispatchEmail";
 import { runSendBatch } from "@/lib/outreach/runSend";
 import { getSendCaps, sentToday } from "@/lib/outreach/throttle";
 import { notifyLine } from "@/lib/notify/line";
+import { scanBounces } from "@/lib/outreach/scanBounces";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 /**
- * 電子報自動化排程器（Vercel Cron，建議每 5 分鐘）
+ * 電子報自動化排程器（Vercel Cron）
+ * Hobby 方案 cron 一天一次，因此這支整合所有自動化工作：
  *  ① 處理到期的排程寄送
  *  ⑦ 處理自動跟進序列（寄出 N 天未開信/未回覆者）
+ *  ④ 掃描退信並分類清理
  *  ③ 全程套用每日上限與每批上限（節流/暖機）
  *  排空既有 queued 訊息（含手動寄送超出當日額度的部分）
  * 完成後用 LINE 廣播通知結果。
+ * （升級 Pro 後可把 vercel.json 改回每 5 分鐘，排程會更即時）
  */
 export async function GET(req: Request) {
   try {
@@ -136,6 +140,15 @@ export async function GET(req: Request) {
       if (drained > 0) notes.push(`📤 佇列補寄 ${drained} 封`);
     }
 
+    // ── ④ 退信掃描清理 ───────────────────────────────
+    let bounce = { scanned: 0, hard: 0, soft: 0, ignored: 0 };
+    try {
+      bounce = await scanBounces();
+      if (bounce.hard + bounce.soft > 0) {
+        notes.push(`📥 退信清理：硬退信 ${bounce.hard}、軟退信 ${bounce.soft}`);
+      }
+    } catch { /* 退信掃描失敗不影響其他工作 */ }
+
     // ── LINE 通知 ────────────────────────────────────
     if (notes.length > 0) {
       const summary = `【電子報自動化】\n${notes.join("\n")}\n合計成功 ${totalSent}、失敗 ${totalFailed}。`;
@@ -146,6 +159,7 @@ export async function GET(req: Request) {
       ok: true,
       sent: totalSent, failed: totalFailed,
       schedules: dueSchedules?.length || 0,
+      bounce,
       notes,
     });
   } catch (err) {
