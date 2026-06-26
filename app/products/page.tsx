@@ -10,6 +10,8 @@ interface Product {
   id: string;
   name: string;
   sku: string | null;
+  barcode: string | null;
+  shelf_life: string | null;
   category: string | null;
   spec: string | null;
   unit: string;
@@ -152,7 +154,7 @@ export default function ProductsPage() {
     Promise.all([
       fetch("/api/products?all=true").then((r) => r.json()),
       fetch("/api/quotes").then((r) => r.json()),
-      fetch("/api/brands").then((r) => r.json()),
+      fetch("/api/brands?view=lite").then((r) => r.json()),
       fetch("/api/product-categories").then((r) => r.json()),
     ])
       .then(([p, q, b, c]) => {
@@ -332,10 +334,10 @@ function ProductGrid({ products, categories, view, onEdit, onChanged, onCatChang
             onDrop={() => dragId && reassign(dragId, g.name || null)}
             style={{ marginBottom: 22, padding: 8, borderRadius: 14, background: isOver ? `${g.color}18` : "transparent", outline: isOver ? `2px dashed ${g.color}` : "none", transition: "background 150ms" }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, paddingLeft: 4 }}>
-              <span style={{ width: 12, height: 12, borderRadius: 3, background: g.name ? g.color : C.border }} />
-              <span style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{g.name || "未分類"}</span>
-              <span style={{ fontSize: 11, color: C.muted }}>（{g.items.length}）</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 12, paddingLeft: 4 }}>
+              <span style={{ width: 15, height: 15, borderRadius: 4, background: g.name ? g.color : C.border }} />
+              <span style={{ fontSize: 17, fontWeight: 800, color: C.text, letterSpacing: 0.3 }}>{g.name || "未分類"}</span>
+              <span style={{ fontSize: 12, color: C.muted }}>（{g.items.length}）</span>
               {g.items.length > 0 && (
                 <button onClick={() => setGroupSel(groupIds, !allSelInGroup)}
                   style={{ fontSize: 11, color: C.primary, background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }}>
@@ -442,8 +444,13 @@ function ProductCard({ p, accent, dragging, selected, onToggleSelect, onDragStar
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{p.name}</div>
             <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
-              {p.sku ? `${p.sku}` : ""}{p.spec ? `${p.sku ? " · " : ""}${p.spec}` : ""}
+              {[p.sku, p.spec].filter(Boolean).join(" · ")}
             </div>
+            {(p.barcode || p.shelf_life) && (
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                {[p.barcode && `條碼 ${p.barcode}`, p.shelf_life && `效期 ${p.shelf_life}`].filter(Boolean).join(" · ")}
+              </div>
+            )}
           </div>
         </div>
         {p.category && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 999, background: `${accent}22`, color: accent, whiteSpace: "nowrap", fontWeight: 700 }}>{p.category}</span>}
@@ -511,7 +518,7 @@ function ProductRow({ p, accent, dragging, selected, onToggleSelect, onDragStart
           <span style={{ width: 8, height: 8, borderRadius: 2, background: accent, flexShrink: 0 }} />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 600 }}>{p.name}</div>
-            <div style={{ fontSize: 11, color: C.muted }}>{p.sku || ""}{p.spec ? `${p.sku ? " · " : ""}${p.spec}` : ""}</div>
+            <div style={{ fontSize: 11, color: C.muted }}>{[p.sku, p.spec, p.barcode && `條碼 ${p.barcode}`, p.shelf_life && `效期 ${p.shelf_life}`].filter(Boolean).join(" · ")}</div>
           </div>
         </div>
       </td>
@@ -682,7 +689,7 @@ function ProductModal({ product, categories, onClose, onSaved }: { product: Part
           <input style={inputStyle} value={form.name || ""} onChange={(e) => set("name", e.target.value)} placeholder="艾草淨化包" />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <div><label style={labelStyle}>產品編號</label><input style={inputStyle} value={form.sku || ""} onChange={(e) => set("sku", e.target.value)} placeholder="HH-AC-30" /></div>
+          <div><label style={labelStyle}>型號</label><input style={inputStyle} value={form.sku || ""} onChange={(e) => set("sku", e.target.value)} placeholder="HHT-MS001" /></div>
           <div>
             <label style={labelStyle}>分類</label>
             <input style={inputStyle} list="cat-list" value={form.category || ""} onChange={(e) => set("category", e.target.value)} placeholder="選擇或輸入新分類" />
@@ -692,7 +699,11 @@ function ProductModal({ product, categories, onClose, onSaved }: { product: Part
           </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <div><label style={labelStyle}>規格</label><input style={inputStyle} value={form.spec || ""} onChange={(e) => set("spec", e.target.value)} placeholder="30入/盒" /></div>
+          <div><label style={labelStyle}>國際條碼</label><input style={inputStyle} value={form.barcode || ""} onChange={(e) => set("barcode", e.target.value)} placeholder="4711287829210" /></div>
+          <div><label style={labelStyle}>效期</label><input style={inputStyle} value={form.shelf_life || ""} onChange={(e) => set("shelf_life", e.target.value)} placeholder="3年" /></div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div><label style={labelStyle}>規格</label><input style={inputStyle} value={form.spec || ""} onChange={(e) => set("spec", e.target.value)} placeholder="30ml" /></div>
           <div><label style={labelStyle}>單位</label><input style={inputStyle} value={form.unit || ""} onChange={(e) => set("unit", e.target.value)} placeholder="盒" /></div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
@@ -735,10 +746,25 @@ function QuoteBuilder({ products, brands, onClose, onSaved }: { products: Produc
   const [buyerPhone, setBuyerPhone] = useState("");
   const [showListPrice, setShowListPrice] = useState(false);
   const [company, setCompany] = useState<CompanyInfo>(DEFAULT_COMPANY);
+  const [batchZhe, setBatchZhe] = useState(""); // 批次折數（通路價 × 折/10）
 
   useEffect(() => {
     fetch("/api/company").then((r) => r.json()).then((d) => { if (d.success) setCompany(d.data); }).catch(() => {});
   }, []);
+
+  // 折數 → 進貨價格：進貨價 = 通路價 × 折/10（例如 8 折 = ×0.8）
+  const zheToPrice = (listPrice: number, zhe: number) => Math.round((listPrice || 0) * zhe / 10);
+  const zheOf = (it: QuoteItem) => (it.list_price && it.list_price > 0 ? Math.round((it.unit_price / it.list_price) * 100) / 10 : null);
+  const applyBatchZhe = (str: string) => {
+    setBatchZhe(str);
+    const z = parseFloat(str);
+    if (!z || z <= 0) return;
+    setItems((prev) => prev.map((it) => (it.list_price && it.list_price > 0 ? { ...it, unit_price: zheToPrice(it.list_price, z) } : it)));
+  };
+  const setItemZhe = (i: number, str: string) => {
+    const z = parseFloat(str);
+    setItems((prev) => prev.map((it, idx) => (idx === i && it.list_price && it.list_price > 0 && z > 0 ? { ...it, unit_price: zheToPrice(it.list_price, z) } : it)));
+  };
 
   const addProduct = (p: Product) => {
     setItems((prev) => {
@@ -845,11 +871,19 @@ function QuoteBuilder({ products, brands, onClose, onSaved }: { products: Produc
             </div>
           </details>
 
-          {/* 通路價格顯示開關 */}
-          <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, fontSize: 12.5, color: C.text, cursor: "pointer" }}>
-            <input type="checkbox" checked={showListPrice} onChange={(e) => setShowListPrice(e.target.checked)} style={{ width: 15, height: 15, cursor: "pointer", accentColor: C.primary }} />
-            在報價單顯示「通路價格」欄（對照用）
-          </label>
+          {/* 通路價格顯示開關 + 批次折數 */}
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 12, flexWrap: "wrap" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: C.text, cursor: "pointer" }}>
+              <input type="checkbox" checked={showListPrice} onChange={(e) => setShowListPrice(e.target.checked)} style={{ width: 15, height: 15, cursor: "pointer", accentColor: C.primary }} />
+              顯示「通路價格」欄
+            </label>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: C.text }}>
+              <span>批次折數：通路價 ×</span>
+              <input type="number" step="0.1" value={batchZhe} onChange={(e) => applyBatchZhe(e.target.value)} placeholder="8"
+                style={{ width: 56, padding: "5px 7px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, textAlign: "right", background: C.surface, color: C.text }} title="例如輸入 8 = 8折" />
+              <span>折（套用全部）</span>
+            </div>
+          </div>
 
           {/* 品項 */}
           {items.length === 0 ? (
@@ -863,15 +897,20 @@ function QuoteBuilder({ products, brands, onClose, onSaved }: { products: Produc
                     <div style={{ fontSize: 11, color: C.muted }}>{it.sku ? `型號 ${it.sku}` : ""}{it.sku && it.spec ? " · " : ""}{it.spec || ""}</div>
                   </div>
                   {showListPrice && (
-                    <div style={{ width: 70, textAlign: "right" }} title="通路價格">
+                    <div style={{ width: 64, textAlign: "right" }} title="通路價格">
                       <div style={{ fontSize: 9, color: C.muted }}>通路價格</div>
                       <div style={{ fontSize: 12, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{it.list_price != null ? money(it.list_price) : "—"}</div>
                     </div>
                   )}
+                  <div style={{ textAlign: "right" }} title="折數（通路價 × 折/10），改折數即時變動進貨價">
+                    <div style={{ fontSize: 9, color: C.muted }}>折數</div>
+                    <input type="number" step="0.1" value={zheOf(it) ?? ""} onChange={(e) => setItemZhe(i, e.target.value)} disabled={!it.list_price}
+                      style={{ width: 46, padding: "5px 6px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, textAlign: "right", background: it.list_price ? C.surface : C.surf2, color: C.text }} />
+                  </div>
                   <div style={{ textAlign: "right" }}>
                     <div style={{ fontSize: 9, color: C.muted }}>進貨價格</div>
                     <input type="number" value={it.unit_price} onChange={(e) => updateItem(i, { unit_price: Number(e.target.value) })}
-                      style={{ width: 76, padding: "5px 7px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, textAlign: "right", background: C.surface, color: C.text }} title="進貨價格（直接輸入，等於單品折扣後的價格）" />
+                      style={{ width: 72, padding: "5px 7px", borderRadius: 7, border: `1px solid ${C.border}`, fontSize: 12, textAlign: "right", background: C.surface, color: C.text }} title="進貨價格（直接輸入，等於單品折扣後的價格）" />
                   </div>
                   <span style={{ color: C.muted, fontSize: 12 }}>×</span>
                   <input type="number" value={it.qty} onChange={(e) => updateItem(i, { qty: Number(e.target.value) })}
@@ -1095,6 +1134,7 @@ function QuoteView({ quote, onClose, onChanged }: { quote: Quote; onClose: () =>
               <th style={{ padding: "6px 4px", borderBottom: `1px solid ${C.border}` }}>品項</th>
               <th style={{ padding: "6px 4px", borderBottom: `1px solid ${C.border}` }}>型號</th>
               {quote.show_list_price && <th style={{ padding: "6px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right" }}>通路價格</th>}
+              {quote.show_list_price && <th style={{ padding: "6px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right" }}>折數</th>}
               <th style={{ padding: "6px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right" }}>進貨價格</th>
               <th style={{ padding: "6px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right" }}>數量</th>
               <th style={{ padding: "6px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right" }}>總價</th>
@@ -1108,6 +1148,7 @@ function QuoteView({ quote, onClose, onChanged }: { quote: Quote; onClose: () =>
                 </td>
                 <td style={{ padding: "9px 4px", borderBottom: `1px solid ${C.border}`, fontSize: 11, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{it.sku || "—"}</td>
                 {quote.show_list_price && <td style={{ padding: "9px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right", color: C.muted, fontVariantNumeric: "tabular-nums" }}>{it.list_price != null ? money(it.list_price) : "—"}</td>}
+                {quote.show_list_price && <td style={{ padding: "9px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right", color: C.muted }}>{it.list_price ? `${Math.round((it.unit_price / it.list_price) * 100) / 10} 折` : "—"}</td>}
                 <td style={{ padding: "9px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(it.unit_price)}</td>
                 <td style={{ padding: "9px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right" }}>{it.qty} {it.unit}</td>
                 <td style={{ padding: "9px 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{money((it.unit_price || 0) * it.qty)}</td>

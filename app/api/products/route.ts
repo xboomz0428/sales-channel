@@ -40,6 +40,8 @@ export async function POST(request: NextRequest) {
     const insert = {
       name: body.name,
       sku: body.sku || null,
+      barcode: body.barcode || null,
+      shelf_life: body.shelf_life || null,
       category: body.category || null,
       spec: body.spec || null,
       unit: body.unit || "組",

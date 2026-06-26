@@ -180,6 +180,7 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
                 <th>型號</th>
                 <th>規格</th>
                 {quote.show_list_price && <th className="right">通路價格</th>}
+                {quote.show_list_price && <th className="right">折數</th>}
                 <th className="right">進貨價格</th>
                 <th className="right">數量</th>
                 <th className="right">總價</th>
@@ -192,6 +193,7 @@ export default function PrintPage({ params }: { params: Promise<{ id: string }> 
                   <td><div className="spec">{it.sku || "—"}</div></td>
                   <td><div className="spec">{it.spec || "—"}</div></td>
                   {quote.show_list_price && <td className="right" style={{ color: "#999" }}>{it.list_price != null ? money(it.list_price) : "—"}</td>}
+                  {quote.show_list_price && <td className="right" style={{ color: "#999" }}>{it.list_price ? `${Math.round((it.unit_price / it.list_price) * 100) / 10} 折` : "—"}</td>}
                   <td className="right">{money(it.unit_price)}</td>
                   <td className="right">{it.qty} {it.unit}</td>
                   <td className="right" style={{ fontWeight: 700 }}>{money(it.unit_price * it.qty)}</td>

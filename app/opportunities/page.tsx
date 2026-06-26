@@ -73,7 +73,7 @@ function AddOppModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
     if (searchTimer.current) clearTimeout(searchTimer.current);
     if (!brandQuery.trim()) { setBrands([]); return; }
     searchTimer.current = setTimeout(() => {
-      fetch(`/api/brands?search=${encodeURIComponent(brandQuery)}`)
+      fetch(`/api/brands?view=lite&search=${encodeURIComponent(brandQuery)}`)
         .then((r) => r.json())
         .then((res) => {
           if (res.success && Array.isArray(res.data)) {

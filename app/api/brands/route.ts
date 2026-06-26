@@ -14,6 +14,26 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get("status");
     const search = searchParams.get("search");
 
+    // 輕量模式：只回基本欄位（無嵌入），給只需要名稱/email 的下拉選單用，速度快很多
+    if (searchParams.get("view") === "lite") {
+      let lq = supabase.from("brands").select("id, name, email, status, industry").order("name");
+      if (industry) lq = lq.eq("industry", industry);
+      if (status) lq = lq.eq("status", status);
+      if (search) lq = lq.ilike("name", `%${search}%`);
+      const PAGE = 1000;
+      let rows: Record<string, unknown>[] = [];
+      let off = 0;
+      while (true) {
+        const { data: pg, error: e } = await lq.range(off, off + PAGE - 1);
+        if (e) return NextResponse.json({ success: false, error: e.message }, { status: 500 });
+        if (!pg || pg.length === 0) break;
+        rows = rows.concat(pg);
+        if (pg.length < PAGE) break;
+        off += PAGE;
+      }
+      return NextResponse.json({ success: true, data: rows, count: rows.length });
+    }
+
     // gov_records 只帶待人工確認的低信心比對（採集中心「比對結果」分頁用）
     // store_reviews 只帶最新 5 筆（在 JS 層截取，Supabase JS 不支援 nested limit）
     let query = supabase

@@ -71,17 +71,17 @@ export async function POST(request: NextRequest) {
       const chanPrice = colChanP >= 0 ? parsePrice(String(row[colChanP] || "")) : 0;
       const minOrd    = colMinOrd >= 0 ? parseInt(String(row[colMinOrd] || "0")) || 1 : 1;
 
-      // 組合說明欄位
+      // 效期、條碼為獨立欄位；說明欄只放英文名稱/成分/適用
       const descParts: string[] = [];
       if (nameEn) descParts.push(`英文名稱：${nameEn}`);
       if (ingr)   descParts.push(`成分：${ingr}`);
       if (target) descParts.push(`適用：${target}`);
-      if (shelf)  descParts.push(`效期：${shelf}`);
-      if (barcode) descParts.push(`條碼：${barcode}`);
 
       products.push({
         name,
         sku: sku || null,
+        barcode: barcode || null,
+        shelf_life: shelf || null,
         category: null,
         spec: spec || null,
         unit: "個",

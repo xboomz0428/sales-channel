@@ -75,7 +75,7 @@ function exportExcel(
 
   // 表頭欄位
   const header = showList
-    ? ["品項名稱", "型號", "規格", "通路價格", "進貨價格", "數量", "總價"]
+    ? ["品項名稱", "型號", "規格", "通路價格", "折數", "進貨價格", "數量", "總價"]
     : ["品項名稱", "型號", "規格", "進貨價格", "數量", "總價"];
 
   const sellerLine = [COMPANY.name, COMPANY.taxId ? `統編 ${COMPANY.taxId}` : "", `電話 ${COMPANY.phone}`, quote.sales_rep ? `業務 ${quote.sales_rep}` : ""].filter(Boolean).join("　");
@@ -101,7 +101,11 @@ function exportExcel(
         (it.sku as string) || "",
         (it.spec as string) || "",
       ];
-      if (showList) row.push(it.list_price != null ? (it.list_price as number) : "");
+      if (showList) {
+        const lp = it.list_price as number | null;
+        row.push(lp != null ? lp : "");
+        row.push(lp ? `${Math.round(((it.unit_price as number) / lp) * 100) / 10} 折` : "");
+      }
       row.push(it.unit_price as number, it.qty as number, (it.unit_price as number) * (it.qty as number));
       return row;
     }),
@@ -164,7 +168,7 @@ async function exportWord(
 
   const showList = !!quote.show_list_price;
   const headers = showList
-    ? ["品項名稱", "型號", "規格", "通路價格", "進貨價格", "數量", "總價"]
+    ? ["品項名稱", "型號", "規格", "通路價格", "折數", "進貨價格", "數量", "總價"]
     : ["品項名稱", "型號", "規格", "進貨價格", "數量", "總價"];
   const NC = headers.length;
 
@@ -196,7 +200,11 @@ async function exportWord(
       cell(idx, [normal((it.sku as string) || "—", 18, "666666")], AlignmentType.CENTER),
       cell(idx, [normal((it.spec as string) || "—", 18, "666666")], AlignmentType.CENTER),
     ];
-    if (showList) cells.push(cell(idx, [normal(it.list_price != null ? money(it.list_price as number) : "—", 18, "999999")], AlignmentType.RIGHT));
+    if (showList) {
+      const lp = it.list_price as number | null;
+      cells.push(cell(idx, [normal(lp != null ? money(lp) : "—", 18, "999999")], AlignmentType.RIGHT));
+      cells.push(cell(idx, [normal(lp ? `${Math.round(((it.unit_price as number) / lp) * 100) / 10} 折` : "—", 18, "999999")], AlignmentType.RIGHT));
+    }
     cells.push(cell(idx, [normal(money(it.unit_price as number), 20)], AlignmentType.RIGHT));
     cells.push(cell(idx, [normal(String(it.qty), 20)], AlignmentType.RIGHT));
     cells.push(cell(idx, [bold(money((it.unit_price as number) * (it.qty as number)), 20, primaryColor)], AlignmentType.RIGHT));
