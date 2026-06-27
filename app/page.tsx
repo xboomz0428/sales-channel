@@ -183,27 +183,26 @@ function DCard({ title, subtitle, children, style }: { title: string; subtitle?:
 
 // ── 漏斗圖 ───────────────────────────────────────────
 function FunnelChart({ funnel }: { funnel: { stage: string; n: number; color: string }[] }) {
-  const W = 280, barH = 30, gap = 6;
-  const maxN = funnel[0]?.n || 1;
-  const totalH = funnel.length * (barH + gap) - gap;
+  const maxN = Math.max(funnel[0]?.n || 0, 1);
   const convRate = funnel.length ? Math.round(((funnel[funnel.length - 1]?.n || 0) / maxN) * 100) : 0;
   return (
     <div>
-      <svg width="100%" viewBox={`0 0 ${W} ${totalH}`} style={{ overflow: "visible" }}>
+      {/* 每一階段都顯示名稱與數量；0 也看得到（避免 0 寬度看不見） */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
         {funnel.map((row, i) => {
-          const barW = (row.n / maxN) * W;
-          const x = (W - barW) / 2;
-          const y = i * (barH + gap);
+          const pct = (row.n / maxN) * 100;
           return (
-            <g key={i}>
-              <rect x={x} y={y} width={barW} height={barH} rx={6} fill={row.color} opacity={0.9} />
-              <text x={x + 8} y={y + barH / 2 + 1} dominantBaseline="middle" fontSize={11} fill="white" fontWeight="600" fontFamily="inherit">{row.stage}</text>
-              <text x={W / 2} y={y + barH / 2 + 1} dominantBaseline="middle" textAnchor="middle" fontSize={13} fill="white" fontWeight="700" fontFamily="inherit">{row.n}</text>
-            </g>
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 52, flexShrink: 0, fontSize: 13, color: C.text, fontWeight: 600, textAlign: "right" }}>{row.stage}</div>
+              <div style={{ flex: 1, height: 30, background: C.surf2, borderRadius: 8, overflow: "hidden", position: "relative" }}>
+                <div style={{ height: "100%", width: `${row.n > 0 ? Math.max(pct, 5) : 0}%`, background: row.color, borderRadius: 8, opacity: 0.92, transition: "width 700ms cubic-bezier(.2,.8,.2,1)" }} />
+                <span style={{ position: "absolute", right: 11, top: "50%", transform: "translateY(-50%)", fontSize: 13, fontWeight: 700, color: pct > 88 ? "white" : C.text, fontVariantNumeric: "tabular-nums" }}>{row.n.toLocaleString()}</span>
+              </div>
+            </div>
           );
         })}
-      </svg>
-      <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: C.p50, borderRadius: 10 }}>
+      </div>
+      <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: C.p50, borderRadius: 10 }}>
         <span style={{ fontSize: 12, color: C.muted }}>名單→成交轉換率</span>
         <span style={{ fontSize: 16, fontWeight: 700, color: C.primary }}>{convRate}%</span>
       </div>
@@ -357,14 +356,17 @@ function MobileStatStrip({ stats }: { stats: { label: string; v: string }[] }) {
 export default function Dashboard() {
   const [data, setData] = useState<DashData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    fetch("/api/dashboard")
+  const load = (fresh = false) => {
+    if (fresh) setRefreshing(true);
+    fetch(`/api/dashboard${fresh ? "?fresh=1" : ""}`)
       .then((r) => r.json())
       .then((res) => { if (res.success) setData(res.data); })
       .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+      .finally(() => { setLoading(false); setRefreshing(false); });
+  };
+  useEffect(() => { load(false); }, []);
 
   const funnel = data?.funnel?.length
     ? data.funnel.map((f, i) => ({ stage: f.stage, n: f.count, color: FUNNEL_COLORS[i % FUNNEL_COLORS.length] }))
@@ -414,7 +416,11 @@ export default function Dashboard() {
         </div>
         <h1 style={{ fontSize: 17, fontWeight: 600, color: C.text, margin: 0 }} className="d-only">儀表板</h1>
         <span style={{ fontSize: 13, color: C.muted, marginLeft: 4 }} className="d-only">截至 {dateStr}</span>
-        <button onClick={exportCSV} className="d-only pressable" style={{ marginLeft: "auto", padding: "7px 13px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+        <button onClick={() => load(true)} disabled={refreshing} className="pressable" title="重新計算最新數據"
+          style={{ marginLeft: "auto", padding: "7px 13px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.muted, fontSize: 12, fontWeight: 600, cursor: refreshing ? "default" : "pointer" }}>
+          {refreshing ? "更新中…" : "🔄 重新整理"}
+        </button>
+        <button onClick={exportCSV} className="d-only pressable" style={{ padding: "7px 13px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
           ↓ CSV
         </button>
       </div>

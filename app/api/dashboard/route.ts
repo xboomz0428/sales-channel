@@ -1,28 +1,56 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 
-// Supabase PostgREST max-rows 預設 1000，需分頁取回全部
-async function fetchAll(query: any) {
-  const PAGE = 1000;
-  let all: any[] = [];
-  let offset = 0;
-  while (true) {
-    const { data: page } = await query.range(offset, offset + PAGE - 1);
-    if (!page || page.length === 0) break;
-    all = all.concat(page);
-    if (page.length < PAGE) break;
-    offset += PAGE;
-  }
-  return all;
+export const runtime = "nodejs";
+
+// 快取有效期（毫秒）。讀取時若快取較新就直接回，過期才重算並存回。
+const CACHE_TTL_MS = 3 * 60 * 1000;
+
+interface Metrics {
+  total_leads: number;
+  by_status: Record<string, number>;
+  industries: { label: string; n: number }[];
+  tax_count: number;
+  channel_counts: Record<string, number>;
+  line_brands: number;
+  opp_total: number;
+  won_value: number;
+  weighted_value: number;
+  pipeline: { stage: string; n: number; value: number; weighted: number }[];
 }
 
-export async function GET() {
+type SupabaseClient = ReturnType<typeof getSupabaseServerClient>;
+
+// 取得統計：優先讀 dashboard_cache（未過期就用），否則呼叫 DB 聚合函式並存回。
+async function getMetrics(supabase: SupabaseClient, force: boolean): Promise<{ metrics: Metrics; computedAt: string }> {
+  if (!force) {
+    const { data: cached } = await supabase
+      .from("dashboard_cache").select("metrics, computed_at").eq("id", 1).maybeSingle();
+    if (cached?.metrics && cached.computed_at) {
+      const age = Date.now() - new Date(cached.computed_at).getTime();
+      if (age < CACHE_TTL_MS) return { metrics: cached.metrics as Metrics, computedAt: cached.computed_at };
+    }
+  }
+  // 重算（全部在 DB 聚合，毫秒級）
+  const { data: fresh, error } = await supabase.rpc("dashboard_metrics");
+  if (error || !fresh) throw new Error(error?.message || "聚合失敗");
+  const computedAt = new Date().toISOString();
+  await supabase.from("dashboard_cache").upsert({ id: 1, metrics: fresh, computed_at: computedAt });
+  return { metrics: fresh as Metrics, computedAt };
+}
+
+const STAGE_LABELS: Record<string, string> = {
+  new: "新名單", contacted: "已聯繫", sampling: "打樣中", quoting: "報價中", negotiating: "議約中",
+};
+
+export async function GET(request: NextRequest) {
   try {
     const supabase = getSupabaseServerClient();
+    const force = request.nextUrl.searchParams.get("fresh") === "1";
 
-    const [allBrands, opportunities, { data: aCarePlans }] = await Promise.all([
-      fetchAll(supabase.from("brands").select("id, name, status, industry, tax_id, registered_name, brand_channels(channel)")),
-      fetchAll(supabase.from("opportunities").select("stage, est_annual_value, probability")),
+    // 快取統計 + 即時查「被冷落的 A 級客戶」（小查詢，always live）
+    const [{ metrics, computedAt }, { data: aCarePlans }] = await Promise.all([
+      getMetrics(supabase, force),
       supabase
         .from("care_plans")
         .select("id, tier, last_contact_date, brands(name)")
@@ -31,108 +59,58 @@ export async function GET() {
         .limit(5),
     ]);
 
-    const totalLeads = allBrands?.length || 0;
+    const total = metrics.total_leads || 0;
+    const STATUS_KEYS = ["new", "contacted", "sampling", "quoting", "negotiating", "won", "lost"];
+    const by_status: Record<string, number> = {};
+    for (const k of STATUS_KEYS) by_status[k] = metrics.by_status?.[k] || 0;
 
-    const by_status: Record<string, number> = {
-      new: 0, contacted: 0, sampling: 0, quoting: 0, negotiating: 0, won: 0, lost: 0,
-    };
-    const industryMap: Record<string, number> = {};
-    for (const b of (allBrands || []) as any[]) {
-      const s = b.status as string || "new";
-      if (s in by_status) by_status[s]++;
-      const ind = (b.industry as string) || "其他";
-      industryMap[ind] = (industryMap[ind] || 0) + 1;
-    }
-
-    // 資料完整度 — 從 nested brand_channels 計算，避免 Supabase 1000 筆限制
-    const taxIdBrands = (allBrands || []).filter((b: any) => b.tax_id || (b as any).registered_name).length;
-    const countByChannel = (ch: string) => (allBrands || []).filter((b: any) =>
-      ((b.brand_channels || []) as { channel: string }[]).some((c) => c.channel === ch)
-    ).length;
-    const lineCount = (allBrands || []).filter((b: any) =>
-      ((b.brand_channels || []) as { channel: string }[]).some((c) => c.channel === "line" || c.channel === "line_id")
-    ).length;
-    const phoneIds = { size: countByChannel("phone") };
-    const emailIds = { size: countByChannel("email") };
-    const fbIds = { size: countByChannel("fb") };
-    const igIds = { size: countByChannel("ig") };
-    const webIds = { size: countByChannel("website") };
-    const mapIds = { size: countByChannel("map") };
-    const lineIds = { size: lineCount };
+    // 資料完整度（各管道涵蓋率）
+    const ch = metrics.channel_counts || {};
     const mkItem = (label: string, count: number, color: string) => ({
-      label, pct: totalLeads ? Math.round((count / totalLeads) * 100) : 0, count, total: totalLeads, color,
+      label, pct: total ? Math.round((count / total) * 100) : 0, count, total, color,
     });
     const completeness = [
-      mkItem("工商登記", taxIdBrands, "#8FAAA4"),
-      mkItem("電話", phoneIds.size, "#5E8880"),
-      mkItem("LINE", lineIds.size, "#06C755"),
-      mkItem("FB", fbIds.size, "#1877F2"),
-      mkItem("IG", igIds.size, "#C13584"),
-      mkItem("Email", emailIds.size, "#D9B68C"),
-      mkItem("官網", webIds.size, "#5B7C99"),
-      mkItem("地圖", mapIds.size, "#D97706"),
+      mkItem("工商登記", metrics.tax_count || 0, "#8FAAA4"),
+      mkItem("電話", ch.phone || 0, "#5E8880"),
+      mkItem("LINE", metrics.line_brands || 0, "#06C755"),
+      mkItem("FB", ch.fb || 0, "#1877F2"),
+      mkItem("IG", ch.ig || 0, "#C13584"),
+      mkItem("Email", ch.email || 0, "#D9B68C"),
+      mkItem("官網", ch.website || 0, "#5B7C99"),
+      mkItem("地圖", ch.map || 0, "#D97706"),
     ];
-    const missingLine = totalLeads - lineIds.size;
+    const missingLine = total - (metrics.line_brands || 0);
 
-    // 被冷落的 A 級客戶
+    // 被冷落 A 級客戶
     const now = Date.now();
-    const neglected = (aCarePlans || []).map((cp: any) => ({
-      brand: (cp.brands as any)?.name || "未知",
-      tier: cp.tier as string || "A",
+    const neglected = (aCarePlans || []).map((cp: Record<string, unknown>) => ({
+      brand: (cp.brands as { name?: string } | null)?.name || "未知",
+      tier: (cp.tier as string) || "A",
       days: cp.last_contact_date
         ? Math.floor((now - new Date(cp.last_contact_date as string).getTime()) / 86400000)
         : null,
     }));
 
     // 商機管線
-    const STAGE_LABELS: Record<string, string> = {
-      new: "新名單", contacted: "已聯繫", sampling: "打樣中",
-      quoting: "報價中", negotiating: "議約中",
-    };
-    const pipelineMap: Record<string, { n: number; value: number; weighted: number }> = {};
-    let totalWeighted = 0;
-    for (const o of (opportunities || []) as any[]) {
-      const s = o.stage as string;
-      if (!s || s === "won" || s === "lost") continue;
-      if (!pipelineMap[s]) pipelineMap[s] = { n: 0, value: 0, weighted: 0 };
-      pipelineMap[s].n++;
-      pipelineMap[s].value += (o.est_annual_value as number) || 0;
-      const w = ((o.est_annual_value as number) || 0) * ((o.probability as number) || 0) / 100;
-      pipelineMap[s].weighted += w;
-      totalWeighted += w;
-    }
     const pipeline = ["new", "contacted", "sampling", "quoting", "negotiating"]
-      .filter((s) => pipelineMap[s])
-      .map((s) => ({
-        stage: STAGE_LABELS[s],
-        stageKey: s,
-        n: pipelineMap[s].n,
-        value: pipelineMap[s].value,
-        weighted: pipelineMap[s].weighted,
-      }));
-
-    // 地圖 pins（品牌表無 city 欄位，從 stores 取）
-    const pins: { brand: string; industry: string; city: string }[] = [];
-
-    // 產業分佈
-    const industries = Object.entries(industryMap)
-      .map(([label, n]) => ({ label, n }))
-      .sort((a, b) => b.n - a.n);
-
-    const wonValue = (opportunities || []).filter((o: any) => o.stage === "won")
-      .reduce((s: number, o: any) => s + ((o.est_annual_value as number) || 0), 0);
+      .map((s) => {
+        const p = (metrics.pipeline || []).find((x) => x.stage === s);
+        return p ? { stage: STAGE_LABELS[s] || s, stageKey: s, n: p.n, value: p.value, weighted: p.weighted } : null;
+      })
+      .filter(Boolean);
 
     return NextResponse.json({
       success: true,
+      computedAt,
       data: {
         stats: {
-          total_leads: totalLeads,
+          total_leads: total,
           by_status,
-          active: totalLeads - by_status.won - by_status.lost,
-          won_value: wonValue,
-          total_opportunities: opportunities?.length || 0,
-          weighted_value: totalWeighted,
-          win_rate: ((by_status.won / (totalLeads || 1)) * 100).toFixed(1),
+          active: total - by_status.won - by_status.lost,
+          won_value: metrics.won_value || 0,
+          total_opportunities: metrics.opp_total || 0,
+          weighted_value: metrics.weighted_value || 0,
+          win_rate: ((by_status.won / (total || 1)) * 100).toFixed(1),
         },
         funnel: [
           { stage: "新名單", count: by_status.new },
@@ -142,12 +120,12 @@ export async function GET() {
           { stage: "議約中", count: by_status.negotiating },
           { stage: "成交", count: by_status.won },
         ],
-        industries,
+        industries: metrics.industries || [],
         completeness,
         missingLine,
         neglected,
         pipeline,
-        pins,
+        pins: [],
       },
     });
   } catch {
