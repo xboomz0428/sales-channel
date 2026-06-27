@@ -14,6 +14,7 @@ export const NAV: NavItem[] = [
   { kind: "section", label: "業務工具" },
   { id: "products", label: "產品報價", sym: "▦", href: "/products" },
   { kind: "section", label: "外發管道" },
+  { id: "industry-groups", label: "產業群組", sym: "◳", href: "/outreach/industry-groups" },
   { id: "email-dashboard", label: "郵件儀表板", sym: "✉", href: "/outreach/email-dashboard" },
   { id: "newsletter", label: "電子報發送", sym: "◎", href: "/outreach/newsletter" },
   { id: "email-editor", label: "郵件編輯器", sym: "✏", href: "/outreach/email-editor" },

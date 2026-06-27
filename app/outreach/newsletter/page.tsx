@@ -41,6 +41,8 @@ export default function NewsletterPage() {
   const [tplId, setTplId] = useState<string>('');
   const [q, setQ] = useState('');
   const [industry, setIndustry] = useState('');
+  const [groupId, setGroupId] = useState('');
+  const [groups, setGroups] = useState<{ id: string; name: string; industries: string[]; brandCount?: number }[]>([]);
   const [stage, setStage] = useState('');
   const [source, setSource] = useState('');
   const [confirm, setConfirm] = useState(false);
@@ -69,6 +71,23 @@ export default function NewsletterPage() {
     fetch('/api/outreach/email-config').then((r) => r.json()).then(setCfg).catch(() => {});
   }, []);
 
+  // 載入產業群組（供群發鎖定）
+  useEffect(() => {
+    fetch('/api/industry-groups').then((r) => r.json()).then((d) => { if (d.success) setGroups(d.data); }).catch(() => {});
+  }, []);
+
+  // 將目前篩選組成 query（群組優先：展開為多產業 industries）
+  const buildRecipientParams = () => {
+    const p = new URLSearchParams();
+    if (q) p.set('q', q);
+    const grp = groups.find((g) => g.id === groupId);
+    if (grp && grp.industries.length) p.set('industries', grp.industries.join(','));
+    else if (industry) p.set('industry', industry);
+    if (stage) p.set('stage', stage);
+    if (source) p.set('source', source);
+    return p;
+  };
+
   // 載入發送紀錄
   const loadHistory = () => {
     fetch('/api/outreach/email-dashboard')
@@ -96,12 +115,7 @@ export default function NewsletterPage() {
         setManualName('');
         setManualEmail('');
         // 觸發 recipients 重新載入
-        const p = new URLSearchParams();
-        if (q) p.set('q', q);
-        if (industry) p.set('industry', industry);
-        if (stage) p.set('stage', stage);
-        if (source) p.set('source', source);
-        fetch(`/api/outreach/recipients?${p.toString()}`)
+        fetch(`/api/outreach/recipients?${buildRecipientParams().toString()}`)
           .then((r) => r.json())
           .then((d) => { setRecipients(d.recipients || []); });
       }
@@ -111,12 +125,7 @@ export default function NewsletterPage() {
   // 載入名單(隨搜尋/篩選)
   useEffect(() => {
     setLoading(true);
-    const p = new URLSearchParams();
-    if (q) p.set('q', q);
-    if (industry) p.set('industry', industry);
-    if (stage) p.set('stage', stage);
-    if (source) p.set('source', source);
-    fetch(`/api/outreach/recipients?${p.toString()}`)
+    fetch(`/api/outreach/recipients?${buildRecipientParams().toString()}`)
       .then((r) => r.json())
       .then((d) => {
         setRecipients(d.recipients || []);
@@ -126,7 +135,8 @@ export default function NewsletterPage() {
         if (typeof d.totalBrands === 'number') setTotalBrands(d.totalBrands);
       })
       .finally(() => setLoading(false));
-  }, [q, industry, stage, source]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, industry, groupId, stage, source, groups]);
 
   // 載入電子報模板(有 HTML 的)
   useEffect(() => {
@@ -326,8 +336,14 @@ export default function NewsletterPage() {
           </div>
           <div className="filters">
             <input className="in" placeholder="搜尋名稱…" value={q} onChange={(e) => setQ(e.target.value)} />
-            <select className="in" value={industry} onChange={(e) => setIndustry(e.target.value)}>
-              <option value="">全部產業</option>
+            <select className="in" value={groupId} onChange={(e) => { setGroupId(e.target.value); if (e.target.value) setIndustry(''); }} title="依產業群組鎖定（管理：產業群組頁）">
+              <option value="">產業群組（全部）</option>
+              {groups.map((g) => (<option key={g.id} value={g.id}>◳ {g.name}（{g.brandCount ?? 0}）</option>))}
+            </select>
+          </div>
+          <div className="filters">
+            <select className="in" value={industry} disabled={!!groupId} onChange={(e) => setIndustry(e.target.value)} title={groupId ? '已選群組，單一產業停用' : ''}>
+              <option value="">{groupId ? '（已用群組）' : '全部產業'}</option>
               {industries.map((i) => (<option key={i} value={i}>{i}</option>))}
             </select>
           </div>

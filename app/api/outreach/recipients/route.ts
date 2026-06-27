@@ -36,6 +36,8 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const q = url.searchParams.get('q');
     const industry = url.searchParams.get('industry');
+    // 產業群組：多個產業以逗號分隔，篩選 brands.industry IN (...)
+    const industriesParam = (url.searchParams.get('industries') || '').split(',').map((s) => s.trim()).filter(Boolean);
     const stage = url.searchParams.get('stage');
     const source = url.searchParams.get('source');
 
@@ -47,7 +49,8 @@ export async function GET(req: Request) {
         .order('name', { ascending: true })
         .range(from, to);
       if (q) query = query.ilike('name', `%${q}%`);
-      if (industry) query = query.eq('industry', industry);
+      if (industriesParam.length > 0) query = query.in('industry', industriesParam);
+      else if (industry) query = query.eq('industry', industry);
       if (stage) query = query.eq('status', stage);
       return query;
     });
