@@ -920,6 +920,9 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
   const [steps, setSteps] = useState<{ type: string; text: string; ok?: boolean }[]>([]);
   const [kwList, setKwList] = useState<string[]>(KEYWORD_SUGGEST);
   const logRef = useRef<HTMLDivElement>(null);
+  // 全台灣分批採集
+  const stopRef = useRef(false);
+  const [batch, setBatch] = useState<{ active: boolean; cityIdx: number; cities: number; found: number; newBrands: number; current: string } | null>(null);
 
   // 載入歷史關鍵字（localStorage）＋ 預設，去重
   useEffect(() => {
@@ -1027,6 +1030,68 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
     setRunning(false);
     loadJobs();
   };
+
+  // 採集單一縣市並回傳摘要（供全台灣分批用）
+  const scrapeCity = async (kw: string, c: string, pages: number): Promise<{ found: number; newBrands: number } | null> => {
+    try {
+      const response = await fetch("/api/scrape/places", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keyword: kw, city: c, maxPages: pages }),
+      });
+      if (!response.ok || !response.body) return null;
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let summary: { found: number; newBrands: number } | null = null;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          const t = line.trim();
+          if (!t) continue;
+          try {
+            const evt = JSON.parse(t);
+            if (evt.type === "done") summary = { found: evt.data.found || 0, newBrands: evt.data.new_brands || 0 };
+            else if (evt.type === "step" || evt.type === "store") setSteps((prev) => [...prev.slice(-180), { type: evt.type, text: evt.text, ok: evt.ok }]);
+          } catch {}
+        }
+      }
+      return summary;
+    } catch { return null; }
+  };
+
+  // 全台灣分批採集：逐縣市跑（每縣市一批），即時累計，可隨時停止
+  const runAllTaiwan = async () => {
+    if (!keyword.trim() || running) return;
+    rememberKeyword(keyword);
+    stopRef.current = false;
+    setRunning(true); setResult(null); setResultOk(false); setSteps([]);
+    const cities = CITY_OPTIONS;
+    let totalFound = 0, totalNew = 0;
+    setBatch({ active: true, cityIdx: 0, cities: cities.length, found: 0, newBrands: 0, current: cities[0] });
+    for (let i = 0; i < cities.length; i++) {
+      if (stopRef.current) break;
+      const c = cities[i];
+      setBatch((b) => (b ? { ...b, cityIdx: i + 1, current: c } : b));
+      setSteps((prev) => [...prev.slice(-180), { type: "step", text: `──「${keyword.trim()}」× ${c}（${i + 1}/${cities.length}）──` }]);
+      const s = await scrapeCity(keyword.trim(), c, maxPages);
+      if (s) {
+        totalFound += s.found; totalNew += s.newBrands;
+        setBatch((b) => (b ? { ...b, found: totalFound, newBrands: totalNew } : b));
+      }
+      onDone?.();
+    }
+    const stopped = stopRef.current;
+    setRunning(false);
+    setResultOk(true);
+    setResult(`${stopped ? "已停止" : "全台灣完成"}：累計新增 ${totalNew} 個品牌（找到 ${totalFound} 間）`);
+    setBatch((b) => (b ? { ...b, active: false } : b));
+    loadJobs();
+  };
+  const stopBatch = () => { stopRef.current = true; };
 
   return (
     <>
@@ -1170,7 +1235,7 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
               cursor: running || !keyword.trim() ? "default" : "pointer",
             }}
           >
-            {running ? (
+            {running && !batch ? (
               <span>
                 <span className="spin" style={{ marginRight: 6 }}>↻</span>採集中，約需 5~15 秒…
               </span>
@@ -1178,6 +1243,38 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
               `⚡ 開始採集「${keyword || "…"} × ${city}」`
             )}
           </button>
+
+          {/* 全台灣分批採集 */}
+          <div style={{ marginTop: 10, padding: "12px 14px", borderRadius: 12, border: `1px solid ${C.border}`, background: C.surf2 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: batch?.active ? 10 : 0, flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>🇹🇼 全台灣分批採集</div>
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>「{keyword || "…"}」逐縣市（{CITY_OPTIONS.length} 個）依序採集，可隨時停止</div>
+              </div>
+              {batch?.active ? (
+                <button onClick={stopBatch} disabled={stopRef.current} className="pressable"
+                  style={{ padding: "9px 18px", borderRadius: 10, border: "none", background: stopRef.current ? C.surf2 : C.danger, color: stopRef.current ? C.muted : "white", fontWeight: 700, fontSize: 14, cursor: stopRef.current ? "default" : "pointer", whiteSpace: "nowrap" }}>
+                  {stopRef.current ? "停止中…" : "■ 停止"}
+                </button>
+              ) : (
+                <button onClick={runAllTaiwan} disabled={running || !keyword.trim()} className="pressable"
+                  style={{ padding: "9px 18px", borderRadius: 10, border: "none", background: running || !keyword.trim() ? C.surf2 : C.accentDk, color: running || !keyword.trim() ? C.muted : "white", fontWeight: 700, fontSize: 14, cursor: running || !keyword.trim() ? "default" : "pointer", whiteSpace: "nowrap" }}>
+                  ▶ 全台跑
+                </button>
+              )}
+            </div>
+            {batch?.active && (
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.text, marginBottom: 5 }}>
+                  <span>採集中：{batch.current}（{batch.cityIdx}/{batch.cities}）</span>
+                  <span style={{ fontWeight: 700, color: C.primary }}>已新增 {batch.newBrands}・找到 {batch.found}</span>
+                </div>
+                <div style={{ height: 8, borderRadius: 4, background: C.border, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${(batch.cityIdx / batch.cities) * 100}%`, background: C.primary, borderRadius: 4, transition: "width 400ms" }} />
+                </div>
+              </div>
+            )}
+          </div>
 
           {steps.length > 0 && (
             <div
