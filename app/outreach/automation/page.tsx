@@ -64,6 +64,44 @@ export default function AutomationPage() {
     setRules((p) => p.filter((x) => x.id !== id));
   };
 
+  // 自動化流程範本：把相關規則一鍵啟用／停用
+  const FLOWS: { key: string; title: string; desc: string; steps: string[]; match: (name: string) => boolean }[] = [
+    {
+      key: 'nurture', title: '流程 1 · 新客開發培養',
+      desc: '剛採集的陌生名單，用 3 封信養到願意互動。前 2 封給價值不推銷，第 3 封才放急迫優惠。',
+      steps: ['① 初次問候（D0 寄）', '未開信 → 3 天後寄 ② 實證故事', '未開信 → 4 天後寄 ③ 限時通路專案'],
+      match: (n) => /跟進\s*[①②]→/.test(n),
+    },
+    {
+      key: 'quote', title: '流程 3 · 報價後跟進',
+      desc: '報價寄出後沒下文，自動提醒並處理常見疑慮、製造到期急迫感，催成交。',
+      steps: ['寄「報價提醒・常見疑慮」', '未回覆 → 4 天後寄「報價即將到期」'],
+      match: (n) => n.includes('【流程3】'),
+    },
+    {
+      key: 'repurchase', title: '流程 5 · 回購喚醒',
+      desc: '成交客戶依回購週期關懷；超過一段時間沒回應，自動喚回沉睡客。',
+      steps: ['寄「④ 回購關懷」', '未回覆 → 14 天後寄「久未聯繫・回購喚醒」'],
+      match: (n) => n.includes('【流程5】'),
+    },
+  ];
+  const [applyingFlow, setApplyingFlow] = useState<string | null>(null);
+  const flowStat = (f: typeof FLOWS[number]) => {
+    const matched = rules.filter((r) => f.match(r.name));
+    return { total: matched.length, active: matched.filter((r) => r.active).length, matched };
+  };
+  const applyFlow = async (f: typeof FLOWS[number], activate: boolean) => {
+    const { matched } = flowStat(f);
+    if (matched.length === 0) { alert('找不到此流程的規則，請先在下方建立或確認規則名稱。'); return; }
+    setApplyingFlow(f.key);
+    try {
+      await Promise.all(matched.map((r) =>
+        fetch('/api/outreach/followup-rules', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: r.id, active: activate }) })
+      ));
+      setRules((p) => p.map((r) => f.match(r.name) ? { ...r, active: activate } : r));
+    } finally { setApplyingFlow(null); }
+  };
+
   const upcoming = schedules.filter((s) => s.status === 'pending' || s.status === 'sending');
   const past = schedules.filter((s) => s.status === 'done' || s.status === 'canceled');
 
@@ -71,8 +109,35 @@ export default function AutomationPage() {
     <div className="wrap">
       <header>
         <h1>電子報自動化</h1>
-        <p>排程寄送 · 自動跟進序列 · 寄送節流（節流與 LINE 通知請至「API 設定」）</p>
+        <p>排程寄送 · 自動跟進序列 · 寄送節流（節流與 LINE 通知請至「設定」）</p>
       </header>
+
+      {/* 自動化流程範本：說明 + 一鍵套用 */}
+      <section className="panel">
+        <div className="phead"><strong>⚡ 自動化流程範本</strong><span className="count">選流程一鍵啟用</span></div>
+        <p className="muted small">每個流程是一組已設計好的跟進規則。看完說明後按「一鍵啟用」即可整組開啟（也可隨時一鍵停用）。啟用前建議先確認下方各規則的模板內容與天數。</p>
+        <div className="flows">
+          {FLOWS.map((f) => {
+            const st = flowStat(f);
+            const allOn = st.total > 0 && st.active === st.total;
+            return (
+              <div key={f.key} className="flowcard">
+                <div className="flowtitle">{f.title}
+                  <span className={`fstat ${allOn ? 'on' : st.active > 0 ? 'part' : ''}`}>{st.total === 0 ? '未建立' : allOn ? '全部啟用' : st.active > 0 ? `${st.active}/${st.total} 啟用` : '未啟用'}</span>
+                </div>
+                <div className="flowdesc">{f.desc}</div>
+                <ol className="flowsteps">{f.steps.map((s, i) => <li key={i}>{s}</li>)}</ol>
+                <div className="flowbtns">
+                  <button className="btn solid" disabled={applyingFlow === f.key || st.total === 0 || allOn} onClick={() => applyFlow(f, true)}>
+                    {applyingFlow === f.key ? '套用中…' : '✓ 一鍵啟用'}
+                  </button>
+                  <button className="btn ghost" disabled={applyingFlow === f.key || st.active === 0} onClick={() => applyFlow(f, false)}>停用</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
       {/* 排程清單 */}
       <section className="panel">
@@ -207,6 +272,18 @@ export default function AutomationPage() {
         .toggle.on { background: #e8f2e8; color: #3f6b3f; border-color: #cdd6bf; }
         .foot { display: flex; justify-content: space-between; font-size: 13px; }
         .foot a { color: #4a6b3f; text-decoration: none; }
+        .flows { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+        .flowcard { border: 1px solid #e3ded3; border-radius: 12px; padding: 14px; background: #fcfbf5; display: flex; flex-direction: column; }
+        .flowtitle { font-size: 14px; font-weight: 700; color: #2f3d2f; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .fstat { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: #f0ece1; color: #9a8484; white-space: nowrap; }
+        .fstat.on { background: #e8f2e8; color: #3f6b3f; }
+        .fstat.part { background: #fdf4e3; color: #8a6d1f; }
+        .flowdesc { font-size: 12px; color: #6e7a6d; line-height: 1.65; margin: 8px 0; }
+        .flowsteps { margin: 0 0 12px; padding-left: 18px; font-size: 12px; color: #5a6b4f; line-height: 1.8; }
+        .flowbtns { display: flex; gap: 8px; margin-top: auto; }
+        .flowbtns .btn { padding: 8px 14px; font-size: 13px; }
+        .btn.ghost { background: #fff; border: 1px solid #d9d3c4; color: #4a6b3f; }
+        .btn.ghost:disabled, .btn.solid:disabled { opacity: .45; cursor: default; }
       `}</style>
     </div>
   );

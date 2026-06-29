@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import crypto from "node:crypto";
 import { getCfg } from "@/lib/settings";
+import { getCompany } from "@/lib/companyServer";
 import { resolveEmailProvider, sendViaResend, sendViaSendgrid, sendViaSmtp } from "@/lib/outreach/emailProvider";
 import { addToBlacklist, classifyBounce } from "@/lib/outreach/blacklist";
 
@@ -57,6 +58,15 @@ export async function dispatchEmail(messageId: string): Promise<DispatchResult> 
     }
   }
 
+  // 我方公司資料（來自「設定→全域」），供模板 Logo／簽名／退訂讀取
+  const company = await getCompany();
+  const logoBlock = company.logo
+    ? `<img src="${company.logo}" alt="${company.name}" style="height:42px;max-width:220px;display:block;border:0;"/>`
+    : `<div style="font-size:18px;font-weight:800;color:#fff;font-family:'Noto Serif TC',serif;">${company.name || "好漢草 HeroHerb"}</div><div style="font-size:12px;color:#9DC4A8;margin-top:3px;">${company.brand || "漢方良品 · 草本的溫度，暖身也暖心"}</div>`;
+  const signature = [company.name, company.taxId ? `統編 ${company.taxId}` : "", company.phone, company.email, company.website]
+    .filter(Boolean).join("｜");
+  const unsubscribe = `mailto:${company.email || "service@wesmilegood.com"}?subject=${encodeURIComponent("取消訂閱")}`;
+
   // 變數替換：{{變數名}} → 實際值，沒有資料就替換為空字串（不顯示變數名）
   const now = new Date();
   const vars: Record<string, string> = {
@@ -64,6 +74,16 @@ export async function dispatchEmail(messageId: string): Promise<DispatchResult> 
     收件人Email: msg.to_email || "",
     寄件人: fromName || "",
     今天日期: `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, "0")}/${String(now.getDate()).padStart(2, "0")}`,
+    // 我方公司（與品牌的「公司名稱」區隔）
+    公司Logo區塊: logoBlock,
+    公司簽名: signature,
+    寄件公司: company.name || "",
+    公司電話: company.phone || "",
+    公司Email: company.email || "",
+    公司網站: company.website || "",
+    公司地址: company.address || "",
+    公司統編: company.taxId || "",
+    unsubscribe,
   };
   const replaceVars = (text: string) =>
     text.replace(/\{\{([^}]+)\}\}/g, (_, key) => vars[key.trim()] ?? "");
