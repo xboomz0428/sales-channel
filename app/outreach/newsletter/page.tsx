@@ -34,6 +34,7 @@ interface SendResult {
   failed: number;
   queued: number;
   skipped: number;
+  cleaned: number;
 }
 
 const STAGE_LABEL: Record<string, string> = {
@@ -203,7 +204,7 @@ export default function NewsletterPage() {
   async function doSend() {
     setSending(true);
     setConfirm(false);
-    let sent = 0, failed = 0, queued = 0, skipped = 0;
+    let sent = 0, failed = 0, queued = 0, skipped = 0, cleaned = 0;
     try {
       // 品牌 ID 和手動收件人分開處理
       const brandIds = [...selected].filter((id) => !id.startsWith('manual_'));
@@ -224,7 +225,7 @@ export default function NewsletterPage() {
           body: JSON.stringify({ templateId: tplId, brandIds: batch, skipDuplicates: skipDup }),
         });
         const data = await res.json().catch(() => ({}));
-        if (res.ok) { sent += data.sent || 0; failed += data.failed || 0; queued += data.queued || 0; skipped += data.skipped || 0; }
+        if (res.ok) { sent += data.sent || 0; failed += data.failed || 0; queued += data.queued || 0; skipped += data.skipped || 0; cleaned += data.cleaned || 0; }
         else { failed += batch.length; }
         done += batch.length;
         setProgress({ done, total });
@@ -238,13 +239,13 @@ export default function NewsletterPage() {
           body: JSON.stringify({ templateId: tplId, manualEmails: batch.map((r) => ({ name: r.name, email: r.email! })), skipDuplicates: skipDup }),
         });
         const data = await res.json().catch(() => ({}));
-        if (res.ok) { sent += data.sent || 0; failed += data.failed || 0; skipped += data.skipped || 0; }
+        if (res.ok) { sent += data.sent || 0; failed += data.failed || 0; skipped += data.skipped || 0; cleaned += data.cleaned || 0; }
         else { failed += batch.length; }
         done += batch.length;
         setProgress({ done, total });
       }
 
-      setResult({ total, sent, failed, queued, skipped });
+      setResult({ total, sent, failed, queued, skipped, cleaned });
       setSelected(new Set());
       loadHistory();
     } catch {
@@ -630,8 +631,10 @@ export default function NewsletterPage() {
               <div><b>{result.sent}</b><span>成功</span></div>
               <div><b>{result.failed}</b><span>失敗</span></div>
               <div><b>{result.skipped}</b><span>略過重複</span></div>
+              {result.cleaned > 0 && <div><b>{result.cleaned}</b><span>清洗無效</span></div>}
             </div>
             {result.queued > 0 && <p className="muted small" style={{ textAlign: 'center' }}>另有 {result.queued} 封排隊中</p>}
+            {result.cleaned > 0 && <p className="muted small" style={{ textAlign: 'center' }}>已自動剔除 {result.cleaned} 個無效信箱（語法錯誤或網域查無 MX），不計入失敗</p>}
             <div className="dbtns">
               <a className="btn ghost" href="/outreach/email-dashboard">看儀表板</a>
               <button className="btn solid" onClick={() => setResult(null)}>關閉</button>

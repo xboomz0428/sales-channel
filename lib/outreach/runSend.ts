@@ -1,12 +1,14 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { dispatchEmail } from "@/lib/outreach/dispatchEmail";
 import { resolveBrandEmails, isValidEmail } from "@/lib/outreach/resolveEmails";
+import { partitionSendable } from "@/lib/outreach/validateEmail";
 
 export interface RunSendResult {
   sent: number;
   failed: number;
   queued: number;
   skipped: number;
+  cleaned: number; // 寄信前清洗：語法錯誤 / 網域無 MX 而被剔除（未寄出、不算失敗）
   dispatched: number; // 本次實際送出（成功+失敗），用來扣每日額度
   total: number;
 }
@@ -31,7 +33,7 @@ export async function runSendBatch(opts: {
   const skipDuplicates = opts.skipDuplicates !== false;
   let budget = Math.max(0, opts.budget);
 
-  const empty: RunSendResult = { sent: 0, failed: 0, queued: 0, skipped: 0, dispatched: 0, total: 0 };
+  const empty: RunSendResult = { sent: 0, failed: 0, queued: 0, skipped: 0, cleaned: 0, dispatched: 0, total: 0 };
   if (brandIds.length === 0 && manualEmails.length === 0) return empty;
 
   const { data: tpl } = await supabaseAdmin
@@ -59,7 +61,14 @@ export async function runSendBatch(opts: {
 
   const emailMap = await resolveBrandEmails(brandIds);
 
-  let sent = 0, failed = 0, queued = 0, dispatched = 0;
+  // 寄信前清洗：把本批所有要寄的信箱做語法 + MX 檢查，無效的剔除（不寄、不算失敗）
+  const allTargets = [
+    ...brandIds.map((id) => emailMap.get(id)).filter((e): e is string => !!e),
+    ...manualEmails.map((m) => m.email).filter(Boolean),
+  ];
+  const { bad: invalidSet } = await partitionSendable(allTargets);
+
+  let sent = 0, failed = 0, queued = 0, cleaned = 0, dispatched = 0;
 
   const handleOne = async (brandId: string | null, to: string) => {
     const { data: msg } = await supabaseAdmin
@@ -92,12 +101,13 @@ export async function runSendBatch(opts: {
   for (const brandId of brandIds) {
     const to = emailMap.get(brandId);
     if (!to) { failed++; continue; }
+    if (invalidSet.has(to.trim())) { cleaned++; continue; } // 無效信箱：清洗剔除
     await handleOne(brandId, to);
   }
   for (const m of manualEmails) {
-    if (!isValidEmail(m.email)) { failed++; continue; }
+    if (!isValidEmail(m.email) || invalidSet.has((m.email || "").trim())) { cleaned++; continue; }
     await handleOne(null, m.email);
   }
 
-  return { sent, failed, queued, skipped, dispatched, total: brandIds.length + manualEmails.length };
+  return { sent, failed, queued, skipped, cleaned, dispatched, total: brandIds.length + manualEmails.length };
 }

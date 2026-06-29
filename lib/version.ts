@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.1.1";
+export const APP_VERSION = "2.2.0";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.2.0",
+    date: "2026-06-29",
+    title: "退信清理 + 寄信前名單清洗",
+    items: [
+      "郵件儀表板新增「立即掃描退信」按鈕：手動讀取信箱退信、把無效信箱加入黑名單，下次寄送自動排除",
+      "退信掃描改用 IMAP（app password）讀信箱，修好原本依賴未設定的 Gmail API Token 而完全失效的問題",
+      "退信比對改為精準抽取真正失敗的收件人（DSN Final-Recipient／Gmail 退信措辭），不再誤封簽名/退訂裡引用到的自家信箱",
+      "寄信前自動清洗名單：語法錯誤或網域查無 MX 的信箱直接剔除（不寄、不計入失敗），寄送完成顯示「清洗無效」數",
+    ],
+  },
   {
     version: "2.1.1",
     date: "2026-06-29",

@@ -60,13 +60,36 @@ export default function EmailDashboardPage() {
   const [data, setData] = useState<Data | null>(null);
   const [open, setOpen] = useState<Msg | null>(null);
   const [loading, setLoading] = useState(true);
+  const [scanning, setScanning] = useState(false);
+  const [scanMsg, setScanMsg] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadData = () => {
     fetch('/api/outreach/email-dashboard')
       .then((r) => r.json())
       .then(setData)
       .finally(() => setLoading(false));
-  }, []);
+  };
+  useEffect(() => { loadData(); }, []);
+
+  const scanBounces = async () => {
+    if (scanning) return;
+    setScanning(true);
+    setScanMsg(null);
+    try {
+      const res = await fetch('/api/outreach/scan-bounces', { method: 'POST' });
+      const j = await res.json();
+      if (j.success) {
+        setScanMsg(`✓ 掃描完成：硬退信 ${j.hard} 封（已永久排除）、軟退信 ${j.soft} 封、掃描 ${j.scanned} 封退信通知`);
+        loadData();
+      } else {
+        setScanMsg(`✕ ${j.error || '掃描失敗'}`);
+      }
+    } catch {
+      setScanMsg('✕ 連線失敗');
+    } finally {
+      setScanning(false);
+    }
+  };
 
   const t = data?.totals || {};
   const maxSent = Math.max(1, ...(data?.daily || []).map((d) => d.sent));
@@ -82,8 +105,16 @@ export default function EmailDashboardPage() {
   return (
     <div className="wrap">
       <header>
-        <h1>Email 儀表板</h1>
-        <p>近 14 日寄送成效 · 開信與點擊追蹤</p>
+        <div className="hrow">
+          <div>
+            <h1>Email 儀表板</h1>
+            <p>近 14 日寄送成效 · 開信與點擊追蹤</p>
+          </div>
+          <button className="scanbtn" onClick={scanBounces} disabled={scanning} title="讀取信箱裡的退信通知，把無效信箱加入黑名單，下次寄送自動排除">
+            {scanning ? '掃描中…' : '🧹 立即掃描退信'}
+          </button>
+        </div>
+        {scanMsg && <div className={`scanmsg ${scanMsg.startsWith('✓') ? 'ok' : 'err'}`}>{scanMsg}</div>}
       </header>
 
       {loading ? (
@@ -262,6 +293,13 @@ export default function EmailDashboardPage() {
         .fpct { width: 48px; text-align: right; font-size: 15px; font-weight: 600; color: #6e7a6d; }
         h1 { font-family: 'Noto Serif TC', serif; font-size: 24px; margin: 0; }
         header p { margin: 4px 0 18px; font-size: 14px; color: #8a8472; }
+        .hrow { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+        .scanbtn { border: 1px solid #cdd6bf; background: #eef0e6; color: #4a6b3f; border-radius: 10px; padding: 9px 16px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; white-space: nowrap; }
+        .scanbtn:hover { background: #e3ecdf; }
+        .scanbtn:disabled { opacity: 0.55; cursor: default; }
+        .scanmsg { margin: 0 0 16px; padding: 9px 13px; border-radius: 10px; font-size: 13px; }
+        .scanmsg.ok { background: #e8f2e8; color: #3f6b3f; border: 1px solid #cdd6bf; }
+        .scanmsg.err { background: #fbeee9; color: #a4452f; border: 1px solid #e2c4ba; }
         .muted { color: #9a9384; }
         .cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 18px; }
         @media (max-width: 760px) { .cards { grid-template-columns: repeat(2, 1fr); } }

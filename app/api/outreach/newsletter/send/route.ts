@@ -46,7 +46,7 @@ export async function POST(req: Request) {
     if (r.total === 0 && r.skipped > 0) {
       // 全部都是重複
       if (batchId) await supabaseAdmin.from('outreach_batches').update({ status: 'done', finished_at: new Date().toISOString() }).eq('id', batchId);
-      return NextResponse.json({ batchId, total: 0, sent: 0, failed: 0, queued: 0, skipped: r.skipped });
+      return NextResponse.json({ batchId, total: 0, sent: 0, failed: 0, queued: 0, skipped: r.skipped, cleaned: r.cleaned });
     }
 
     if (batchId) {
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
         .eq('id', batchId);
     }
 
-    return NextResponse.json({ batchId, total: r.total, sent: r.sent, failed: r.failed, queued: r.queued, skipped: r.skipped });
+    return NextResponse.json({ batchId, total: r.total, sent: r.sent, failed: r.failed, queued: r.queued, skipped: r.skipped, cleaned: r.cleaned });
   } catch (err) {
     return errorResponse(err);
   }
