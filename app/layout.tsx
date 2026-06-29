@@ -28,7 +28,7 @@ export default function RootLayout({
               flex: 1,
               display: "flex",
               flexDirection: "column",
-              overflow: "hidden",
+              overflowY: "auto",
               minWidth: 0,
             }}
           >

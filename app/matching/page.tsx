@@ -11,7 +11,23 @@ const SOURCES: Record<string, { label: string; icon: string; color: string; bg: 
   fb: { label: "FB", icon: "📘", color: "#1877F2", bg: "#E3EDFB" },
   ig: { label: "IG", icon: "📸", color: "#C13584", bg: "#F5E3F0" },
   map: { label: "地圖", icon: "📍", color: "#D97706", bg: "#FEF3C7" },
+  website: { label: "官網", icon: "🌐", color: "#2D7D46", bg: "#E3F5EB" },
 };
+
+// ── 國家設定 ─────────────────────────────────────────
+const COUNTRIES = [
+  { code: "TW", label: "台灣", flag: "🇹🇼" },
+  { code: "JP", label: "日本", flag: "🇯🇵" },
+  { code: "UK", label: "英國", flag: "🇬🇧" },
+  { code: "CA", label: "加拿大", flag: "🇨🇦" },
+] as const;
+type CountryCode = "TW" | "JP" | "UK" | "CA";
+
+const JP_CITIES = ["東京都", "大阪府", "神奈川県", "愛知県", "福岡県", "北海道", "兵庫県", "埼玉県", "千葉県", "静岡県"];
+const UK_CITIES = ["London", "Manchester", "Birmingham", "Glasgow", "Leeds", "Edinburgh", "Bristol", "Liverpool", "Sheffield", "Cardiff"];
+const CA_CITIES = ["Toronto", "Vancouver", "Montreal", "Calgary", "Ottawa", "Edmonton", "Winnipeg", "Mississauga", "Richmond", "Markham"];
+const JP_KEYWORDS = ["フットバス", "足湯用品", "足浴器", "台湾茶 輸入", "中国茶 輸入", "ハーブティー 卸", "健康器具 輸入"];
+const EN_KEYWORDS = ["foot bath", "foot spa importer", "wellness products", "tea importer", "herbal tea wholesale", "Chinese tea", "Asian wellness"];
 
 type TaskStatusKey = "done" | "running" | "queued" | "error" | "stale";
 
@@ -909,60 +925,76 @@ function BlacklistPanel() {
 }
 
 const KW_STORE = "collect_keywords";
-function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () => void }) {
+function PlacesJobPanel({ onClose, onDone, country = "TW" }: { onClose: () => void; onDone?: () => void; country?: CountryCode }) {
+  const isTW = country === "TW";
+  const cityOptions =
+    country === "JP" ? JP_CITIES :
+    country === "UK" ? UK_CITIES :
+    country === "CA" ? CA_CITIES :
+    CITY_OPTIONS;
+  // 英語系國家（UK / CA）共用同一組英文關鍵字
+  const defaultKws = country === "JP" ? JP_KEYWORDS : isTW ? KEYWORD_SUGGEST : EN_KEYWORDS;
+  const defaultCity = cityOptions[0] || "台中市";
+
   const [keyword, setKeyword] = useState("");
-  const [city, setCity] = useState("台中市");
+  const [city, setCity] = useState(defaultCity);
   const [maxPages, setMaxPages] = useState(3);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [resultOk, setResultOk] = useState(false);
   const [jobs, setJobs] = useState<ScrapeJob[]>([]);
   const [steps, setSteps] = useState<{ type: string; text: string; ok?: boolean }[]>([]);
-  const [kwList, setKwList] = useState<string[]>(KEYWORD_SUGGEST);
+  const [kwList, setKwList] = useState<string[]>(defaultKws);
   const logRef = useRef<HTMLDivElement>(null);
-  // 全台灣分批採集
+  // 全批採集
   const stopRef = useRef(false);
   const [batch, setBatch] = useState<{ active: boolean; cityIdx: number; cities: number; found: number; newBrands: number; current: string } | null>(null);
 
   // 載入歷史關鍵字（localStorage）＋ 預設，去重
   useEffect(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(KW_STORE) || "[]") as string[];
-      setKwList([...new Set([...saved, ...KEYWORD_SUGGEST])]);
+      const storeKey = `${KW_STORE}_${country}`;
+      const saved = JSON.parse(localStorage.getItem(storeKey) || "[]") as string[];
+      setKwList([...new Set([...saved, ...defaultKws])]);
     } catch { /* ignore */ }
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [country]);
   // 記住輸入過的關鍵字（自訂的存進 localStorage，最多 40 個）
   const rememberKeyword = (k: string) => {
     const t = k.trim();
     if (!t) return;
+    const storeKey = `${KW_STORE}_${country}`;
     setKwList((prev) => {
       const merged = [t, ...prev.filter((x) => x !== t)];
       try {
-        const custom = merged.filter((x) => !KEYWORD_SUGGEST.includes(x)).slice(0, 40);
-        localStorage.setItem(KW_STORE, JSON.stringify(custom));
+        const custom = merged.filter((x) => !defaultKws.includes(x)).slice(0, 40);
+        localStorage.setItem(storeKey, JSON.stringify(custom));
       } catch { /* ignore */ }
       return [...new Set(merged)];
     });
   };
   const removeKeyword = (k: string) => {
+    const storeKey = `${KW_STORE}_${country}`;
     setKwList((prev) => {
       const next = prev.filter((x) => x !== k);
       try {
-        localStorage.setItem(KW_STORE, JSON.stringify(next.filter((x) => !KEYWORD_SUGGEST.includes(x)).slice(0, 40)));
+        localStorage.setItem(storeKey, JSON.stringify(next.filter((x) => !defaultKws.includes(x)).slice(0, 40)));
       } catch { /* ignore */ }
       return next;
     });
   };
 
+  const apiBase = isTW ? "/api/scrape/places" : "/api/scrape/overseas";
+
   const loadJobs = () => {
-    fetch("/api/scrape/places")
+    fetch(apiBase)
       .then((r) => r.json())
       .then((res) => {
         if (res.success) setJobs(res.data);
       })
       .catch(() => {});
   };
-  useEffect(loadJobs, []);
+  useEffect(loadJobs, [apiBase]);
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [steps]);
@@ -975,10 +1007,13 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
     setResultOk(false);
     setSteps([]);
     try {
-      const response = await fetch("/api/scrape/places", {
+      const body = isTW
+        ? { keyword: keyword.trim(), city, maxPages }
+        : { keyword: keyword.trim(), city, country, maxPages };
+      const response = await fetch(apiBase, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keyword: keyword.trim(), city, maxPages }),
+        body: JSON.stringify(body),
       });
       if (!response.ok || !response.body) {
         const text = await response.text();
@@ -1031,12 +1066,15 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
     loadJobs();
   };
 
-  // 採集單一縣市並回傳摘要（供全台灣分批用）
+  // 採集單一城市並回傳摘要（供全批分批用）
   const scrapeCity = async (kw: string, c: string, pages: number): Promise<{ found: number; newBrands: number } | null> => {
     try {
-      const response = await fetch("/api/scrape/places", {
+      const body = isTW
+        ? { keyword: kw, city: c, maxPages: pages }
+        : { keyword: kw, city: c, country, maxPages: pages };
+      const response = await fetch(apiBase, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keyword: kw, city: c, maxPages: pages }),
+        body: JSON.stringify(body),
       });
       if (!response.ok || !response.body) return null;
       const reader = response.body.getReader();
@@ -1063,13 +1101,13 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
     } catch { return null; }
   };
 
-  // 全台灣分批採集：逐縣市跑（每縣市一批），即時累計，可隨時停止
+  // 全批採集：逐城市跑，即時累計，可隨時停止
   const runAllTaiwan = async () => {
     if (!keyword.trim() || running) return;
     rememberKeyword(keyword);
     stopRef.current = false;
     setRunning(true); setResult(null); setResultOk(false); setSteps([]);
-    const cities = CITY_OPTIONS;
+    const cities = cityOptions;
     let totalFound = 0, totalNew = 0;
     setBatch({ active: true, cityIdx: 0, cities: cities.length, found: 0, newBrands: 0, current: cities[0] });
     for (let i = 0; i < cities.length; i++) {
@@ -1087,7 +1125,8 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
     const stopped = stopRef.current;
     setRunning(false);
     setResultOk(true);
-    setResult(`${stopped ? "已停止" : "全台灣完成"}：累計新增 ${totalNew} 個品牌（找到 ${totalFound} 間）`);
+    const ctryLabel = COUNTRIES.find((c) => c.code === country)?.label || country;
+    setResult(`${stopped ? "已停止" : `全${ctryLabel}完成`}：累計新增 ${totalNew} 個品牌（找到 ${totalFound} 間）`);
     setBatch((b) => (b ? { ...b, active: false } : b));
     loadJobs();
   };
@@ -1116,8 +1155,10 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
       >
         <div style={{ padding: "18px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>⚡ 新增採集任務</div>
-            <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>Google Places 關鍵字 × 城市，自動寫入名單</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>
+              {COUNTRIES.find((c) => c.code === country)?.flag} 新增採集任務
+            </div>
+            <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>Google Places 關鍵字 × 城市，採集{country !== "TW" ? `（${COUNTRIES.find((c) => c.code === country)?.label}）` : ""}並寫入名單</div>
           </div>
           <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: C.muted, fontSize: 24, lineHeight: 1 }}>×</button>
         </div>
@@ -1158,10 +1199,10 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
           </div>
 
           {/* 城市 */}
-          <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>縣市</div>
+          <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>{isTW ? "縣市" : "城市"}</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-            {CITY_OPTIONS.map((c) => {
-              const isSelected = city === c || city.startsWith(c.replace(/[市縣]$/, ""));
+            {cityOptions.map((c) => {
+              const isSelected = isTW ? (city === c || city.startsWith(c.replace(/[市縣]$/, ""))) : city === c;
               return (
                 <button
                   key={c}
@@ -1244,12 +1285,14 @@ function PlacesJobPanel({ onClose, onDone }: { onClose: () => void; onDone?: () 
             )}
           </button>
 
-          {/* 全台灣分批採集 */}
+          {/* 全批採集（各國通用） */}
           <div style={{ marginTop: 10, padding: "12px 14px", borderRadius: 12, border: `1px solid ${C.border}`, background: C.surf2 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: batch?.active ? 10 : 0, flexWrap: "wrap" }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>🇹🇼 全台灣分批採集</div>
-                <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>「{keyword || "…"}」逐縣市（{CITY_OPTIONS.length} 個）依序採集，可隨時停止</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
+                  {COUNTRIES.find((c) => c.code === country)?.flag} 全{COUNTRIES.find((c) => c.code === country)?.label}分批採集
+                </div>
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>「{keyword || "…"}」逐城市（{cityOptions.length} 個）依序採集，可隨時停止</div>
               </div>
               {batch?.active ? (
                 <button onClick={stopBatch} disabled={stopRef.current} className="pressable"
@@ -1774,6 +1817,7 @@ function GovBatchPanel({ industry, brandIds, onClose, onDone }: { industry?: str
 
 // ── 主頁面 ───────────────────────────────────────────
 export default function MatchingPage() {
+  const [country, setCountry] = useState<CountryCode>("TW");
   const [brands, setBrands] = useState<ScrapeBrand[]>([]);
   const [loadingBrands, setLoadingBrands] = useState(true);
   const [selectedId, setSelectedId] = useState<number | string | null>(null);
@@ -1785,21 +1829,25 @@ export default function MatchingPage() {
   const [filterCity, setFilterCity] = useState<string | null>(null);
   const [filterDistrict, setFilterDistrict] = useState<string | null>(null);
 
-  const loadBrands = () => {
-    fetch("/api/brands")
+  const loadBrands = (c?: CountryCode) => {
+    const ctry = c ?? country;
+    setLoadingBrands(true);
+    fetch(`/api/brands?country=${ctry}`)
       .then((r) => r.json())
       .then((result) => {
-        if (result.success && Array.isArray(result.data) && result.data.length > 0) {
+        if (result.success && Array.isArray(result.data)) {
           const mapped = result.data.map(dbBrandToScrapeBrand);
           setBrands(mapped);
           setUsingApi(true);
-          setSelectedId((prev) => (mapped.some((m: ScrapeBrand) => m.id === prev) ? prev : mapped[0].id));
+          setSelectedId((prev) => (mapped.some((m: ScrapeBrand) => m.id === prev) ? prev : (mapped[0]?.id ?? null)));
+        } else {
+          setBrands([]);
         }
       })
       .catch(() => {})
       .finally(() => setLoadingBrands(false));
   };
-  useEffect(loadBrands, []);
+  useEffect(() => { loadBrands(); }, [country]); // eslint-disable-line react-hooks/exhaustive-deps
   const [tab, setTab] = useState("tasks");
   const [isMobile, setIsMobile] = useState(false);
   const [mobileDetail, setMobileDetail] = useState(false); // 手機：是否開啟品牌詳情
@@ -2109,7 +2157,24 @@ export default function MatchingPage() {
       {/* Top bar */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0, flexWrap: "wrap" }}>
         <h1 style={{ fontSize: 17, fontWeight: 600, color: C.text, margin: 0 }}>採集 & 比對中心</h1>
-        <span className="d-only" style={{ fontSize: 13, color: C.muted }}>— 自動抓取各管道公開資料，與現有名單核對差異</span>
+        {/* 國家頁籤 */}
+        <div style={{ display: "flex", gap: 4, marginLeft: 12 }}>
+          {COUNTRIES.map((c) => (
+            <button
+              key={c.code}
+              onClick={() => { setCountry(c.code); setFilterIndustry(null); setFilterCity(null); setFilterDistrict(null); }}
+              style={{
+                padding: "5px 12px", borderRadius: 8, border: `1px solid ${country === c.code ? C.primary : C.border}`,
+                background: country === c.code ? C.p50 : "transparent",
+                color: country === c.code ? C.primary : C.muted,
+                fontSize: 13, fontWeight: country === c.code ? 700 : 400, cursor: "pointer",
+              }}
+            >
+              {c.flag} {c.label}
+            </button>
+          ))}
+        </div>
+        <span className="d-only" style={{ fontSize: 13, color: C.muted }}>— 自動抓取各管道公開資料</span>
         <button
           onClick={() => setJobPanelOpen(true)}
           className="pressable"
@@ -2434,7 +2499,7 @@ export default function MatchingPage() {
         )}
       </div>
 
-      {jobPanelOpen && <PlacesJobPanel onClose={() => setJobPanelOpen(false)} onDone={loadBrands} />}
+      {jobPanelOpen && <PlacesJobPanel onClose={() => setJobPanelOpen(false)} onDone={() => loadBrands()} country={country} />}
       {websitePanelOpen && <WebsiteScraperPanel onClose={() => setWebsitePanelOpen(false)} onDone={loadBrands} industries={availableIndustries} filterCity={filterCity} filterIndustry={filterIndustry} visibleBrandIds={visibleBrands.map((b) => String(b.id))} />}
       {placesRefreshOpen && <PlacesRefreshPanel onClose={() => setPlacesRefreshOpen(false)} onDone={loadBrands} />}
       {govBatchOpen && <GovBatchPanel industry={filterIndustry} brandIds={visibleBrands.map((b) => String(b.id))} onClose={() => setGovBatchOpen(false)} onDone={loadBrands} />}

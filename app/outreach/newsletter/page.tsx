@@ -16,7 +16,18 @@ interface Template {
   subject: string | null;
   body_html: string | null;
   industry: string | null;
+  language?: string | null;
 }
+
+const COUNTRY_LIST = [
+  { code: 'TW', label: '台灣', flag: '🇹🇼', lang: 'zh' },
+  { code: 'JP', label: '日本', flag: '🇯🇵', lang: 'ja' },
+  { code: 'UK', label: '英國', flag: '🇬🇧', lang: 'en' },
+  { code: 'CA', label: '加拿大', flag: '🇨🇦', lang: 'en' },
+] as const;
+type NewsCountry = 'TW' | 'JP' | 'UK' | 'CA';
+
+const LANG_NAME: Record<string, string> = { zh: '中文', ja: '日文', en: '英文' };
 interface SendResult {
   total: number;
   sent: number;
@@ -31,6 +42,8 @@ const STAGE_LABEL: Record<string, string> = {
 };
 
 export default function NewsletterPage() {
+  const [country, setCountry] = useState<NewsCountry>('TW');
+  const [translating, setTranslating] = useState<string | null>(null); // targetLang being translated
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [industries, setIndustries] = useState<string[]>([]);
   const [stages, setStages] = useState<string[]>([]);
@@ -76,7 +89,9 @@ export default function NewsletterPage() {
     fetch('/api/industry-groups').then((r) => r.json()).then((d) => { if (d.success) setGroups(d.data); }).catch(() => {});
   }, []);
 
-  // 將目前篩選組成 query（群組優先：展開為多產業 industries）
+  const currentLang = COUNTRY_LIST.find((c) => c.code === country)?.lang ?? 'zh';
+
+  // 將目前篩選組成 query
   const buildRecipientParams = () => {
     const p = new URLSearchParams();
     if (q) p.set('q', q);
@@ -85,6 +100,7 @@ export default function NewsletterPage() {
     else if (industry) p.set('industry', industry);
     if (stage) p.set('stage', stage);
     if (source) p.set('source', source);
+    p.set('country', country);
     return p;
   };
 
@@ -138,12 +154,14 @@ export default function NewsletterPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, industry, groupId, stage, source, groups]);
 
-  // 載入電子報模板(有 HTML 的)
+  // 載入電子報模板（依語言過濾）
   useEffect(() => {
-    fetch('/api/outreach/templates?channel=EM')
+    fetch(`/api/outreach/templates?channel=EM&language=${currentLang}`)
       .then((r) => r.json())
       .then((d) => setTemplates((d.templates || []).filter((t: Template) => t.body_html)));
-  }, []);
+    setTplId('');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [country]);
 
   const tpl = useMemo(() => templates.find((t) => t.id === tplId), [templates, tplId]);
 
@@ -309,12 +327,52 @@ export default function NewsletterPage() {
 
   const canSend = tplId && selected.size > 0;
 
+  // AI 翻譯模板
+  const translateTemplate = async (targetLang: string) => {
+    if (!tplId) { alert('請先選擇要翻譯的模板'); return; }
+    if (!window.confirm(`確定將目前模板翻譯成${LANG_NAME[targetLang]}？系統會建立一份新模板。`)) return;
+    setTranslating(targetLang);
+    try {
+      const res = await fetch('/api/outreach/translate-template', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ templateId: tplId, targetLang }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        // 切到目標語言頁籤並重新載入模板（英文預設切到英國頁籤，UK/CA 共用同一份英文模板）
+        const newCountry = targetLang === 'ja' ? 'JP' : 'UK';
+        setCountry(newCountry);
+        // 模板會因 country 改變重新載入，切換後自動選新模板
+        setTimeout(() => setTplId(json.id), 600);
+        alert(`✓ 翻譯完成：「${json.name}」`);
+      } else {
+        alert(json.error || '翻譯失敗');
+      }
+    } catch { alert('連線失敗'); }
+    finally { setTranslating(null); }
+  };
+
   return (
     <div className="wrap">
       <header>
         <h1>電子報發送</h1>
         <p>選名單 → 選模板 → 預覽 → 批量寄送</p>
       </header>
+
+      {/* 國家頁籤 */}
+      <div className="countrytabs">
+        {COUNTRY_LIST.map((c) => (
+          <button
+            key={c.code}
+            className={`ctab${country === c.code ? ' active' : ''}`}
+            onClick={() => { setCountry(c.code); setSelected(new Set()); setIndustry(''); setGroupId(''); }}
+          >
+            {c.flag} {c.label}
+          </button>
+        ))}
+        <span className="ctab-hint">依國家切換名單與模板語言</span>
+      </div>
 
       {cfg && (
         <div className={`sendmode ${cfg.mode}`}>
@@ -414,7 +472,10 @@ export default function NewsletterPage() {
 
         {/* 模板 + 預覽 */}
         <section className="panel">
-          <div className="phead"><strong>電子報模板</strong></div>
+          <div className="phead">
+            <strong>電子報模板</strong>
+            <span className="count">{LANG_NAME[currentLang]} · {templates.length} 個</span>
+          </div>
           <select className="in" value={tplId} onChange={(e) => setTplId(e.target.value)}>
             <option value="">選擇模板…</option>
             {templates.map((t) => (
@@ -423,7 +484,21 @@ export default function NewsletterPage() {
           </select>
           {templates.length === 0 && (
             <div className="muted small">
-              還沒有電子報模板,先到 <a href="/outreach/email-editor">編輯器</a> 建立一個。
+              此語言（{LANG_NAME[currentLang]}）尚無模板。可先選中文模板後按「AI 翻譯」自動產生，或到 <a href="/outreach/email-editor">編輯器</a> 建立。
+            </div>
+          )}
+          {/* AI 翻譯按鈕（在中文頁籤選好模板後，可一鍵翻成日文 / 英文；英文版 UK 與 CA 共用） */}
+          {tplId && country === 'TW' && (
+            <div className="transbtn-row">
+              <span className="muted small">翻譯此模板：</span>
+              {[
+                { lang: 'ja', label: '🇯🇵 日文' },
+                { lang: 'en', label: '🇬🇧🇨🇦 英文' },
+              ].map((t) => (
+                <button key={t.lang} className="btn ghost small" disabled={!!translating} onClick={() => translateTemplate(t.lang)}>
+                  {translating === t.lang ? 'AI 翻譯中…' : `AI 翻譯 → ${t.label}`}
+                </button>
+              ))}
             </div>
           )}
           {tpl && <div className="subj">主旨:{tpl.subject || '(無主旨)'}</div>}
@@ -647,6 +722,14 @@ export default function NewsletterPage() {
           .sendbar .btn { flex: 1; text-align: center; padding: 11px 10px; }
           .pbar { width: 90px; }
         }
+        /* 國家頁籤 */
+        .countrytabs { display: flex; gap: 6px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+        .ctab { border: 1px solid #d9d3c4; background: transparent; color: #5a6b4f; border-radius: 8px; padding: 6px 14px; font-size: 13px; cursor: pointer; font-family: inherit; }
+        .ctab.active { border-color: #4a6b3f; background: #eef0e6; color: #4a6b3f; font-weight: 700; }
+        .ctab-hint { font-size: 11px; color: #b0a892; margin-left: 6px; }
+        /* AI 翻譯 */
+        .transbtn-row { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+        .btn.ghost.small { padding: 6px 12px; font-size: 12px; }
       `}</style>
     </div>
   );

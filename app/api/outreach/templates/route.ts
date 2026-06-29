@@ -18,8 +18,10 @@ export async function GET(req: Request) {
 
     const channel = url.searchParams.get('channel');
     const industry = url.searchParams.get('industry');
+    const language = url.searchParams.get('language');
     if (channel) q = q.eq('channel', channel);
     if (industry) q = q.eq('industry', industry);
+    if (language) q = q.eq('language', language);
 
     const { data, error } = await q;
     if (error) throw error;

@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
     const industry = searchParams.get("industry");
     const status = searchParams.get("status");
     const search = searchParams.get("search");
+    const country = searchParams.get("country");
 
     // 輕量模式：只回基本欄位（無嵌入），給只需要名稱/email 的下拉選單用，速度快很多
     if (searchParams.get("view") === "lite") {
@@ -20,6 +21,7 @@ export async function GET(request: NextRequest) {
       if (industry) lq = lq.eq("industry", industry);
       if (status) lq = lq.eq("status", status);
       if (search) lq = lq.ilike("name", `%${search}%`);
+      if (country) lq = lq.eq("country", country); else lq = lq.eq("country", "TW");
       const PAGE = 1000;
       let rows: Record<string, unknown>[] = [];
       let off = 0;
@@ -47,6 +49,7 @@ export async function GET(request: NextRequest) {
         if (industry) q = q.eq("industry", industry);
         if (status) q = q.eq("status", status);
         if (search) q = q.ilike("name", `%${search}%`);
+        if (country) q = q.eq("country", country); else q = q.eq("country", "TW");
         return q;
       };
       // 先取總數，再並行抓所有分頁（取代原本逐頁等待）
@@ -54,6 +57,7 @@ export async function GET(request: NextRequest) {
       if (industry) countQ = countQ.eq("industry", industry);
       if (status) countQ = countQ.eq("status", status);
       if (search) countQ = countQ.ilike("name", `%${search}%`);
+      if (country) countQ = countQ.eq("country", country); else countQ = countQ.eq("country", "TW");
       const { count } = await countQ;
       const PAGE = 1000;
       const pages = Math.max(1, Math.ceil((count ?? 0) / PAGE));
@@ -82,6 +86,7 @@ export async function GET(request: NextRequest) {
       if (industry) q = q.eq("industry", industry);
       if (status) q = q.eq("status", status);
       if (search) q = q.ilike("name", `%${search}%`);
+      if (country) q = q.eq("country", country); else q = q.eq("country", "TW");
       return q;
     };
 
@@ -90,6 +95,7 @@ export async function GET(request: NextRequest) {
     if (industry) cQ = cQ.eq("industry", industry);
     if (status) cQ = cQ.eq("status", status);
     if (search) cQ = cQ.ilike("name", `%${search}%`);
+    if (country) cQ = cQ.eq("country", country); else cQ = cQ.eq("country", "TW");
     const { count: fullCount } = await cQ;
     const PAGE = 1000;
     const fullPages = Math.max(1, Math.ceil((fullCount ?? 0) / PAGE));

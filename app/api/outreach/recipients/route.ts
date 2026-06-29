@@ -36,16 +36,17 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const q = url.searchParams.get('q');
     const industry = url.searchParams.get('industry');
-    // 產業群組：多個產業以逗號分隔，篩選 brands.industry IN (...)
     const industriesParam = (url.searchParams.get('industries') || '').split(',').map((s) => s.trim()).filter(Boolean);
     const stage = url.searchParams.get('stage');
     const source = url.searchParams.get('source');
+    const country = url.searchParams.get('country') || 'TW';
 
     // 1) 主名單
     const brands = await fetchAll((from, to) => {
       let query = supabaseAdmin
         .from('brands')
         .select('id, name, industry, status, registered_name, email')
+        .eq('country', country)
         .order('name', { ascending: true })
         .range(from, to);
       if (q) query = query.ilike('name', `%${q}%`);
