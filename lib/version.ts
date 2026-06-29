@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.0.0";
+export const APP_VERSION = "2.1.0";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,20 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.1.0",
+    date: "2026-06-29",
+    title: "海外拓展：國家別採集 + 多語電子報 + 產業群組篩選",
+    items: [
+      "採集與電子報新增國家別（🇹🇼 台灣 / 🇯🇵 日本 / 🇬🇧 英國 / 🇨🇦 加拿大），資料依國家隔離",
+      "海外足浴／茶品進口商採集：Google Places 依各國語言與地區搜尋，採集欄位含公司名、官網、Email、電話、地址",
+      "採集面板內可直接切換國家，與上方國家頁籤雙向同步；切到尚無資料的國家仍保留頁籤與採集面板（不再整頁清空）",
+      "海外新增「全關鍵字 × 全城市掃描」，最大化採集覆蓋、可隨時停止",
+      "電子報依國家自動切換收件名單與模板語言（中／日／英），英語系（英國／加拿大）共用英文模板",
+      "電子報可一鍵 AI 翻譯模板成日文／英文，自動建立對應語言新模板",
+      "產業群組篩選器加入採集中心，與電子報共用同一份群組",
+    ],
+  },
   {
     version: "2.0.0",
     date: "2026-06-23",
