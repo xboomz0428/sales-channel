@@ -1548,7 +1548,7 @@ function PlacesRefreshPanel({ onClose, onDone }: { onClose: () => void; onDone?:
 // ── 官網爬蟲面板 ─────────────────────────────────────
 type ScrapeMode = "limit" | "industry" | "brand" | "filtered";
 
-function WebsiteScraperPanel({ onClose, onDone, industries, filterCity, filterIndustry, visibleBrandIds }: { onClose: () => void; onDone?: () => void; industries: string[]; filterCity?: string | null; filterIndustry?: string | null; visibleBrandIds?: string[] }) {
+function WebsiteScraperPanel({ onClose, onDone, industries, filterCity, filterIndustry, filterGroupName, visibleBrandIds }: { onClose: () => void; onDone?: () => void; industries: string[]; filterCity?: string | null; filterIndustry?: string | null; filterGroupName?: string | null; visibleBrandIds?: string[] }) {
   const [mode, setMode] = useState<ScrapeMode>("limit");
   const [limit, setLimit] = useState(0); // 0 = 全部
   const [industry, setIndustry] = useState("");
@@ -1673,8 +1673,8 @@ function WebsiteScraperPanel({ onClose, onDone, industries, filterCity, filterIn
             <ModeBtn m="limit" label="依數量" />
             <ModeBtn m="industry" label="依類別" />
             <ModeBtn m="brand" label="指定品牌" />
-            {(filterCity || filterIndustry) && (
-              <ModeBtn m="filtered" label={`依篩選${filterIndustry ? `·${filterIndustry}` : ""}${filterCity ? `·${filterCity}` : ""}（${visibleBrandIds?.length ?? 0}）`} />
+            {(filterCity || filterIndustry || filterGroupName) && (
+              <ModeBtn m="filtered" label={`依篩選${filterGroupName ? `·◳${filterGroupName}` : ""}${filterIndustry ? `·${filterIndustry}` : ""}${filterCity ? `·${filterCity}` : ""}（${visibleBrandIds?.length ?? 0}）`} />
             )}
           </div>
 
@@ -1710,6 +1710,7 @@ function WebsiteScraperPanel({ onClose, onDone, industries, filterCity, filterIn
           {mode === "filtered" && (
             <div style={{ marginBottom: 18, padding: "12px 14px", borderRadius: 10, background: "#EDF4F0", border: `1px solid #c2d9ce`, fontSize: 13, color: C.text, lineHeight: 1.7 }}>
               <div style={{ fontWeight: 600, marginBottom: 4 }}>目前篩選條件</div>
+              {filterGroupName && <div>產業群組：◳ {filterGroupName}</div>}
               {filterIndustry && <div>類別：{filterIndustry}</div>}
               {filterCity && <div>縣市：{filterCity}</div>}
               <div style={{ marginTop: 4, color: C.muted }}>共 {visibleBrandIds?.length ?? 0} 個品牌符合篩選</div>
@@ -2605,7 +2606,7 @@ export default function MatchingPage() {
       </div>
 
       {jobPanelOpen && <PlacesJobPanel onClose={() => setJobPanelOpen(false)} onDone={() => loadBrands()} country={country} onCountryChange={setCountry} />}
-      {websitePanelOpen && <WebsiteScraperPanel onClose={() => setWebsitePanelOpen(false)} onDone={loadBrands} industries={availableIndustries} filterCity={filterCity} filterIndustry={filterIndustry} visibleBrandIds={visibleBrands.map((b) => String(b.id))} />}
+      {websitePanelOpen && <WebsiteScraperPanel onClose={() => setWebsitePanelOpen(false)} onDone={loadBrands} industries={availableIndustries} filterCity={filterCity} filterIndustry={filterIndustry} filterGroupName={groups.find((g) => g.id === filterGroup)?.name ?? null} visibleBrandIds={visibleBrands.map((b) => String(b.id))} />}
       {placesRefreshOpen && <PlacesRefreshPanel onClose={() => setPlacesRefreshOpen(false)} onDone={loadBrands} />}
       {govBatchOpen && <GovBatchPanel industry={filterIndustry} brandIds={visibleBrands.map((b) => String(b.id))} onClose={() => setGovBatchOpen(false)} onDone={loadBrands} />}
     </>

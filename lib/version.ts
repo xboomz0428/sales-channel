@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.1.0";
+export const APP_VERSION = "2.1.1";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.1.1",
+    date: "2026-06-29",
+    title: "官網爬蟲篩選支援產業群組",
+    items: [
+      "官網爬蟲「依篩選」模式新增產業群組：在採集中心選好群組後，可直接對該群組品牌爬取官網",
+      "依篩選條件清楚顯示目前套用的產業群組、類別與縣市",
+    ],
+  },
   {
     version: "2.1.0",
     date: "2026-06-29",
