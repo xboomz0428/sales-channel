@@ -8,6 +8,8 @@
 // 串流 NDJSON 進度。匯進來的名單與 Google Places 共用 brands/stores。
 
 import { NextRequest } from "next/server";
+import https from "node:https";
+import http from "node:http";
 import JSZip from "jszip";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 import { getSource, type GovSource } from "@/lib/import/govSources";
@@ -85,10 +87,51 @@ function parseFlatXml(text: string): Record<string, string>[] {
   return blocks.map((b) => {
     const inner = b.replace(openRe, "").replace(closeRe, ""); // 去掉外層 record 標籤，只留欄位
     const o: Record<string, string> = {};
-    for (const m of inner.matchAll(/<([A-Za-z_][\w.:-]*)>([\s\S]*?)<\/\1>/g)) o[m[1]] = decode(m[2]);
+    // 標籤名允許中文（宗教資訊系統用 <寺廟名稱> 等中文標籤）
+    for (const m of inner.matchAll(/<([^\s/>!?]+)>([\s\S]*?)<\/\1>/g)) o[m[1]] = decode(m[2]);
     return o;
   });
 }
+
+// 下載成 bytes：先用標準 fetch；遇到「政府網站憑證鏈不完整」(很常見) 才退回寬鬆 TLS 重抓。
+// 僅限使用者明確選取的公開政府開放資料，且只在憑證鏈錯誤時觸發。
+async function fetchBytes(url: string): Promise<Uint8Array> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(240_000), cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return new Uint8Array(await res.arrayBuffer());
+  } catch (e) {
+    const code = (e as { cause?: { code?: string } })?.cause?.code || "";
+    const msg = e instanceof Error ? e.message : "";
+    if (/CERT|SIGNATURE|UNABLE_TO_VERIFY|SELF_SIGNED/i.test(code) || /certificate/i.test(msg)) {
+      return httpsGetInsecure(url);
+    }
+    throw e;
+  }
+}
+
+function httpsGetInsecure(url: string, redirects = 0): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    if (redirects > 5) return reject(new Error("重導次數過多"));
+    const lib = url.startsWith("http://") ? http : https;
+    const req = lib.get(url, { rejectUnauthorized: false, headers: { "User-Agent": "Mozilla/5.0" }, timeout: 240_000 }, (res) => {
+      const sc = res.statusCode || 0;
+      if (sc >= 300 && sc < 400 && res.headers.location) {
+        res.resume();
+        return resolve(httpsGetInsecure(new URL(res.headers.location, url).toString(), redirects + 1));
+      }
+      if (sc >= 400) { res.resume(); return reject(new Error(`HTTP ${sc}`)); }
+      const chunks: Buffer[] = [];
+      res.on("data", (c: Buffer) => chunks.push(c));
+      res.on("end", () => resolve(new Uint8Array(Buffer.concat(chunks))));
+      res.on("error", reject);
+    });
+    req.on("error", reject);
+    req.on("timeout", () => req.destroy(new Error("逾時")));
+  });
+}
+
+const decodeUtf8 = (b: Uint8Array) => new TextDecoder("utf-8").decode(b);
 
 // 大小寫不敏感取第一個非空候選欄位
 function pick(row: Record<string, unknown>, keys?: string[]): string {
@@ -161,6 +204,8 @@ function mapRow(src: GovSource, row: Record<string, unknown>): ParsedRow | null 
   } else {
     const name = pick(row, src.fields.name);
     if (!name) return null;
+    // 跳過「標題回音」列（部分名冊第二列是中文欄位名，如：協會名稱 / 機構名稱）
+    if (/^(協會名稱|團體名稱|機構名稱|公司名稱|寺廟名稱|名稱|公司名)$/.test(name)) return null;
     // 列過濾（例如健保院所只留中醫、護理機構只留產後護理）
     if (src.rowFilter) {
       const hay = src.rowFilter.field.map((x) => pick(row, [x])).join(" ");
@@ -222,7 +267,7 @@ export async function POST(request: NextRequest) {
       },
     };
   }
-  const url = typeof body.url === "string" ? body.url.trim() : "";
+  const url = (typeof body.url === "string" && body.url.trim()) ? body.url.trim() : (src?.defaultUrl || "");
   const csvText = typeof body.csv === "string" ? body.csv : "";
   const dryRun = !!body.dryRun;
   const max = Math.min(Math.max(Number(body.max) || MAX_DEFAULT, 1), MAX_CAP);
@@ -252,24 +297,25 @@ export async function POST(request: NextRequest) {
                : t.startsWith("<") ? parseFlatXml(csvText)
                : csvToObjects(csvText);
         } else {
-          const res = await fetch(url, { signal: AbortSignal.timeout(240_000), headers: { "User-Agent": "Mozilla/5.0" } });
-          if (!res.ok) { await emit({ type: "error", text: `下載失敗 HTTP ${res.status}` }); return; }
+          const bytes = await fetchBytes(url);
           if (src.format === "zipjson") {
             await emit({ type: "step", text: "解壓縮 ZIP…" });
-            const zip = await JSZip.loadAsync(await res.arrayBuffer());
+            const zip = await JSZip.loadAsync(bytes);
             const entry = Object.keys(zip.files).find((n) => /\.json$/i.test(n)) || Object.keys(zip.files).find((n) => !zip.files[n].dir);
             if (!entry) { await emit({ type: "error", text: "ZIP 內找不到 JSON 檔" }); return; }
             rows = jsonToObjects(await zip.files[entry].async("string"));
           } else if (src.format === "xml") {
-            rows = parseFlatXml(await res.text());
+            rows = parseFlatXml(decodeUtf8(bytes));
           } else if (src.format === "json") {
-            rows = jsonToObjects(await res.text());
+            rows = jsonToObjects(decodeUtf8(bytes));
           } else {
-            rows = csvToObjects(await res.text());
+            rows = csvToObjects(decodeUtf8(bytes));
           }
         }
       } catch (e) {
-        await emit({ type: "error", text: `解析失敗：${e instanceof Error ? e.message : "格式錯誤"}` }); return;
+        const cause = (e as { cause?: { code?: string; message?: string } })?.cause;
+        const detail = cause?.code || cause?.message ? `（${cause?.code || ""} ${cause?.message || ""}）` : "";
+        await emit({ type: "error", text: `下載/解析失敗：${e instanceof Error ? e.message : "格式錯誤"}${detail}` }); return;
       }
       await emit({ type: "step", text: `原始 ${rows.length} 筆，開始對應欄位…` });
 

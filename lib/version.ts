@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.4.2";
+export const APP_VERSION = "2.4.3";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.4.3",
+    date: "2026-06-30",
+    title: "禮儀/中醫/人民團體/宮廟/月子：內建現用下載網址 + 修正解析",
+    items: [
+      "五個來源都內建現用下載網址為預設值，選取即帶入，可直接試跑/匯入（實測：禮儀 2,022、中醫 4,406、人民團體 2 萬+、宮廟 10,920、月子 241 筆）",
+      "宮廟改接全國宗教資訊系統 XML（中文標籤），解析器支援中文標籤；中醫依『醫事機構種類』精準篩中醫；月子電話改抓『機構電話』欄",
+      "新增政府網站憑證鏈不完整時的寬鬆 TLS 退回機制（衛福部 nhplatform 等站常見），只在憑證錯誤時觸發",
+      "自動跳過名冊的『中文欄位名回音列』；無 url 時自動使用該來源預設網址",
+    ],
+  },
   {
     version: "2.4.2",
     date: "2026-06-30",
