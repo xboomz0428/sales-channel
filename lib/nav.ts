@@ -12,6 +12,7 @@ export const NAV: NavItem[] = [
   { id: "care", label: "今日跟進", sym: "♡", href: "/followups" },
   { id: "match", label: "比對中心", sym: "⟳", href: "/matching" },
   { id: "collect", label: "採集任務", sym: "⚡", href: "/matching?tab=collect" },
+  { id: "gov-import", label: "政府資料匯入", sym: "⬇", href: "/import" },
   { id: "industry-groups", label: "產業群組", sym: "◳", href: "/outreach/industry-groups" },
   { kind: "section", label: "業務工具" },
   { id: "products", label: "產品報價", sym: "▦", href: "/products" },

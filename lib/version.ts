@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.3.1";
+export const APP_VERSION = "2.4.0";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,30 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.4.0",
+    date: "2026-06-30",
+    title: "政府開放資料匯入（Phase 1）",
+    items: [
+      "新增「政府資料匯入」頁：禮儀社、旅館、民宿、旅行社、中醫診所五個來源，CSV/JSON 直接匯入，免申請",
+      "匯入引擎以「資料來源 + 下載網址」運作（政府網址常變動，網址在頁面上可貼上/確認），自動對應欄位、串流顯示進度",
+      "可先「試跑」確認解析正確再正式匯入；以 brand_key 去重，重複匯入不會產生重複名單；套用採集黑名單過濾",
+      "匯入的名單與 Google Places 共用 brands/stores，電話寫入門市與聯絡管道，可在名單頁一起篩選與外聯",
+      "brands 新增 data_source（來源追蹤，供日後通路 ROI 分析）、industry_sub、旅館星級/客房數/類型欄位（migration 0021）",
+      "中醫來源自動只留『中醫』類別；旅宿依 Class 自動分旅館/民宿",
+    ],
+  },
+  {
+    version: "2.3.2",
+    date: "2026-06-30",
+    title: "漏斗分析改版：對齊全站設計 + KPI 總覽",
+    items: [
+      "漏斗分析頁全面改版，改用全站莫蘭迪設計 tokens（取代原本的琥珀色 Tailwind 配色），與名單/商機頁視覺一致",
+      "頂部新增 KPI 總覽列：總名單、已聯繫、進行中商機、已成交、MRR 潛力上限",
+      "市場優先度表新增 Email 覆蓋率欄；漏斗階段配色改用與 Pipeline 一致的階段色",
+      "本週行動清單熱度標籤改為 Hot/Warm 色塊；空清單時說明熱度來源，避免看起來像壞掉",
+    ],
+  },
   {
     version: "2.3.1",
     date: "2026-06-30",
