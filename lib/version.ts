@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.4.0";
+export const APP_VERSION = "2.4.2";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,28 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.4.2",
+    date: "2026-06-30",
+    title: "匯入引擎支援 ZIP 解壓與 XML 解析（旅館/旅行社真實格式）",
+    items: [
+      "旅館/民宿改接觀光署 V2.0 旅宿（ZIP 內含 HotelList.json）：自動解壓、解析巢狀欄位（地址、電話、客房數、星級），HotelClasses=4 自動歸民宿，實測 15,653 筆",
+      "旅行社改接觀光署旅行業 XML：新增扁平 XML 解析器，對應 TRACNAME/TRAADD/TRATEL/TRAMANAGER/TRASIKEY_I，實測 4,226 筆",
+      "兩個來源的下載網址已內建為預設值，選取來源時自動帶入，仍可修改",
+      "匯入引擎依來源格式自動切換 csv / json / xml / zip：JSON 自動去 BOM 並找出最大物件陣列",
+    ],
+  },
+  {
+    version: "2.4.1",
+    date: "2026-06-30",
+    title: "政府資料匯入 Phase 2–5：人民團體/宮廟/月子中心 + 自訂 CSV",
+    items: [
+      "新增來源：人民團體（公會/協會/基金會/社福，含電話與理事長）、宮廟（全國宗教資訊系統）、月子中心（產後護理之家，自動只留產後護理）",
+      "匯入頁改為依 Phase 分組顯示；養生館（GCIS）標示「需申請」並鎖定，需先取得 IP 白名單",
+      "新增「自訂 CSV 匯入」：貼上 CSV、下拉對應欄位（名稱/電話/地址/負責人/次分類/統編）即可匯入 BNI 名片、展覽名冊等自有名單",
+      "人民團體的團體類別、宮廟教別存入次分類，依使用者需求全部讀入、不預設篩選",
+    ],
+  },
   {
     version: "2.4.0",
     date: "2026-06-30",

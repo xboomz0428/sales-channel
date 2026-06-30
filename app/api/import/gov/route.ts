@@ -8,6 +8,7 @@
 // 串流 NDJSON 進度。匯進來的名單與 Google Places 共用 brands/stores。
 
 import { NextRequest } from "next/server";
+import JSZip from "jszip";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 import { getSource, type GovSource } from "@/lib/import/govSources";
 
@@ -49,10 +50,44 @@ function csvToObjects(text: string): Record<string, string>[] {
 }
 
 function jsonToObjects(text: string): Record<string, unknown>[] {
-  const data = JSON.parse(text);
+  const t = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  const data = JSON.parse(t);
   if (Array.isArray(data)) return data;
-  for (const v of Object.values(data ?? {})) if (Array.isArray(v)) return v as Record<string, unknown>[];
-  return [];
+  // 取「最大的物件陣列」（觀光署 JSON 包在 { Hotels: [...] } 之類的鍵下，最多往下找一層）
+  let best: unknown[] = [];
+  const consider = (v: unknown) => {
+    if (Array.isArray(v) && v.length > best.length && (v.length === 0 || typeof v[0] === "object")) best = v;
+  };
+  if (data && typeof data === "object") {
+    for (const v of Object.values(data)) {
+      consider(v);
+      if (v && typeof v === "object" && !Array.isArray(v)) for (const v2 of Object.values(v)) consider(v2);
+    }
+  }
+  return best as Record<string, unknown>[];
+}
+
+// 扁平 XML（如觀光署旅行業 <dataroot><gryTRAVEL><TAG>值</TAG>…）→ 物件陣列
+function parseFlatXml(text: string): Record<string, string>[] {
+  const t = text.replace(/<\?xml[^>]*\?>/, "");
+  const rootM = t.match(/<([A-Za-z_][\w.:-]*)\b[^>]*>/);
+  if (!rootM) return [];
+  const afterRoot = t.slice((rootM.index ?? 0) + rootM[0].length);
+  const childM = afterRoot.match(/<([A-Za-z_][\w.:-]*)\b[^>]*>/);
+  if (!childM) return [];
+  const rec = childM[1];
+  const blocks = afterRoot.match(new RegExp(`<${rec}\\b[^>]*>[\\s\\S]*?</${rec}>`, "g")) || [];
+  const decode = (s: string) =>
+    s.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"').replace(/&#(\d+);/g, (_, d) => String.fromCharCode(+d)).trim();
+  const openRe = new RegExp(`^<${rec}\\b[^>]*>`);
+  const closeRe = new RegExp(`</${rec}>$`);
+  return blocks.map((b) => {
+    const inner = b.replace(openRe, "").replace(closeRe, ""); // 去掉外層 record 標籤，只留欄位
+    const o: Record<string, string> = {};
+    for (const m of inner.matchAll(/<([A-Za-z_][\w.:-]*)>([\s\S]*?)<\/\1>/g)) o[m[1]] = decode(m[2]);
+    return o;
+  });
 }
 
 // 大小寫不敏感取第一個非空候選欄位
@@ -88,34 +123,80 @@ interface ParsedRow {
   hotel_stars: number | null; hotel_rooms: number | null; hotel_type: string | null;
 }
 
+interface RawFields {
+  name: string; tax_id?: string; address?: string; phone?: string; website?: string;
+  owner?: string; sub?: string; stars?: number | null; rooms?: number | null; htype?: string;
+}
+
+// 巢狀格式（觀光署旅宿 V2.0）專屬對應；其他來源走通用 pick
+const asArr = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
+const asStr = (v: unknown): string => (v == null ? "" : String(v).trim());
+
+const RECORD_MAPPERS: Record<string, (r: Record<string, unknown>) => RawFields | null> = {
+  "gov:lodging": (r) => {
+    const name = asStr(r.HotelName) || asStr(r.Name);
+    if (!name) return null;
+    const pa = (r.PostalAddress && typeof r.PostalAddress === "object" ? r.PostalAddress : {}) as Record<string, unknown>;
+    const address = [asStr(pa.City), asStr(pa.Town), asStr(pa.StreetAddress)].filter(Boolean).join("");
+    const tel = asStr(asArr(r.Telephones).find((t) => asStr(t.Tel))?.Tel);
+    const orgs = asArr(r.Organizations);
+    const op = orgs.find((o) => asStr(o.Class) === "Operator") ?? orgs[0];
+    const clsArr = Array.isArray(r.HotelClasses) ? (r.HotelClasses as number[]) : [];
+    const isBnb = clsArr.includes(4) || /民宿/.test(asStr(r.HotelLicenseNumber));
+    const stars = typeof r.HotelStars === "number" && r.HotelStars > 0 ? r.HotelStars : null;
+    const rooms = typeof r.TotalRooms === "number" && r.TotalRooms > 0 ? r.TotalRooms : null;
+    return {
+      name, address: address || undefined, phone: tel || undefined,
+      website: asStr(r.WebsiteURL) || undefined, owner: op ? asStr(op.Name) || undefined : undefined,
+      htype: isBnb ? "民宿" : "旅館", stars, rooms,
+    };
+  },
+};
+
 function mapRow(src: GovSource, row: Record<string, unknown>): ParsedRow | null {
-  const name = pick(row, src.fields.name);
-  if (!name) return null;
-
-  // 列過濾（例如健保院所只留中醫）
-  if (src.rowFilter) {
-    const hay = src.rowFilter.field.map((f) => pick(row, [f])).join(" ");
-    if (!src.rowFilter.includes.some((kw) => hay.includes(kw))) return null;
+  let f: RawFields | null;
+  const mapper = RECORD_MAPPERS[src.id];
+  if (mapper) {
+    f = mapper(row);
+  } else {
+    const name = pick(row, src.fields.name);
+    if (!name) return null;
+    // 列過濾（例如健保院所只留中醫、護理機構只留產後護理）
+    if (src.rowFilter) {
+      const hay = src.rowFilter.field.map((x) => pick(row, [x])).join(" ");
+      if (!src.rowFilter.includes.some((kw) => hay.includes(kw))) return null;
+    }
+    f = {
+      name,
+      tax_id: pick(row, src.fields.tax_id) || undefined,
+      address: pick(row, src.fields.address) || undefined,
+      phone: pick(row, src.fields.phone) || undefined,
+      website: pick(row, src.fields.website) || undefined,
+      owner: pick(row, src.fields.owner) || undefined,
+      sub: pick(row, src.fields.sub) || undefined,
+      stars: intOf(pick(row, src.fields.stars)),
+      rooms: intOf(pick(row, src.fields.rooms)),
+      htype: pick(row, src.fields.htype) || undefined,
+    };
   }
+  if (!f || !f.name) return null;
 
-  const address = pick(row, src.fields.address) || null;
-  const htype = pick(row, src.fields.htype) || null;
-  // 旅宿：依 Class 自動分旅館/民宿
+  const address = f.address || null;
   let industry = src.industry;
-  if (src.id === "gov:lodging" && htype) industry = htype.includes("民宿") ? "民宿" : "旅館";
+  if (src.id === "gov:lodging" && f.htype) industry = f.htype.includes("民宿") ? "民宿" : "旅館";
 
   return {
-    brand_key: `${src.id}|${normName(name)}|${cityOf(address || "")}`,
-    name,
+    brand_key: `${src.id}|${normName(f.name)}|${cityOf(address || "")}`,
+    name: f.name,
     industry,
-    industry_sub: pick(row, src.fields.sub) || (src.id === "gov:lodging" ? htype : null),
+    industry_sub: f.sub || (src.id === "gov:lodging" ? f.htype || null : null),
     address,
-    phone: pick(row, src.fields.phone) || null,
-    website: pick(row, src.fields.website) || null,
-    owner: pick(row, src.fields.owner) || null,
-    hotel_stars: intOf(pick(row, src.fields.stars)),
-    hotel_rooms: intOf(pick(row, src.fields.rooms)),
-    hotel_type: htype,
+    phone: f.phone || null,
+    website: f.website || null,
+    owner: f.owner || null,
+    hotel_stars: f.stars ?? null,
+    hotel_rooms: f.rooms ?? null,
+    hotel_type: f.htype || null,
   };
 }
 
@@ -123,7 +204,24 @@ export async function POST(request: NextRequest) {
   let body: Record<string, unknown> = {};
   try { body = await request.json(); } catch {}
 
-  const src = getSource(String(body.source || ""));
+  const sourceId = String(body.source || "");
+  const mapping = (body.mapping && typeof body.mapping === "object" ? body.mapping : {}) as Record<string, string>;
+  let src = getSource(sourceId);
+  // 自訂 CSV：依使用者選的欄位對應臨時組一個來源
+  if (sourceId === "custom") {
+    src = {
+      id: "manual", label: "自訂 CSV", industry: String(body.industry || "").trim() || "未分類",
+      format: "csv", hasPhone: !!mapping.phone, datasetUrl: "", phase: 1,
+      fields: {
+        name:    mapping.name ? [mapping.name] : [],
+        tax_id:  mapping.tax_id ? [mapping.tax_id] : undefined,
+        address: mapping.address ? [mapping.address] : undefined,
+        phone:   mapping.phone ? [mapping.phone] : undefined,
+        owner:   mapping.owner ? [mapping.owner] : undefined,
+        sub:     mapping.sub ? [mapping.sub] : undefined,
+      },
+    };
+  }
   const url = typeof body.url === "string" ? body.url.trim() : "";
   const csvText = typeof body.csv === "string" ? body.csv : "";
   const dryRun = !!body.dryRun;
@@ -137,26 +235,42 @@ export async function POST(request: NextRequest) {
   (async () => {
     try {
       if (!src) { await emit({ type: "error", text: "未知的資料來源" }); return; }
+      if (src.needsApplication) { await emit({ type: "error", text: "此來源需先向 GCIS 申請 IP 白名單後才能匯入" }); return; }
+      if (sourceId === "custom" && !mapping.name) { await emit({ type: "error", text: "請指定「名稱」對應的欄位" }); return; }
       if (!url && !csvText) { await emit({ type: "error", text: "請提供下載 url 或貼上 csv 內容" }); return; }
       if (url && !/^https:\/\//.test(url)) { await emit({ type: "error", text: "url 必須是 https" }); return; }
 
       const sb = getSupabaseServerClient();
 
-      // 1) 取得原始資料
+      // 1+2) 取得 + 解析（依格式：csv / json / xml / zip 內 json）
       await emit({ type: "step", text: `讀取 ${src.label} 資料…` });
-      let raw = "";
-      if (csvText) raw = csvText;
-      else {
-        const res = await fetch(url, { signal: AbortSignal.timeout(120_000), headers: { "User-Agent": "Mozilla/5.0" } });
-        if (!res.ok) { await emit({ type: "error", text: `下載失敗 HTTP ${res.status}` }); return; }
-        raw = await res.text();
+      let rows: Record<string, unknown>[] = [];
+      try {
+        if (csvText) {
+          const t = csvText.trim();
+          rows = t.startsWith("[") || t.startsWith("{") ? jsonToObjects(csvText)
+               : t.startsWith("<") ? parseFlatXml(csvText)
+               : csvToObjects(csvText);
+        } else {
+          const res = await fetch(url, { signal: AbortSignal.timeout(240_000), headers: { "User-Agent": "Mozilla/5.0" } });
+          if (!res.ok) { await emit({ type: "error", text: `下載失敗 HTTP ${res.status}` }); return; }
+          if (src.format === "zipjson") {
+            await emit({ type: "step", text: "解壓縮 ZIP…" });
+            const zip = await JSZip.loadAsync(await res.arrayBuffer());
+            const entry = Object.keys(zip.files).find((n) => /\.json$/i.test(n)) || Object.keys(zip.files).find((n) => !zip.files[n].dir);
+            if (!entry) { await emit({ type: "error", text: "ZIP 內找不到 JSON 檔" }); return; }
+            rows = jsonToObjects(await zip.files[entry].async("string"));
+          } else if (src.format === "xml") {
+            rows = parseFlatXml(await res.text());
+          } else if (src.format === "json") {
+            rows = jsonToObjects(await res.text());
+          } else {
+            rows = csvToObjects(await res.text());
+          }
+        }
+      } catch (e) {
+        await emit({ type: "error", text: `解析失敗：${e instanceof Error ? e.message : "格式錯誤"}` }); return;
       }
-
-      // 2) 解析
-      const isJson = csvText ? raw.trim().startsWith("[") || raw.trim().startsWith("{") : src.format === "json";
-      let rows: Record<string, unknown>[];
-      try { rows = isJson ? jsonToObjects(raw) : csvToObjects(raw); }
-      catch (e) { await emit({ type: "error", text: `解析失敗：${e instanceof Error ? e.message : "格式錯誤"}` }); return; }
       await emit({ type: "step", text: `原始 ${rows.length} 筆，開始對應欄位…` });
 
       // 3) 對應 + 過濾 + 去重（檔內）

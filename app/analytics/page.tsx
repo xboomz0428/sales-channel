@@ -110,8 +110,8 @@ export default function FunnelAnalyticsPage() {
       .catch(e => { setErr(String(e)); setLoading(false) })
   }, [])
 
-  const conversion = data?.conversion ?? []
-  const funnel     = data?.funnel ?? []
+  const conversion = useMemo(() => data?.conversion ?? [], [data])
+  const funnel     = useMemo(() => data?.funnel ?? [], [data])
   const actionList = data?.actionList ?? []
 
   // 各產業 Email 覆蓋率（從 funnel 階段資料彙整）

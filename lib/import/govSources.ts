@@ -3,7 +3,7 @@
 // 所以實際 URL 由使用者在匯入頁貼上/確認；這裡只定義「欄位對應」與來源中繼資料。
 // 解析時以「表頭名稱」對應（順序變動也能對上），每個邏輯欄位給多個候選名稱。
 
-export type SourceFormat = "csv" | "json";
+export type SourceFormat = "csv" | "json" | "xml" | "zipjson";
 
 export interface GovSource {
   id: string;            // data_source 值（gov:xxx）
@@ -12,6 +12,9 @@ export interface GovSource {
   format: SourceFormat;  // 預設檔案格式
   hasPhone: boolean;     // 名冊本身是否含電話（決定匯進來能否直接外聯）
   datasetUrl: string;    // data.gov.tw 資料集頁（使用者由此取得實際下載連結）
+  defaultUrl?: string;   // 已知可用的下載網址（自動帶入輸入框，仍可改）
+  phase: 1 | 2 | 3 | 4;  // 規劃階段
+  needsApplication?: boolean; // 需先申請才能串（例如 GCIS 需 IP 白名單）
   note?: string;
   // 邏輯欄位 → 候選表頭/JSON key（大小寫不敏感，取第一個非空）
   fields: {
@@ -39,6 +42,7 @@ export const GOV_SOURCES: GovSource[] = [
     format: "csv",
     hasPhone: false,
     datasetUrl: "https://data.gov.tw/dataset/32679",
+    phase: 1,
     note: "公司登記名冊，有統編/負責人/地址；電話多半要靠官網爬蟲補。",
     fields: {
       name:    ["公司名稱", "營業人名稱", "機構名稱", "名稱"],
@@ -52,35 +56,32 @@ export const GOV_SOURCES: GovSource[] = [
     id: "gov:lodging",
     label: "旅館 / 民宿（觀光署旅宿）",
     industry: "旅館",
-    format: "json",
+    format: "zipjson",
     hasPhone: true,
     datasetUrl: "https://data.gov.tw/dataset/7780",
-    note: "觀光資料標準 V2.1 JSON，含電話、星級、客房數。Class 會自動分旅館/民宿。",
+    defaultUrl: "https://media.taiwan.net.tw/XMLReleaseAll_public/v2.0/Zh_tw/Hotel-json.zip",
+    phase: 1,
+    note: "觀光資料標準 V2.0（ZIP 內含 HotelList.json），含電話、星級、客房數；HotelClasses=4 自動歸民宿。",
     fields: {
-      name:    ["Name", "ChineseName", "名稱", "中文名稱"],
-      address: ["Add", "Address", "地址", "AddressTW"],
-      phone:   ["Tel", "Phone", "電話", "TelephoneNumber"],
-      website: ["WebsiteUrl", "Website", "網址"],
-      htype:   ["Class", "類型", "Category"],
-      stars:   ["HotelStars", "Stars", "星級"],
-      rooms:   ["TotalRooms", "RoomNum", "客房數", "Rooms"],
+      name: ["HotelName", "Name", "名稱"],
     },
   },
   {
     id: "gov:travel",
     label: "旅行社（旅行業基本資料）",
     industry: "旅行社",
-    format: "csv",
+    format: "xml",
     hasPhone: true,
     datasetUrl: "https://data.gov.tw/dataset/72074",
-    note: "含統編、地址、電話、負責人、註冊別（綜合/甲種/乙種 → 次分類）。",
+    defaultUrl: "https://travelagency.tad.gov.tw/Forms/XML/TravelAgent.aspx?key=DF8T1NkUg",
+    phase: 1,
+    note: "觀光署旅行業 XML，含地址、電話、負責人、註冊別（綜合/甲種/乙種 → 次分類）。",
     fields: {
-      name:    ["公司名稱", "中文名稱", "名稱", "旅行社名稱"],
-      tax_id:  ["統一編號", "統編"],
-      address: ["地址", "營業地址", "公司地址"],
-      phone:   ["電話", "聯絡電話", "電話號碼"],
-      owner:   ["負責人", "代表人", "負責人姓名"],
-      sub:     ["註冊別", "種類", "旅行業別", "類別"],
+      name:    ["TRACNAME", "公司名稱", "名稱"],
+      address: ["TRAADD", "地址"],
+      phone:   ["TRATEL", "電話"],
+      owner:   ["TRAMANAGER", "負責人"],
+      sub:     ["TRASIKEY_I", "註冊別", "種類"],
     },
   },
   {
@@ -90,6 +91,7 @@ export const GOV_SOURCES: GovSource[] = [
     format: "csv",
     hasPhone: true,
     datasetUrl: "https://data.gov.tw/dataset/39283",
+    phase: 1,
     note: "健保特約院所清單，含電話/地址。自動只留『中醫』類別。",
     fields: {
       name:    ["醫事機構名稱", "機構名稱", "名稱"],
@@ -99,6 +101,82 @@ export const GOV_SOURCES: GovSource[] = [
       sub:     ["型態別", "特約類別", "服務項目", "型態"],
     },
     rowFilter: { field: ["型態別", "特約類別", "服務項目", "型態", "醫事機構名稱"], includes: ["中醫"] },
+  },
+
+  // ── Phase 3：人民團體（公會 / 協會 / 基金會 / 社福團體）──────────
+  {
+    id: "gov:civic",
+    label: "人民團體（公會/協會/基金會/社福）",
+    industry: "人民團體",
+    format: "csv",
+    hasPhone: true,
+    datasetUrl: "https://data.gov.tw/dataset/13603",
+    phase: 3,
+    note: "全國性人民團體名冊，含電話與理事長；團體類別存到次分類，可在名單頁自行篩選。",
+    fields: {
+      name:    ["團體名稱", "人民團體名稱", "名稱"],
+      address: ["會所住址", "會址", "地址", "通訊地址"],
+      phone:   ["電話", "聯絡電話", "電話號碼"],
+      owner:   ["理事長", "負責人", "理事長姓名", "代表人"],
+      sub:     ["團體類別", "類別", "團體種類", "團體類型"],
+    },
+  },
+
+  // ── Phase 4：宮廟（全國宗教資訊系統-寺廟）──────────────────────
+  {
+    id: "gov:temple",
+    label: "宮廟 / 寺廟（全國宗教資訊系統）",
+    industry: "宮廟",
+    format: "csv",
+    hasPhone: true,
+    datasetUrl: "https://data.gov.tw/dataset/8203",
+    phase: 4,
+    note: "含教別、地址、電話、負責人。部分寺廟無電話，可再用官網/爬蟲補。",
+    fields: {
+      name:    ["寺廟名稱", "宮廟名稱", "名稱"],
+      address: ["地址", "寺廟地址", "地址全址"],
+      phone:   ["電話", "聯絡電話", "電話號碼"],
+      owner:   ["負責人", "負責人姓名", "管理人", "代表人"],
+      sub:     ["教別", "宗教別", "登記別", "主祀神祇"],
+    },
+  },
+
+  // ── Phase 4：月子中心（全國開業護理機構清冊-產後護理之家）──────
+  {
+    id: "gov:postpartum",
+    label: "月子中心（產後護理之家）",
+    industry: "月子中心",
+    format: "csv",
+    hasPhone: true,
+    datasetUrl: "https://data.gov.tw/dataset/115950",
+    phase: 4,
+    note: "全國開業護理機構清冊，自動只留『產後護理』機構，含電話/地址。",
+    fields: {
+      name:    ["機構名稱", "護理機構名稱", "名稱"],
+      address: ["地址", "機構地址", "院所地址"],
+      phone:   ["電話", "聯絡電話", "電話號碼"],
+      sub:     ["機構類別", "類別", "型態"],
+    },
+    rowFilter: { field: ["機構類別", "類別", "型態", "機構名稱"], includes: ["產後護理", "月子"] },
+  },
+
+  // ── Phase 2：養生館（GCIS 商工登記，依營業項目）— 需先申請 ──────
+  {
+    id: "gov:gcis_wellness",
+    label: "養生館 / 長照（GCIS 商工登記）",
+    industry: "養生館",
+    format: "json",
+    hasPhone: false,
+    needsApplication: true,
+    datasetUrl: "https://data.gcis.nat.gov.tw/",
+    phase: 2,
+    note: "依營業項目代碼撈公司登記；GCIS 需先寄信 opendata.gcis@gmail.com 申請 IP 白名單才能串。",
+    fields: {
+      name:    ["Company_Name", "公司名稱", "名稱"],
+      tax_id:  ["Business_Accounting_NO", "統一編號"],
+      address: ["Company_Location", "公司所在地", "地址"],
+      owner:   ["Responsible_Name", "負責人"],
+    },
   },
 ];
 
