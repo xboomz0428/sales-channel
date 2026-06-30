@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.2.0";
+export const APP_VERSION = "2.3.1";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,27 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.3.1",
+    date: "2026-06-30",
+    title: "漏斗分析：大量資料讀取效能索引",
+    items: [
+      "為漏斗分析的資料來源補上索引，因應名單量持續成長：brand_channels(channel='EM' 部分索引)、stores(brand_id, created_at)、opportunities(brand_id, stage)",
+      "實測 industry_conversion 全表彙整 28ms（2,500+ 筆名單），走 index scan，資料放大數倍仍可即時回應",
+    ],
+  },
+  {
+    version: "2.3.0",
+    date: "2026-06-30",
+    title: "漏斗分析：垂直市場優先度 + 行動清單",
+    items: [
+      "新增「漏斗分析」頁（側欄商機進度下方）：市場優先度排名、各市場銷售漏斗視覺化、本週行動清單三個分頁",
+      "資源優先度 = 成交率×2 + 月MRR均值/1000 + 電話覆蓋率×0.3，協助判斷資源該往哪個垂直市場投",
+      "接本專案實際資料：漏斗階段取自商機(opportunities)、熱度用名單 engagement_score 分 hot/warm/cool/cold、MRR 由商機年值/12 估算、電話/Email/地址取自門市與聯絡窗口",
+      "本週行動清單：自動挑出 Hot/Warm 且最久未聯繫、有電話可直撥的名單前 20 筆",
+      "新增 SQL migration 0019：brand_funnel_base 基底 View + 轉換率/漏斗/瓶頸/行動清單四個分析 View",
+    ],
+  },
   {
     version: "2.2.0",
     date: "2026-06-29",

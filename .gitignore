@@ -46,3 +46,5 @@ next-env.d.ts
 # 本地暫存（誤加，勿入庫）
 ng_picture/
 .claude/
+funnel-analytics/
+funnel-analytics.zip

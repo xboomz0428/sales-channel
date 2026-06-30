@@ -8,6 +8,7 @@ export const NAV: NavItem[] = [
   { id: "dashboard", label: "儀表板", sym: "◈", href: "/" },
   { id: "brands", label: "名單總覽", sym: "≡", href: "/leads" },
   { id: "pipeline", label: "商機進度", sym: "↗", href: "/opportunities" },
+  { id: "analytics", label: "漏斗分析", sym: "⊿", href: "/analytics" },
   { id: "care", label: "今日跟進", sym: "♡", href: "/followups" },
   { id: "match", label: "比對中心", sym: "⟳", href: "/matching" },
   { id: "collect", label: "採集任務", sym: "⚡", href: "/matching?tab=collect" },
