@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.4.3";
+export const APP_VERSION = "2.4.4";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.4.4",
+    date: "2026-07-01",
+    title: "修正政府匯入連線逾時（月子中心等站）",
+    items: [
+      "修正下載政府檔案時 fetch 的 10 秒連線逾時（UND_ERR_CONNECT_TIMEOUT）：任何連線層失敗（逾時/憑證鏈/被 reset）都改用 node:https 重抓，無 undici 的 10 秒連線上限",
+      "新增「連不上政府網站時，改貼上檔案內容」的備援：在瀏覽器下載檔案後貼上內容即可匯入（CSV/XML），仍套用該來源的欄位對應與篩選",
+    ],
+  },
   {
     version: "2.4.3",
     date: "2026-06-30",

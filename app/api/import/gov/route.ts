@@ -97,24 +97,21 @@ function parseFlatXml(text: string): Record<string, string>[] {
 // 僅限使用者明確選取的公開政府開放資料，且只在憑證鏈錯誤時觸發。
 async function fetchBytes(url: string): Promise<Uint8Array> {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(240_000), cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return new Uint8Array(await res.arrayBuffer());
-  } catch (e) {
-    const code = (e as { cause?: { code?: string } })?.cause?.code || "";
-    const msg = e instanceof Error ? e.message : "";
-    if (/CERT|SIGNATURE|UNABLE_TO_VERIFY|SELF_SIGNED/i.test(code) || /certificate/i.test(msg)) {
-      return httpsGetInsecure(url);
-    }
-    throw e;
+    const res = await fetch(url, { signal: AbortSignal.timeout(90_000), cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
+    if (res.ok) return new Uint8Array(await res.arrayBuffer());
+    // HTTP 狀態碼異常也再用 node:https 試一次（有些政府站對 undici 回應不正常，對傳統 https 正常）
+  } catch {
+    // 連線層失敗（憑證鏈不完整 / 連線逾時 UND_ERR_CONNECT_TIMEOUT / 連線被 reset）→ 退回 node:https
   }
+  // node:https：無 undici 的 10 秒連線逾時限制、較長逾時、寬鬆 TLS、自動跟隨轉址
+  return httpsGetInsecure(url);
 }
 
 function httpsGetInsecure(url: string, redirects = 0): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
     if (redirects > 5) return reject(new Error("重導次數過多"));
     const lib = url.startsWith("http://") ? http : https;
-    const req = lib.get(url, { rejectUnauthorized: false, headers: { "User-Agent": "Mozilla/5.0" }, timeout: 240_000 }, (res) => {
+    const req = lib.get(url, { rejectUnauthorized: false, headers: { "User-Agent": "Mozilla/5.0" }, timeout: 120_000 }, (res) => {
       const sc = res.statusCode || 0;
       if (sc >= 300 && sc < 400 && res.headers.location) {
         res.resume();

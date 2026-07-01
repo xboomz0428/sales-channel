@@ -24,6 +24,7 @@ export default function GovImportPage() {
   const [sources, setSources] = useState<GovSource[]>([])
   const [sel, setSel] = useState<string>('')        // gov id | 'custom'
   const [url, setUrl] = useState('')
+  const [govPaste, setGovPaste] = useState('')  // 連不上政府網站時，改貼檔案內容
   const [max, setMax] = useState(5000)
   const [running, setRunning] = useState(false)
   const [log, setLog] = useState<LogLine[]>([])
@@ -47,7 +48,7 @@ export default function GovImportPage() {
     return h.split(',').map(s => s.replace(/^"|"$/g, '').trim()).filter(Boolean)
   }, [cCsv])
 
-  function reset() { setUrl(''); setLog([]); setSummary(null); setCCsv(''); setCMap({}); setCIndustry('') }
+  function reset() { setUrl(''); setGovPaste(''); setLog([]); setSummary(null); setCCsv(''); setCMap({}); setCIndustry('') }
 
   async function run(dryRun: boolean) {
     if (running) return
@@ -56,8 +57,8 @@ export default function GovImportPage() {
       if (!cCsv.trim() || !cMap.name) return
       Object.assign(payload, { source: 'custom', csv: cCsv, industry: cIndustry, mapping: cMap })
     } else {
-      if (!source || !url.trim()) return
-      Object.assign(payload, { source: sel, url: url.trim() })
+      if (!source || (!url.trim() && !govPaste.trim())) return
+      Object.assign(payload, { source: sel, ...(govPaste.trim() ? { csv: govPaste } : { url: url.trim() }) })
     }
     setRunning(true); setLog([]); setSummary(null)
     try {
@@ -84,7 +85,7 @@ export default function GovImportPage() {
   }
 
   const phases = [1, 3, 4, 2]
-  const canRun = isCustom ? (!!cCsv.trim() && !!cMap.name) : (!!source && !!url.trim())
+  const canRun = isCustom ? (!!cCsv.trim() && !!cMap.name) : (!!source && (!!url.trim() || !!govPaste.trim()))
 
   return (
     <div style={{ background: C.bg, minHeight: '100%', padding: '20px clamp(12px, 3vw, 28px)' }}>
@@ -150,6 +151,14 @@ export default function GovImportPage() {
             </div>
             <input value={url} onChange={e => setUrl(e.target.value)} placeholder={`貼上 ${source.format.toUpperCase()} 下載網址（https://…）`}
               style={{ padding: '10px 12px', borderRadius: 10, border: `1px solid ${C.border}`, fontSize: 13, color: C.text, background: C.bg }} />
+            {source.format !== 'zipjson' && (
+              <details style={{ fontSize: 12, color: C.muted }}>
+                <summary style={{ cursor: 'pointer' }}>連不上政府網站？改貼上檔案內容（{source.format.toUpperCase()}）</summary>
+                <textarea value={govPaste} onChange={e => setGovPaste(e.target.value)} rows={5}
+                  placeholder={`在瀏覽器點下載連結存檔後，用記事本開啟、把整份 ${source.format.toUpperCase()} 內容貼進來`}
+                  style={{ width: '100%', marginTop: 8, padding: '10px 12px', borderRadius: 10, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'ui-monospace, monospace', background: C.bg, resize: 'vertical', boxSizing: 'border-box' }} />
+              </details>
+            )}
             <Controls running={running} canRun={canRun} max={max} setMax={setMax} run={run} />
           </div>
         )}
