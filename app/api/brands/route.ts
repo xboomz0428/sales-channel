@@ -74,6 +74,26 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, data: rows, count: count ?? rows.length, limited: (count ?? 0) > rows.length });
     }
 
+    // 只回 id 清單（給批次比對/補齊「完整選擇」用；分批處理避免逾時）。內部分頁抓齊。
+    if (searchParams.get("view") === "ids") {
+      const CAP = 30000;
+      const PAGE = 1000;
+      const ids: string[] = [];
+      for (let off = 0; off < CAP; off += PAGE) {
+        let q = supabase.from("brands").select("id").order("created_at", { ascending: false }).range(off, off + PAGE - 1);
+        if (industry) q = q.ilike("industry", `%${industry}%`);
+        if (status) q = q.eq("status", status);
+        if (search) q = q.ilike("name", `%${search}%`);
+        q = q.eq("country", country || "TW");
+        const { data, error } = await q;
+        if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+        const rows = (data || []) as { id: string }[];
+        ids.push(...rows.map((r) => r.id));
+        if (rows.length < PAGE) break;
+      }
+      return NextResponse.json({ success: true, ids, count: ids.length });
+    }
+
     // 統計層（第一層數據）：預設先讀這份完整統計，不用把全部名單抓進來；詳細資料再按需載入。
     if (searchParams.get("view") === "overview") {
       const { data, error } = await supabase

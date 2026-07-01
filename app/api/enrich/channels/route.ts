@@ -563,7 +563,8 @@ export async function POST(request: NextRequest) {
         return;
       }
 
-      const CONCURRENCY = Math.min(30, Math.max(5, Math.ceil(brands.length / 30) * 5));
+      // 預設 30 線並行；可由 body.concurrency 指定，上限 30
+      const CONCURRENCY = Math.min(30, Math.max(1, Math.floor(Number(body.concurrency) || 30)));
       await emit({ type: "init", total: brands.length, skipped });
       await emit({ type: "step", text: `開始採集 ${brands.length} 個品牌（${CONCURRENCY} 並行）${skipped > 0 ? `，已剃除 ${skipped} 個完整品牌` : ""}…` });
 

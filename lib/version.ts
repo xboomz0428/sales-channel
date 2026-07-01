@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.7.0";
+export const APP_VERSION = "2.7.1";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.7.1",
+    date: "2026-07-01",
+    title: "批次比對/補齊：預設 30 線、分批完整處理避免逾時",
+    items: [
+      "工商登記批次比對、管道補齊、超級比對一律預設 30 線並行(gov/lookup 與 enrich/channels 皆吃 concurrency，上限 30)",
+      "改為分批完整處理「選擇的範圍」：有產業篩選時抓該產業全部(view=ids)，每批 500 筆逐批送，避免單一請求逾時(原本管道補齊 all 會一次抓全產業而 timeout)",
+      "「管道補齊」按鈕改開批次面板(與工商比對一致)；完成後顯示累計統編/管道補齊數",
+      "面板 log 只保留最近 200 行，避免大批量爆量",
+    ],
+  },
   {
     version: "2.7.0",
     date: "2026-07-01",

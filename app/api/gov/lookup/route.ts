@@ -905,9 +905,8 @@ export async function POST(request: NextRequest) {
       (async () => {
         const list = brands;
         const neverChecked = list.filter((b) => !b.gov_checked_at).length;
-        // 並行數：可由 body.concurrency 指定（超級比對 = 30 線），上限 30；未指定則依量自動 3~10
-        const reqConc = Math.min(30, Math.max(1, Math.floor(Number(body.concurrency) || 0)));
-        const GOV_CONCURRENCY = reqConc || Math.min(10, Math.max(3, Math.ceil(list.length / 30) * 3));
+        // 並行數：預設 30 線；可由 body.concurrency 指定，上限 30
+        const GOV_CONCURRENCY = Math.min(30, Math.max(1, Math.floor(Number(body.concurrency) || 30)));
         send({ type: "step", text: `本次處理 ${list.length} 個（${GOV_CONCURRENCY} 線並行，優先未比對過的 ${neverChecked} 個）…` });
         const results: any[] = [];
         let doneCount = 0;
