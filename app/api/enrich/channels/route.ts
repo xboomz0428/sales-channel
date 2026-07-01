@@ -33,6 +33,46 @@ const LINK_PATTERNS: [string, RegExp][] = [
   ["email", /mailto:([A-Za-z0-9_.+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})/i],
 ];
 
+// ── Email 深度擷取：Cloudflare 混淆解碼、HTML 實體、[at]/(dot) 反混淆、聯絡前綴優先 ──
+const EMAIL_JUNK = /noreply|no-reply|donotreply|example\.|sentry|wixpress|\.wp\.com|godaddy|yourdomain|your-?email|yourmail|test@|abc@|sample|@2x|u00|core-js|schema\.org|w3\.org|sentry\.io|@sentry|placeholder/i;
+const EMAIL_PREF = /^(info|service|contact|cs|sales|mail|hello|support|inquiry|enquiry|customer|marketing|business|office|admin)@/i;
+
+function decodeCfEmail(hex: string): string {
+  try {
+    const r = parseInt(hex.substr(0, 2), 16);
+    let out = "";
+    for (let i = 2; i < hex.length; i += 2) out += String.fromCharCode(parseInt(hex.substr(i, 2), 16) ^ r);
+    return out;
+  } catch { return ""; }
+}
+function decodeEntities(s: string): string {
+  return s.replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+          .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)))
+          .replace(/&amp;/g, "&");
+}
+function deobfuscateEmail(s: string): string {
+  return s
+    .replace(/\s*[[(（{]\s*(?:at|＠)\s*[\])）}]\s*/gi, "@")
+    .replace(/\s+at\s+/gi, "@")
+    .replace(/\s*[[(（{]\s*(?:dot|點)\s*[\])）}]\s*/gi, ".")
+    .replace(/\s+dot\s+/gi, ".")
+    .replace(/＠/g, "@");
+}
+// 從 HTML 擷取所有 email（含 Cloudflare 混淆、mailto、內文），去 junk，聯絡前綴優先
+function extractEmails(html: string): string[] {
+  const set = new Set<string>();
+  for (const m of html.matchAll(/data-cfemail="([0-9a-fA-F]{6,})"/gi)) { const e = decodeCfEmail(m[1]); if (e.includes("@")) set.add(e); }
+  for (const m of html.matchAll(/mailto:([^"'?>\s&]+@[^"'?>\s&]+)/gi)) set.add(decodeEntities(m[1]));
+  const text = deobfuscateEmail(decodeEntities(html));
+  for (const m of text.matchAll(/[A-Za-z0-9_.+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g)) set.add(m[0]);
+  const list = [...set]
+    .map((e) => e.trim().toLowerCase())
+    .filter((e) => /^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/.test(e)
+      && !EMAIL_JUNK.test(e)
+      && !/\.(png|jpe?g|gif|svg|webp|ico|js|css|json|xml|woff2?)$/i.test(e));
+  return [...new Set(list)].sort((a, b) => (EMAIL_PREF.test(a) ? 0 : 1) - (EMAIL_PREF.test(b) ? 0 : 1));
+}
+
 async function fetchSiteLinks(url: string): Promise<Record<string, string>> {
   const found: Record<string, string> = {};
   try {
@@ -49,15 +89,9 @@ async function fetchSiteLinks(url: string): Promise<Record<string, string>> {
       const m = html.match(re);
       if (m) found[ch] = ch === "email" ? m[1] : m[0];
     }
-    // 額外抓取 email：頁面內直接出現的 email（非 mailto 連結）
-    if (!found.email) {
-      const JUNK = /noreply|no-reply|example\.|sentry|wixpress|facebook|google|apple/i;
-      for (const m of html.matchAll(/\b([A-Za-z0-9_.+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b/g)) {
-        if (!JUNK.test(m[1]) && !/\.(png|jpg|gif|svg|webp|ico|js|css)$/i.test(m[1])) {
-          found.email = m[1]; break;
-        }
-      }
-    }
+    // Email：深度擷取（Cloudflare 混淆、HTML 實體、mailto、[at]/(dot) 反混淆），聯絡前綴優先
+    const emails = extractEmails(html);
+    if (emails.length) found.email = emails[0];
     // 抓取電話（tel: 連結或台灣格式）
     if (!found.phone) {
       const telHref = html.match(/href=["']tel:([+0-9\-\s()]+)["']/i);
@@ -119,7 +153,7 @@ async function discoverContactUrls(baseUrl: string): Promise<string[]> {
   } catch { /* 首頁讀取失敗 → 退回固定路徑 */ }
   // 退回固定路徑（沒從首頁找到就試這些）
   if (urls.length === 0) {
-    for (const p of ["/contact", "/contact-us", "/about", "/about-us"]) {
+    for (const p of ["/contact", "/contact-us", "/contactus", "/contact.html", "/about", "/about-us", "/company", "/service", "/privacy", "/pages/contact"]) {
       urls.push(`${base.origin}${p}`);
     }
   }

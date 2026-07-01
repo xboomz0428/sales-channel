@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.7.4";
+export const APP_VERSION = "2.7.5";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.7.5",
+    date: "2026-07-01",
+    title: "官網找 Email：解 Cloudflare 混淆＋更多聯絡頁",
+    items: [
+      "Email 深度擷取：解 Cloudflare data-cfemail 混淆、HTML 實體(&#64;)、『info[at]domain(dot)com』反混淆、mailto —— 抓到很多原本純文字比對找不到的信箱",
+      "多信箱時優先取 info/service/contact/sales 等聯絡信箱，過濾 noreply/範例/追蹤信箱",
+      "聯絡頁 fallback 路徑擴充：contact/about/company/service/privacy/pages/contact 等",
+    ],
+  },
   {
     version: "2.7.4",
     date: "2026-07-01",
