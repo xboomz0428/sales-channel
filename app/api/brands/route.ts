@@ -74,6 +74,25 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, data: rows, count: count ?? rows.length, limited: (count ?? 0) > rows.length });
     }
 
+    // 統計層（第一層數據）：預設先讀這份完整統計，不用把全部名單抓進來；詳細資料再按需載入。
+    if (searchParams.get("view") === "overview") {
+      const { data, error } = await supabase
+        .from("brands_overview").select("*")
+        .eq("country", country || "TW")
+        .order("total", { ascending: false });
+      if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+      const rows = (data || []) as Record<string, number>[];
+      const sum = (k: string) => rows.reduce((s, r) => s + (Number(r[k]) || 0), 0);
+      const summary = {
+        total: sum("total"),
+        has_phone: sum("has_phone"), has_email: sum("has_email"), has_line: sum("has_line"),
+        has_web: sum("has_web"), has_gov: sum("has_gov"),
+        won: sum("won"), pipeline: sum("pipeline"), new_cnt: sum("new_cnt"),
+        industries: rows.length,
+      };
+      return NextResponse.json({ success: true, summary, data: rows });
+    }
+
     // 缺管道優先度：各產業缺多少管道（跨全部名單彙整），供比對中心排序/上色決定先採哪個
     if (searchParams.get("view") === "gaps") {
       const { data, error } = await supabase

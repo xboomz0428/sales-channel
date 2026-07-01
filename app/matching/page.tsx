@@ -1998,6 +1998,9 @@ export default function MatchingPage() {
   const reloadGaps = useCallback(() => {
     fetch(`/api/brands?view=gaps&country=${country}`)
       .then((r) => r.json()).then((d) => { if (d.success) setGaps(d.data || []); }).catch(() => {});
+    // 統計層：完整名單統計（不受清單上限影響）
+    fetch(`/api/brands?view=overview&country=${country}`)
+      .then((r) => r.json()).then((d) => { if (d.success) setOverview(d.summary); }).catch(() => {});
   }, [country]);
   useEffect(() => { reloadGaps(); }, [reloadGaps]);
   const [tab, setTab] = useState("tasks");
@@ -2010,6 +2013,7 @@ export default function MatchingPage() {
   const [superMatchOpen, setSuperMatchOpen] = useState(false);
   const [gaps, setGaps] = useState<{ industry: string; total: number; miss_phone: number; miss_email: number; miss_line: number; miss_web: number; miss_fb: number; miss_ig: number; gap_score: number }[]>([]);
   const [gapsOpen, setGapsOpen] = useState(true);
+  const [overview, setOverview] = useState<{ total: number; has_phone: number; has_email: number; has_line: number; has_web: number; has_gov: number; pipeline: number; won: number } | null>(null);
   const [bulkRunning, setBulkRunning] = useState<string | null>(null);
   const [bulkMsg, setBulkMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [bulkProgress, setBulkProgress] = useState<{ total: number; done: number; current: string; skipped: number } | null>(null);
@@ -2400,6 +2404,34 @@ export default function MatchingPage() {
           <button onClick={() => setBulkMsg(null)} style={{ marginLeft: "auto", border: "none", background: "none", cursor: "pointer", color: "inherit", fontSize: 16, lineHeight: 1 }}>×</button>
         </div>
       )}
+      {/* 統計層：完整名單統計（跨全部名單，不受清單上限影響）*/}
+      {overview && (
+        <div style={{ padding: "8px 20px", background: C.surface, borderBottom: `1px solid ${C.border}`, display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center", flexShrink: 0 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>📊 完整統計</span>
+          <span style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+            <span style={{ fontSize: 18, fontWeight: 800, color: C.text, fontVariantNumeric: "tabular-nums" }}>{overview.total.toLocaleString()}</span>
+            <span style={{ fontSize: 12, color: C.muted }}>名單總數</span>
+          </span>
+          {([
+            { label: "電話", have: overview.has_phone },
+            { label: "Email", have: overview.has_email },
+            { label: "LINE", have: overview.has_line },
+            { label: "官網", have: overview.has_web },
+            { label: "工商", have: overview.has_gov },
+          ] as const).map((s) => {
+            const pct = overview.total ? Math.round((s.have / overview.total) * 100) : 0;
+            const color = pct >= 60 ? C.success : pct >= 30 ? C.warning : C.danger;
+            return (
+              <span key={s.label} style={{ display: "flex", alignItems: "baseline", gap: 4 }} title={`${s.have.toLocaleString()} / ${overview.total.toLocaleString()}`}>
+                <span style={{ fontSize: 15, fontWeight: 700, color, fontVariantNumeric: "tabular-nums" }}>{pct}%</span>
+                <span style={{ fontSize: 12, color: C.muted }}>{s.label}</span>
+              </span>
+            );
+          })}
+          <span style={{ fontSize: 11, color: C.muted, marginLeft: "auto" }}>進行中 {overview.pipeline.toLocaleString()} · 成交 {overview.won.toLocaleString()}</span>
+        </div>
+      )}
+
       <SummaryBar brands={brands} lastRunAll={lastRunAll} activeFilter={filterStatus} onFilter={setFilterStatus} />
 
       {/* 缺管道優先度：紅=最缺、最該先採集；點選即篩選該產業 */}

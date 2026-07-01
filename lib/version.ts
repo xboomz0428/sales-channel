@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.6.0";
+export const APP_VERSION = "2.6.1";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.6.1",
+    date: "2026-07-01",
+    title: "統計層優先：先讀完整統計，詳細資料按需載入",
+    items: [
+      "新增 brands_overview「統計層」view(migration 0023)：跨全部名單彙整各產業總數 + 電話/Email/LINE/官網/工商覆蓋 + 階段，2 秒回傳完整數據",
+      "比對中心頂端新增「📊 完整統計」列：顯示名單總數(3.9 萬)與各管道覆蓋率，數字取自完整統計而非載入的清單子集，不再誤導",
+      "架構：第一層讀完整統計(view=overview)→ 清單/詳情再按 id、篩選按需載入，避免一次拉全部原始資料",
+      "GET /api/brands?view=overview 回傳 summary(總計) + 各產業明細",
+    ],
+  },
   {
     version: "2.6.0",
     date: "2026-07-01",
