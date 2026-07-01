@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.7.1";
+export const APP_VERSION = "2.7.2";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.7.2",
+    date: "2026-07-01",
+    title: "超級比對：未選產業時提示（避免對人民團體空跑）",
+    items: [
+      "診斷：未篩選產業時，超級比對處理的是最新載入的名單，而目前最新 2 萬筆多為『人民團體』(社團法人/協會) → 公司登記查無、也無官網 → 統編/管道都會是 0（非程式錯誤）",
+      "實測確認：對真實禮儀『有限公司』比對可正常命中統編（如 宜興生命事業 → 97082055，mygov 一步命中）",
+      "面板新增提示：未選產業時提醒先選一個產業(禮儀/養生館/旅行社/中醫)再比對；管道補齊提示需有官網才有效",
+    ],
+  },
   {
     version: "2.7.1",
     date: "2026-07-01",

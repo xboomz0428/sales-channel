@@ -1921,6 +1921,17 @@ function GovBatchPanel({ industry, brandIds, onClose, onDone, concurrency, title
           <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: C.muted, fontSize: 24, lineHeight: 1 }}>×</button>
         </div>
         <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px" }}>
+          {!industry && !running && (
+            <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: C.warningBg, border: `1px solid ${C.warning}`, fontSize: 12, color: C.accentDk, lineHeight: 1.6 }}>
+              ⚠️ 未選產業：將處理目前載入的最新名單（可能多為<strong>人民團體</strong>，工商登記查無、也無官網可爬 → 結果會是 0）。
+              建議先在上方「🎯 缺管道優先」或篩選<strong>選一個產業</strong>（如禮儀公司／養生館／旅行社／中醫診所）再比對。
+            </div>
+          )}
+          {channelsMode && (
+            <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: C.p50, border: `1px solid ${C.p100}`, fontSize: 12, color: C.text, lineHeight: 1.6 }}>
+              管道補齊需要品牌有<strong>官網</strong>可爬（Google Places 採集來的才有）。政府匯入的名單（禮儀／人民團體）多半沒有官網，補齊效果有限。
+            </div>
+          )}
           <button onClick={run} disabled={running} className="pressable"
             style={{ width: "100%", padding: 13, borderRadius: 12, border: "none", background: running ? C.surf2 : "#7B6E99", color: running ? C.muted : "white", fontWeight: 700, fontSize: 15, cursor: running ? "default" : "pointer" }}>
             {running ? <span><span className="spin" style={{ marginRight: 6 }}>↻</span>分批處理中，請保持頁面開啟…</span> : (thenChannels ? "🚀 開始超級比對（統編＋管道）" : channelsMode ? "🔗 開始批次管道補齊" : "🏛 開始批次工商登記比對")}
