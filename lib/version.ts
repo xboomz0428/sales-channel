@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.7.2";
+export const APP_VERSION = "2.7.3";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.7.3",
+    date: "2026-07-01",
+    title: "管道補齊：免 API 搜尋引擎找官網（政府匯入無官網名單也能補）",
+    items: [
+      "管道補齊新增「免 API 找官網」：無官網的品牌(政府匯入的禮儀/協會等)改用爬 DuckDuckGo / Bing 結果頁找官網，不需 Google API/金鑰",
+      "只接受『搜尋結果標題含公司名』的網站，避免撿到不相干網站(實測 龍巖股份有限公司→lyls.com.tw；找不到相符就跳過，不亂寫)",
+      "找到官網後自動爬取並補 Email/LINE/IG/FB 等管道",
+    ],
+  },
   {
     version: "2.7.2",
     date: "2026-07-01",

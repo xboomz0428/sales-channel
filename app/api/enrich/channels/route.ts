@@ -255,6 +255,55 @@ async function scrapeFacebookPage(fbUrl: string): Promise<Record<string, string>
   return found;
 }
 
+// 免 API 找官網：直接爬搜尋引擎結果頁（Bing 優先、DuckDuckGo HTML 備援）。
+// Google 會擋伺服器端爬取（CAPTCHA/同意頁），故不用 Google。過濾掉社群/名錄/政府等非官網。
+const SEARCH_JUNK = /facebook\.com|instagram\.com|youtube\.com|line\.me|google\.|bing\.com|duckduckgo|wikipedia|\.gov\.tw|gov\.tw|104\.com|1111\.com|518\.com|yes123|yellowpages|iyp\.|twincn|mygov|find\.taipei|maps\.|foursquare|yelp|tripadvisor|dcard|ptt\.cc|shopee|momo|pchome|books\.com|ubereats|foodpanda|web66\.com|pixnet|blogspot|wordpress\.com|wixsite|痞客邦|blogger|matteroftaste|conception-tech|i-formosa|nearbynirvana/i;
+
+const stripTags = (s: string) => s.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").trim();
+
+// 免 API 找官網：爬 DuckDuckGo / Bing 結果頁，只接受「標題含公司名」的結果，避免撿到不相干網站。
+async function searchWebsiteNoApi(name: string): Promise<string | null> {
+  const clean = name.replace(/[（(【][^）)】]*[）)】]/g, "").replace(/\s+/g, "").trim();
+  if (clean.length < 2) return null;
+  const nameKey = clean.replace(/(股份|有限|公司|企業社|工作室|商行)/g, "").slice(0, 4) || clean.slice(0, 3);
+  const q = encodeURIComponent(`${clean.slice(0, 20)} 官網 聯絡`);
+  const ua = { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36" };
+  // 只接受：真實網址、非社群/名錄、且標題含公司名關鍵字
+  const pick = (rows: { url: string; title: string }[]): string | null => {
+    for (const r of rows) {
+      const u = r.url.split("#")[0];
+      if (/^https?:\/\//i.test(u) && !SEARCH_JUNK.test(u) && r.title.includes(nameKey)) return u;
+    }
+    return null;
+  };
+  // 1) DuckDuckGo HTML（穩定、對伺服器友善）
+  try {
+    const res = await fetch(`https://html.duckduckgo.com/html/?q=${q}`, { headers: ua, signal: AbortSignal.timeout(9000) });
+    if (res.ok) {
+      const html = await res.text();
+      const rows = [...html.matchAll(/class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)].map((m) => {
+        const ud = m[1].match(/uddg=([^&]+)/);
+        return { url: ud ? decodeURIComponent(ud[1]) : m[1], title: stripTags(m[2]) };
+      });
+      const hit = pick(rows);
+      if (hit) return hit;
+    }
+  } catch { /* 換 Bing */ }
+  // 2) Bing 備援
+  try {
+    const res = await fetch(`https://www.bing.com/search?q=${q}&setlang=zh-tw&cc=tw`, { headers: ua, signal: AbortSignal.timeout(9000) });
+    if (res.ok) {
+      const html = await res.text();
+      const rows = [...html.matchAll(/<a[^>]+href="(https?:\/\/[^"]+)"[^>]*>((?:(?!<\/a>)[\s\S])*?)<\/a>/gi)]
+        .map((m) => ({ url: m[1], title: stripTags(m[2]) }))
+        .filter((r) => r.title.length > 1);
+      const hit = pick(rows);
+      if (hit) return hit;
+    }
+  } catch { /* 略過 */ }
+  return null;
+}
+
 async function enrichBrand(
   supabase: SupabaseServerClient,
   brandId: string,
@@ -372,6 +421,30 @@ async function enrichBrand(
         added.push(ch); have.add(ch);
       }
       if (newFound.length) await emit({ type: "step", text: `${prefix}交叉搜尋從 ${pg.label} 補到 ${newFound.map(([c]) => c).join("、")}` });
+    }
+  }
+
+  // ── 2.6 免 API 找官網（爬 Bing / DuckDuckGo）→ 再爬官網補管道 ─────────
+  // 政府匯入、無官網的品牌靠這步：用公司名在搜尋引擎找官網，找到就寫入並爬取。
+  if (!have.has("website") && TARGET_CHANNELS.some((ch) => !have.has(ch))) {
+    let site: string | null = null;
+    for (const sn of searchNames) {
+      await emit({ type: "step", text: `${prefix}搜尋引擎找官網「${sn}」…` });
+      site = await searchWebsiteNoApi(sn);
+      if (site) break;
+    }
+    if (site) {
+      const domain = (() => { try { return new URL(site).hostname; } catch { return site!.slice(0, 40); } })();
+      await emit({ type: "step", text: `${prefix}找到官網 ${domain}，爬取聯絡資訊…` });
+      await upsertChannel(supabase, brandId, "website", site, "search");
+      added.push("website"); have.add("website");
+      let links: Record<string, string> = {};
+      try { links = { ...(await fetchSiteLinks(site)), ...(await fetchContactPages(site)) }; } catch { /* 爬取失敗略過 */ }
+      const newFound = Object.entries(links).filter(([ch]) => !have.has(ch));
+      for (const [ch, value] of newFound) { await upsertChannel(supabase, brandId, ch, value, site); added.push(ch); have.add(ch); }
+      await emit({ type: "step", text: newFound.length ? `${prefix}官網補到 ${newFound.map(([c]) => c).join("、")}` : `${prefix}官網未找到社群/聯絡` });
+    } else {
+      await emit({ type: "step", text: `${prefix}搜尋引擎找不到官網` });
     }
   }
 
