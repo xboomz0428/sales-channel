@@ -60,16 +60,72 @@ export async function GET(request: NextRequest) {
       if (country) countQ = countQ.eq("country", country); else countQ = countQ.eq("country", "TW");
       const { count } = await countQ;
       const PAGE = 1000;
-      const pages = Math.max(1, Math.ceil((count ?? 0) / PAGE));
+      // 名單量達數萬筆：一次抓全部的巢狀 join 會逾時。改為上限載入（預設最新 2000 筆，可用 limit 調整、上限 5000）。
+      const limit = Math.min(Math.max(parseInt(searchParams.get("limit") || "2000", 10) || 2000, PAGE), 5000);
+      const pages = Math.max(1, Math.min(Math.ceil((count ?? 0) / PAGE), Math.ceil(limit / PAGE)));
       const settled = await Promise.all(
-        Array.from({ length: pages }, (_, i) => listQuery().range(i * PAGE, i * PAGE + PAGE - 1))
+        Array.from({ length: pages }, (_, i) => listQuery().order("created_at", { ascending: false }).range(i * PAGE, i * PAGE + PAGE - 1))
       );
       const rows: Record<string, unknown>[] = [];
       for (const r of settled) {
         if (r.error) return NextResponse.json({ success: false, error: r.error.message }, { status: 500 });
         if (r.data) rows.push(...(r.data as Record<string, unknown>[]));
       }
-      return NextResponse.json({ success: true, data: rows, count: rows.length });
+      return NextResponse.json({ success: true, data: rows, count: count ?? rows.length, limited: (count ?? 0) > rows.length });
+    }
+
+    // 缺管道優先度：各產業缺多少管道（跨全部名單彙整），供比對中心排序/上色決定先採哪個
+    if (searchParams.get("view") === "gaps") {
+      const { data, error } = await supabase
+        .from("industry_channel_gaps").select("*")
+        .eq("country", country || "TW")
+        .order("gap_score", { ascending: false });
+      if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+      return NextResponse.json({ success: true, data: data || [] });
+    }
+
+    // 採集中心（比對中心）模式：清單輕量、有上限、可搜尋/篩選；詳情用 id 單筆補抓。
+    // 名單量已達數萬筆，一次載全部含門市/評論的巢狀 join 會逾時 → 改成兩段式載入。
+    if (searchParams.get("view") === "match") {
+      const govLowFull = `*,
+        brand_channels(channel, value),
+        stores(id, name, address, city, phone, rating, review_count, gmaps_url, store_reviews(rating, text, author_name, relative_time)),
+        gov_records(id, tax_id, name, owner_name, address, match_confidence),
+        opportunities(stage, est_annual_value, probability, stage_entered_at, lost_reason),
+        care_plans(tier, last_order_date, reorder_cycle_days)`;
+
+      // 單筆完整詳情（詳情面板 lazy load）
+      const id = searchParams.get("id");
+      if (id) {
+        const { data, error } = await supabase
+          .from("brands").select(govLowFull)
+          .eq("id", id).eq("gov_records.match_confidence", "low").single();
+        if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+        return NextResponse.json({ success: true, data: [data] });
+      }
+
+      // 清單：只帶清單真正用到的欄位（無門市明細/評論），並限制筆數
+      const lightSel = `id, name, industry, industry_sub, status, is_chain, chain_type, store_count,
+        priority_score, tax_id, registered_name, owner_name, capital, setup_date, company_address,
+        brand_channels(channel, value), stores(city, address),
+        gov_records(id, tax_id, name, owner_name, match_confidence)`;
+      const limit = Math.min(Math.max(parseInt(searchParams.get("limit") || "1000", 10) || 1000, 1), 5000);
+
+      let mq = supabase.from("brands").select(lightSel).eq("gov_records.match_confidence", "low");
+      if (industry) mq = mq.eq("industry", industry);
+      if (status) mq = mq.eq("status", status);
+      if (search) mq = mq.ilike("name", `%${search}%`);
+      mq = mq.eq("country", country || "TW").order("created_at", { ascending: false }).range(0, limit - 1);
+
+      let cQ2 = supabase.from("brands").select("id", { count: "exact", head: true });
+      if (industry) cQ2 = cQ2.eq("industry", industry);
+      if (status) cQ2 = cQ2.eq("status", status);
+      if (search) cQ2 = cQ2.ilike("name", `%${search}%`);
+      cQ2 = cQ2.eq("country", country || "TW");
+
+      const [{ data, error }, { count }] = await Promise.all([mq, cQ2]);
+      if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+      return NextResponse.json({ success: true, data: data || [], count: count ?? (data?.length ?? 0), limited: (count ?? 0) > (data?.length ?? 0) });
     }
 
     // gov_records 只帶待人工確認的低信心比對（採集中心「比對結果」分頁用）

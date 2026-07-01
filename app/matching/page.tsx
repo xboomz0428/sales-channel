@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { C, downloadCSV, INDUSTRIES, CHANNELS, CHANNEL_ORDER } from "@/lib/design";
 
@@ -246,24 +246,50 @@ function BrandList({
   onSelect,
   onRunAll,
   isMobile,
+  search,
+  onSearch,
+  total,
+  limited,
 }: {
   brands: ScrapeBrand[];
   selectedId: number | string | null;
   onSelect: (id: number | string) => void;
   onRunAll: () => void;
   isMobile?: boolean;
+  search: string;
+  onSearch: (s: string) => void;
+  total?: number | null;
+  limited?: boolean;
 }) {
   return (
     <div style={{ width: isMobile ? "100%" : 280, flexShrink: 0, borderRight: isMobile ? "none" : `1px solid ${C.border}`, display: "flex", flexDirection: "column", height: "100%" }}>
-      <div style={{ padding: "14px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>品牌名單</span>
-        <button
-          onClick={onRunAll}
-          className="pressable"
-          style={{ padding: "5px 12px", borderRadius: 8, border: "none", background: C.primary, color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}
-        >
-          ⚡ 全部採集
-        </button>
+      <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
+            品牌名單
+            <span style={{ fontSize: 11, fontWeight: 400, color: C.muted, marginLeft: 6 }}>
+              {total != null && limited ? `${brands.length.toLocaleString()} / ${total.toLocaleString()}` : brands.length.toLocaleString()}
+            </span>
+          </span>
+          <button
+            onClick={onRunAll}
+            className="pressable"
+            style={{ padding: "5px 12px", borderRadius: 8, border: "none", background: C.primary, color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}
+          >
+            ⚡ 全部採集
+          </button>
+        </div>
+        <input
+          value={search}
+          onChange={(e) => onSearch(e.target.value)}
+          placeholder="搜尋品牌名稱…"
+          style={{ padding: "7px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.surf2, color: C.text, outline: "none" }}
+        />
+        {limited && (
+          <div style={{ fontSize: 11, color: C.warning }}>
+            資料量大，僅載入前 {brands.length.toLocaleString()} 筆（共 {total?.toLocaleString()}）。用搜尋或上方產業/篩選縮小範圍。
+          </div>
+        )}
       </div>
       <div style={{ flex: 1, overflowY: "auto" }}>
         {brands.map((b) => {
@@ -1567,7 +1593,7 @@ function WebsiteScraperPanel({ onClose, onDone, industries, filterCity, filterIn
   // 指定品牌模式：載入品牌清單
   useEffect(() => {
     if (mode !== "brand") return;
-    fetch("/api/brands")
+    fetch("/api/brands?view=lite")
       .then((r) => r.json())
       .then((j) => {
         if (j.success) setAllBrands((j.data ?? []).map((b: Record<string, unknown>) => ({ id: b.id, name: b.name, industry: b.industry ?? "" })));
@@ -1785,7 +1811,7 @@ function WebsiteScraperPanel({ onClose, onDone, industries, filterCity, filterIn
 }
 
 // ── 工商登記批次比對面板 ──────────────────────────────
-function GovBatchPanel({ industry, brandIds, onClose, onDone }: { industry?: string | null; brandIds?: string[]; onClose: () => void; onDone?: () => void }) {
+function GovBatchPanel({ industry, brandIds, onClose, onDone, concurrency, title }: { industry?: string | null; brandIds?: string[]; onClose: () => void; onDone?: () => void; concurrency?: number; title?: string }) {
   const [running, setRunning] = useState(false);
   const [steps, setSteps] = useState<{ type: string; text: string; ok?: boolean }[]>([]);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
@@ -1805,6 +1831,7 @@ function GovBatchPanel({ industry, brandIds, onClose, onDone }: { industry?: str
         brandIds && brandIds.length > 0
           ? { brand_ids: brandIds }
           : { all: true, ...(industry ? { industry } : {}) };
+      if (concurrency) body.concurrency = concurrency;
       const res = await fetch("/api/gov/lookup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1845,9 +1872,9 @@ function GovBatchPanel({ industry, brandIds, onClose, onDone }: { industry?: str
       <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 510, width: "94vw", maxWidth: 520, maxHeight: "82vh", background: C.surface, borderRadius: 20, boxShadow: "0 24px 64px rgba(21,20,26,.22)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ padding: "18px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>🏛 工商登記批次比對</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{title || "🏛 工商登記批次比對"}</div>
             <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
-              依序嘗試：mygov.tw → twincn.com → 官網爬蟲 → Google CSE → GCIS API → 財政部稅籍
+              {concurrency ? `${concurrency} 線並行 · ` : ""}以電話/名稱/地址/官網交叉比對：mygov.tw → twincn.com → 官網爬蟲 → Google CSE → GCIS API → 財政部稅籍
               {brandIds && brandIds.length > 0
                 ? `（目前篩選：${brandIds.length} 個品牌）`
                 : industry ? `（篩選：${industry}）` : "（全部缺統編品牌）"}
@@ -1893,6 +1920,12 @@ export default function MatchingPage() {
   const [loadingBrands, setLoadingBrands] = useState(true);
   const [selectedId, setSelectedId] = useState<number | string | null>(null);
   const [usingApi, setUsingApi] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [totalCount, setTotalCount] = useState<number | null>(null);
+  const [limited, setLimited] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const detailLoaded = useRef<Set<string>>(new Set());
   const [filterIndustry, setFilterIndustry] = useState<string | null>(null);
   const [filterGroup, setFilterGroup] = useState<string | null>(null);
   const [groups, setGroups] = useState<{ id: string; name: string; industries: string[]; brandCount?: number }[]>([]);
@@ -1907,25 +1940,66 @@ export default function MatchingPage() {
     fetch("/api/industry-groups").then((r) => r.json()).then((d) => { if (d.success) setGroups(d.data); }).catch(() => {});
   }, []);
 
-  // 重新載入名單。初次載入顯示整頁 spinner；之後（切換國家、採集完成）靜默背景更新，
-  // 避免整頁 early-return 把採集面板與國家頁籤卸載。
-  const loadBrands = () => {
-    fetch(`/api/brands?country=${country}`)
+  // 搜尋輸入防抖（避免每個字都打 API）
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 350);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
+
+  // 名單量已達數萬筆：清單改用「輕量 view=match」+ 伺服器端篩選/搜尋 + 上限，
+  // 門市明細/評論/比對等重資料在選取單一品牌時再補抓（見 ensureDetail）。
+  const loadBrands = useCallback(() => {
+    setLoadError(null);
+    const p = new URLSearchParams({ view: "match", country, limit: "1000" });
+    if (filterIndustry) p.set("industry", filterIndustry);
+    if (debouncedSearch) p.set("search", debouncedSearch);
+    fetch(`/api/brands?${p.toString()}`)
       .then((r) => r.json())
       .then((result) => {
         if (result.success && Array.isArray(result.data)) {
           const mapped = result.data.map(dbBrandToScrapeBrand);
+          detailLoaded.current = new Set(); // 清單重載 → 詳情快取失效
           setBrands(mapped);
           setUsingApi(true);
+          setTotalCount(result.count ?? mapped.length);
+          setLimited(!!result.limited);
           setSelectedId((prev) => (mapped.some((m: ScrapeBrand) => m.id === prev) ? prev : (mapped[0]?.id ?? null)));
         } else {
           setBrands([]);
+          setLoadError(result.error || "讀取失敗，請重試");
         }
       })
-      .catch(() => {})
+      .catch((e) => setLoadError(e instanceof Error ? e.message : "網路錯誤，請重試"))
       .finally(() => setLoadingBrands(false));
-  };
-  useEffect(() => { loadBrands(); }, [country]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [country, filterIndustry, debouncedSearch]);
+
+  // 首次載入顯示整頁 spinner（loadingBrands 初值 true）；之後切換國家/產業/搜尋為靜默背景更新
+  useEffect(() => { loadBrands(); }, [loadBrands]);
+
+  // 選取品牌時補抓完整詳情（門市/評論/低信心比對），只抓一次並快取
+  const ensureDetail = useCallback((id: number | string) => {
+    const sid = String(id);
+    if (detailLoaded.current.has(sid)) return;
+    detailLoaded.current.add(sid);
+    fetch(`/api/brands?view=match&country=${country}&id=${encodeURIComponent(sid)}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success && res.data?.[0]) {
+          const full = dbBrandToScrapeBrand(res.data[0]);
+          setBrands((prev) => prev.map((b) => (String(b.id) === sid ? full : b)));
+        }
+      })
+      .catch(() => { detailLoaded.current.delete(sid); });
+  }, [country]);
+
+  useEffect(() => { if (selectedId != null) ensureDetail(selectedId); }, [selectedId, ensureDetail]);
+
+  // 缺管道優先度（跨全部名單彙整；決定先採哪個垂直市場）
+  const reloadGaps = useCallback(() => {
+    fetch(`/api/brands?view=gaps&country=${country}`)
+      .then((r) => r.json()).then((d) => { if (d.success) setGaps(d.data || []); }).catch(() => {});
+  }, [country]);
+  useEffect(() => { reloadGaps(); }, [reloadGaps]);
   const [tab, setTab] = useState("tasks");
   const [isMobile, setIsMobile] = useState(false);
   const [mobileDetail, setMobileDetail] = useState(false); // 手機：是否開啟品牌詳情
@@ -1933,6 +2007,9 @@ export default function MatchingPage() {
   const [websitePanelOpen, setWebsitePanelOpen] = useState(false);
   const [placesRefreshOpen, setPlacesRefreshOpen] = useState(false);
   const [govBatchOpen, setGovBatchOpen] = useState(false);
+  const [superMatchOpen, setSuperMatchOpen] = useState(false);
+  const [gaps, setGaps] = useState<{ industry: string; total: number; miss_phone: number; miss_email: number; miss_line: number; miss_web: number; miss_fb: number; miss_ig: number; gap_score: number }[]>([]);
+  const [gapsOpen, setGapsOpen] = useState(true);
   const [bulkRunning, setBulkRunning] = useState<string | null>(null);
   const [bulkMsg, setBulkMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [bulkProgress, setBulkProgress] = useState<{ total: number; done: number; current: string; skipped: number } | null>(null);
@@ -2267,6 +2344,14 @@ export default function MatchingPage() {
           {bulkRunning === "chains" ? <span className="spin">↻</span> : "🔗"} 連鎖偵測
         </button>
         <button
+          onClick={() => setSuperMatchOpen(true)}
+          className="pressable"
+          title="30 線並行，用電話 / 名稱 / 地址 / 官網交叉比對工商登記與各管道"
+          style={{ padding: "7px 15px", borderRadius: 9, border: "none", background: "linear-gradient(135deg,#7B6E99,#5B7C99)", color: "white", fontSize: 13, fontWeight: 800, cursor: "pointer", flexShrink: 0, boxShadow: "0 2px 8px rgba(123,110,153,.35)" }}
+        >
+          🚀 超級比對（30線）{filterIndustry ? `·${filterIndustry}` : ""}
+        </button>
+        <button
           onClick={() => setGovBatchOpen(true)}
           className="pressable"
           style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid #7B6E9960`, background: "#EAE5F0", color: "#7B6E99", fontSize: 13, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}
@@ -2316,6 +2401,47 @@ export default function MatchingPage() {
         </div>
       )}
       <SummaryBar brands={brands} lastRunAll={lastRunAll} activeFilter={filterStatus} onFilter={setFilterStatus} />
+
+      {/* 缺管道優先度：紅=最缺、最該先採集；點選即篩選該產業 */}
+      {gaps.length > 0 && (
+        <div style={{ padding: "8px 20px", background: C.surf2, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: gapsOpen ? 8 : 0 }}>
+            <button onClick={() => setGapsOpen(!gapsOpen)} style={{ border: "none", background: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, color: C.text, padding: 0 }}>
+              🎯 缺管道優先（先採這些）{gapsOpen ? " ▼" : " ▶"}
+            </button>
+            <span style={{ fontSize: 11, color: C.muted }}>依缺少的聯絡管道加權排序，紅色代表最缺、最該優先蒐集</span>
+          </div>
+          {gapsOpen && (
+            <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 2 }}>
+              {gaps.slice(0, 12).map((g) => {
+                const maxGap = gaps[0]?.gap_score || 1;
+                const ratio = g.gap_score / maxGap;
+                const color = ratio > 0.66 ? C.danger : ratio > 0.33 ? C.warning : C.success;
+                const bg = ratio > 0.66 ? C.dangerBg : ratio > 0.33 ? C.warningBg : C.successBg;
+                const on = filterIndustry === g.industry;
+                const miss = [
+                  g.miss_phone ? `電話${g.miss_phone.toLocaleString()}` : "",
+                  g.miss_email ? `Email${g.miss_email.toLocaleString()}` : "",
+                  g.miss_line ? `LINE${g.miss_line.toLocaleString()}` : "",
+                  g.miss_web ? `官網${g.miss_web.toLocaleString()}` : "",
+                ].filter(Boolean).slice(0, 3).join(" · ");
+                return (
+                  <button key={g.industry} onClick={() => setFilterIndustry(on ? null : g.industry)}
+                    title={`${g.industry}：共 ${g.total} 筆，缺口分數 ${g.gap_score}`}
+                    style={{ flexShrink: 0, textAlign: "left", padding: "8px 12px", borderRadius: 10, cursor: "pointer", border: `1.5px solid ${on ? color : "transparent"}`, background: bg, minWidth: 152 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
+                      <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{g.industry}</span>
+                      <span style={{ fontSize: 11, color: C.muted, marginLeft: "auto" }}>{g.total.toLocaleString()}</span>
+                    </div>
+                    <div style={{ fontSize: 10.5, color, marginTop: 3, fontWeight: 600 }}>缺 {miss || "—"}</div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 類別篩選欄 */}
       <div style={{ display: "flex", gap: 6, padding: "8px 20px", background: C.surface, borderBottom: `1px solid ${C.border}`, flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
@@ -2543,11 +2669,23 @@ export default function MatchingPage() {
             <div className="spin" style={{ width: 28, height: 28, border: `3px solid ${C.border}`, borderTopColor: C.primary, borderRadius: "50%" }} />
             <div style={{ fontSize: 14 }}>載入品牌資料中…</div>
           </div>
+        ) : loadError ? (
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, color: C.muted, padding: 24, textAlign: "center" }}>
+            <div style={{ fontSize: 32 }}>⚠️</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>讀取資料失敗</div>
+            <div style={{ fontSize: 12, maxWidth: 360 }}>{loadError}</div>
+            <button onClick={() => { setLoadingBrands(true); loadBrands(); }} className="pressable"
+              style={{ marginTop: 4, padding: "8px 18px", borderRadius: 10, border: "none", background: C.primary, color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              重試
+            </button>
+          </div>
         ) : brands.length === 0 ? (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, color: C.muted, padding: 24, textAlign: "center" }}>
-            <div style={{ fontSize: 36 }}>🌿</div>
+            <div style={{ fontSize: 36 }}>{debouncedSearch ? "🔍" : "🌿"}</div>
             <div style={{ fontSize: 15, fontWeight: 500, color: C.text }}>
-              {COUNTRIES.find((c) => c.code === country)?.flag} {COUNTRIES.find((c) => c.code === country)?.label}尚無品牌資料
+              {debouncedSearch
+                ? `查無符合「${debouncedSearch}」的品牌`
+                : <>{COUNTRIES.find((c) => c.code === country)?.flag} {COUNTRIES.find((c) => c.code === country)?.label}尚無品牌資料</>}
             </div>
             <div style={{ fontSize: 13 }}>點右上「⚡ 新增採集任務」開始採集{country !== "TW" ? "（面板內可切換國家）" : "，或至名單總覽新增"}</div>
             <button
@@ -2566,6 +2704,10 @@ export default function MatchingPage() {
           isMobile={isMobile}
           brands={visibleBrands}
           selectedId={selectedId}
+          search={searchTerm}
+          onSearch={setSearchTerm}
+          total={totalCount}
+          limited={limited}
           onSelect={(id) => {
             setSelectedId(id);
             setTab("tasks");
@@ -2609,6 +2751,7 @@ export default function MatchingPage() {
       {websitePanelOpen && <WebsiteScraperPanel onClose={() => setWebsitePanelOpen(false)} onDone={loadBrands} industries={availableIndustries} filterCity={filterCity} filterIndustry={filterIndustry} filterGroupName={groups.find((g) => g.id === filterGroup)?.name ?? null} visibleBrandIds={visibleBrands.map((b) => String(b.id))} />}
       {placesRefreshOpen && <PlacesRefreshPanel onClose={() => setPlacesRefreshOpen(false)} onDone={loadBrands} />}
       {govBatchOpen && <GovBatchPanel industry={filterIndustry} brandIds={visibleBrands.map((b) => String(b.id))} onClose={() => setGovBatchOpen(false)} onDone={loadBrands} />}
+      {superMatchOpen && <GovBatchPanel concurrency={30} title="🚀 超級比對（30 線並行）" industry={filterIndustry} brandIds={filterIndustry ? undefined : visibleBrands.map((b) => String(b.id))} onClose={() => setSuperMatchOpen(false)} onDone={() => { loadBrands(); reloadGaps(); }} />}
     </>
   );
 }

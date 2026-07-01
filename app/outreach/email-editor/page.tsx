@@ -256,8 +256,8 @@ function applySelFormat(cmd: string, value?: string) {
 }
 
 // 富文字內文區塊：可選取局部文字加粗 / 改色 / 加連結（uncontrolled contentEditable）
-function RichTextBlock({ block, onChange, placeholder }: {
-  block: Block; onChange: (patch: Partial<Block>) => void; placeholder: string;
+function RichTextBlock({ block, onChange, placeholder, minHeight }: {
+  block: Block; onChange: (patch: Partial<Block>) => void; placeholder: string; minHeight?: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   // 僅在切換到不同區塊時重設內容，避免每次輸入打斷游標
@@ -281,6 +281,7 @@ function RichTextBlock({ block, onChange, placeholder }: {
       data-ph={placeholder}
       onInput={sync}
       onBlur={sync}
+      style={minHeight ? { minHeight } : undefined}
     />
   );
 }
@@ -289,7 +290,21 @@ export default function EmailEditorPage() {
   const [subject, setSubject] = useState('來自好漢草的問候');
   const [name, setName] = useState('電子報母版');
   const [blocks, setBlocks] = useState<Block[]>(STARTER);
+  const [blogMode, setBlogMode] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // 部落格模式：把多個區塊併成「一個大富文字欄位」，像寫部落格一樣編輯
+  const toBlogMode = () => {
+    const merged = blocks.map((b) => {
+      if (b.type === 'heading' || b.type === 'text') return b.html ?? plainToHtml(b.text || '');
+      if (b.type === 'image' && b.url) return `<p><img src="${b.url}" style="max-width:100%"/></p>`;
+      if (b.type === 'button' && b.text) return `<p><a href="${b.url || '#'}">${b.text}</a></p>`;
+      if (b.type === 'divider') return '<hr/>';
+      return '';
+    }).filter(Boolean).join('');
+    setBlocks([{ id: uid(), type: 'text', html: merged || '' } as Block]);
+    setBlogMode(true);
+  };
   const [msg, setMsg] = useState('');
   const [templates, setTemplates] = useState<SavedTemplate[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -346,6 +361,7 @@ export default function EmailEditorPage() {
 
   // 套用預設樣板：複製 blocks 並重新產生 id，避免共用參照
   const loadPreset = (p: Preset) => {
+    setBlogMode(false);
     setEditingId(null);
     setSubject(p.subject);
     setName(`${p.name}範本`);
@@ -355,6 +371,7 @@ export default function EmailEditorPage() {
 
   // 載入既有模板進編輯器：優先用 blocks_json 還原完整格式，否則由 body 切段
   const loadTemplate = (t: SavedTemplate) => {
+    setBlogMode(false);
     setEditingId(t.id);
     setName(t.name);
     setSubject(t.subject || '');
@@ -588,7 +605,11 @@ export default function EmailEditorPage() {
           </details>
 
           <div className="adders">
-            {(Object.keys(BLOCK_LABEL) as BlockType[]).map((t) => (
+            <button className="chip" style={{ fontWeight: 700, background: blogMode ? '#4a6b3f' : '#e7efe3', color: blogMode ? '#fff' : '#3a5c2f' }}
+              onClick={() => (blogMode ? setBlogMode(false) : toBlogMode())}>
+              {blogMode ? '🧱 切回區塊模式' : '📝 部落格模式（單一大欄位）'}
+            </button>
+            {!blogMode && (Object.keys(BLOCK_LABEL) as BlockType[]).map((t) => (
               <button key={t} className="chip" onClick={() => add(t)}>
                 ＋{BLOCK_LABEL[t]}
               </button>
@@ -596,7 +617,29 @@ export default function EmailEditorPage() {
           </div>
 
           <div className="blocks">
-            {blocks.map((b, i) => (
+            {blogMode && blocks[0] ? (
+              <div className="block">
+                <div className="fmt">
+                  <button className="fmtbtn" onMouseDown={(e) => e.preventDefault()} onClick={() => applySelFormat('formatBlock', 'H2')} title="標題">H</button>
+                  <button className="fmtbtn" onMouseDown={(e) => e.preventDefault()} onClick={() => applySelFormat('formatBlock', 'P')} title="內文">¶</button>
+                  <button className="fmtbtn" onMouseDown={(e) => e.preventDefault()} onClick={() => applySelFormat('insertUnorderedList')} title="項目符號">•</button>
+                  <span className="fmtsep" />
+                  <button className="fmtbtn sel" onMouseDown={(e) => e.preventDefault()} onClick={() => applySelFormat('bold')} title="選取文字加粗"><b>B</b></button>
+                  <button className="fmtbtn sel" onMouseDown={(e) => e.preventDefault()} onClick={() => applySelFormat('italic')} title="斜體"><i>I</i></button>
+                  <button className="fmtbtn sel" onMouseDown={(e) => e.preventDefault()} onClick={() => applySelFormat('underline')} title="底線"><u>U</u></button>
+                  {['#2f3d2f', '#c0392b', '#b8860b', '#2b579a', '#7a4fb0', '#111111'].map((c) => (
+                    <button key={c} className="swatch" onMouseDown={(e) => e.preventDefault()} onClick={() => applySelFormat('foreColor', c)} title="選取文字改色" style={{ background: c }} />
+                  ))}
+                  <button className="fmtbtn sel" onMouseDown={(e) => e.preventDefault()} onClick={() => { const u = prompt('連結網址', 'https://'); if (u) applySelFormat('createLink', u); }} title="加連結">🔗</button>
+                </div>
+                <RichTextBlock
+                  block={blocks[0]}
+                  onChange={(patch) => update(blocks[0].id, patch)}
+                  placeholder="像寫部落格一樣，在這裡輸入整篇內容。反白文字可套用上方格式；用 [文字](網址) 也能加超連結。"
+                  minHeight={440}
+                />
+              </div>
+            ) : blocks.map((b, i) => (
               <div
                 key={b.id}
                 className={`block ${dragId === b.id ? 'dragging' : ''} ${overId === b.id && dragId && dragId !== b.id ? 'dragover' : ''}`}
