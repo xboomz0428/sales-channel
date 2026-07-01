@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.6.1";
+export const APP_VERSION = "2.7.0";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.7.0",
+    date: "2026-07-01",
+    title: "名單總覽三層架構 + 超級比對兩階段(統編→管道)",
+    items: [
+      "名單總覽新增「📊 完整統計」列(跨全 3.9 萬筆的電話/Email/LINE/官網/工商覆蓋率)與完整總數，不再只顯示載入子集",
+      "名單總覽搜尋框改為伺服器端查詢(可搜全部名單，不只載入的 2000 筆)；讀取失敗顯示錯誤與重試",
+      "超級比對改為正確順序的兩階段：① 名稱→統一編號→工商登記資料　② 再用官網/交叉搜尋補 LINE/Email/IG/官網",
+      "修正名單頁長期存在的 React duplicate key 警告(CHANNEL_ORDER 已含 email 卻又重複加入)",
+    ],
+  },
   {
     version: "2.6.1",
     date: "2026-07-01",

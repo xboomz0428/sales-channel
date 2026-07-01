@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, Fragment, ReactNode } from "react";
+import { useState, useEffect, useRef, useCallback, Fragment, ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { C, STATUS, STAGE_ORDER, CHANNELS, CHANNEL_ORDER, channelHref, StatusKey } from "@/lib/design";
 import Icon from "@/components/Icon";
@@ -529,7 +529,7 @@ function FilterBar({
       {/* 桌機：管道篩選 */}
       <div className="d-only" style={{ display: "flex", gap: 4, marginLeft: 8, paddingLeft: 8, borderLeft: `1px solid ${C.border}`, alignItems: "center", flexWrap: "wrap" }}>
         <span style={{ fontSize: 11, color: C.muted, whiteSpace: "nowrap" }}>管道：</span>
-        {[...CHANNEL_ORDER, "email"].map((ch) => {
+        {[...new Set([...CHANNEL_ORDER, "email"])].map((ch) => {
           const cfg = CHANNELS[ch];
           if (!cfg) return null;
           const cnt = channelCounts[ch] || 0;
@@ -1328,7 +1328,7 @@ function FilterDrawer({
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.4, color: C.muted, marginBottom: 10 }}>聯絡管道</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {[...CHANNEL_ORDER, "email"].map((ch) => {
+            {[...new Set([...CHANNEL_ORDER, "email"])].map((ch) => {
               const cfg = CHANNELS[ch];
               if (!cfg) return null;
               const cnt = channelCounts[ch] || 0;
@@ -1654,6 +1654,11 @@ export default function LeadsPage() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [filters, setFilters] = useState<Filters>({});
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [overview, setOverview] = useState<{ total: number; has_phone: number; has_email: number; has_line: number; has_web: number; has_gov: number } | null>(null);
+  const [totalCount, setTotalCount] = useState<number | null>(null);
+  const [limited, setLimited] = useState(false);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiText, setAiText] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
@@ -1662,21 +1667,44 @@ export default function LeadsPage() {
   const [industryScrapeMsg, setIndustryScrapeMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [addBrandOpen, setAddBrandOpen] = useState(false);
 
-  const loadBrands = () => {
-    setLoading(true);
-    fetch("/api/brands?view=list")
+  // 搜尋防抖 → 伺服器端查詢（可搜全部名單，不只載入的子集）
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // 清單層：輕量 + 上限 + 伺服器端搜尋/產業篩選（名單量達數萬筆，不能一次全載）
+  const loadBrands = useCallback(() => {
+    setLoadErr(null);
+    const p = new URLSearchParams({ view: "list", country: "TW", limit: "2000" });
+    if (debouncedSearch) p.set("search", debouncedSearch);
+    if (filters.industry) p.set("industry", filters.industry);
+    fetch(`/api/brands?${p.toString()}`)
       .then((r) => r.json())
       .then((result) => {
-        if (result.success && Array.isArray(result.data) && result.data.length > 0) {
+        if (result.success && Array.isArray(result.data)) {
           setBrands(result.data.map(mapBrandRow));
           setUsingApi(true);
+          setTotalCount(result.count ?? result.data.length);
+          setLimited(!!result.limited);
+        } else {
+          setBrands([]);
+          setLoadErr(result.error || "讀取失敗，請重試");
         }
       })
-      .catch(() => {})
+      .catch((e) => setLoadErr(e instanceof Error ? e.message : "網路錯誤，請重試"))
       .finally(() => setLoading(false));
-  };
+  }, [debouncedSearch, filters.industry]);
 
-  useEffect(() => { loadBrands(); }, []);
+  useEffect(() => { loadBrands(); }, [loadBrands]);
+
+  // 統計層：完整名單統計（跨全部名單，不受清單上限影響）
+  useEffect(() => {
+    fetch("/api/brands?view=overview&country=TW")
+      .then((r) => r.json())
+      .then((d) => { if (d.success) setOverview(d.summary); })
+      .catch(() => {});
+  }, []);
 
   const exportXLS = () => {
     window.location.href = "/api/brands/export";
@@ -1762,7 +1790,7 @@ export default function LeadsPage() {
   const availableIndustries = [...new Set(brands.map((b) => b.industry).filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-TW"));
   const availableCities = [...new Set(brands.flatMap((b) => b.citiesList))].sort((a, b) => a.localeCompare(b, "zh-TW"));
   const channelCounts: Record<string, number> = {};
-  for (const ch of [...CHANNEL_ORDER, "email"]) {
+  for (const ch of [...new Set([...CHANNEL_ORDER, "email"])]) {
     channelCounts[ch] = brands.filter((b) => b.channels.includes(ch) || (ch === "line" && b.channels.includes("line_id"))).length;
   }
 
@@ -1790,7 +1818,10 @@ export default function LeadsPage() {
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
         <div className="d-only" style={{ display: "flex", alignItems: "baseline", gap: 10, flexShrink: 0 }}>
           <h1 style={{ fontSize: 17, fontWeight: 600, color: C.text, margin: 0 }}>名單總覽</h1>
-          <span style={{ fontSize: 13, color: C.muted }}>全部 {brands.length} 筆</span>
+          <span style={{ fontSize: 13, color: C.muted }}>
+            全部 {(overview?.total ?? totalCount ?? brands.length).toLocaleString()} 筆
+            {limited ? <span style={{ color: C.warning }}>（顯示 {brands.length.toLocaleString()}，請用搜尋/篩選）</span> : null}
+          </span>
         </div>
 
         <div className="m-only" style={{ display: "flex", alignItems: "center", gap: 9 }}>
@@ -1882,6 +1913,35 @@ export default function LeadsPage() {
           </button>
         </div>
       </div>
+
+      {/* 完整統計層：跨全部名單，不受清單上限影響 */}
+      {overview && (
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center", padding: "7px 20px", background: C.surf2, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>📊 完整統計</span>
+          {([
+            { label: "電話", have: overview.has_phone },
+            { label: "Email", have: overview.has_email },
+            { label: "LINE", have: overview.has_line },
+            { label: "官網", have: overview.has_web },
+            { label: "工商", have: overview.has_gov },
+          ] as const).map((s) => {
+            const pct = overview.total ? Math.round((s.have / overview.total) * 100) : 0;
+            const color = pct >= 60 ? C.success : pct >= 30 ? C.warning : C.danger;
+            return (
+              <span key={s.label} style={{ display: "flex", alignItems: "baseline", gap: 4 }} title={`${s.have.toLocaleString()} / ${overview.total.toLocaleString()}`}>
+                <span style={{ fontSize: 14, fontWeight: 700, color, fontVariantNumeric: "tabular-nums" }}>{pct}%</span>
+                <span style={{ fontSize: 12, color: C.muted }}>{s.label}</span>
+              </span>
+            );
+          })}
+        </div>
+      )}
+      {loadErr && (
+        <div style={{ padding: "8px 20px", background: C.dangerBg, borderBottom: `1px solid ${C.border}`, fontSize: 13, color: C.danger, display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          ✕ {loadErr}
+          <button onClick={() => { setLoading(true); loadBrands(); }} style={{ marginLeft: "auto", border: "none", background: C.danger, color: "white", borderRadius: 8, padding: "4px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>重試</button>
+        </div>
+      )}
 
       {/* Filter bar */}
       <FilterBar filters={filters} onAdd={addFilter} onRemove={removeFilter} onOpenDrawer={() => setFilterOpen(true)} availableIndustries={availableIndustries} availableCities={availableCities} channelCounts={channelCounts} />
