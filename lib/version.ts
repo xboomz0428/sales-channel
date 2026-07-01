@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.7.3";
+export const APP_VERSION = "2.7.4";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.7.4",
+    date: "2026-07-01",
+    title: "人民團體/法人統編：優先走 twincn 台灣公司網",
+    items: [
+      "工商比對偵測到品牌名含『法人/協會/學會/公會/工會/基金會…』時，優先查 twincn.com（人民團體不在公司登記，mygov/GCIS 查不到）",
+      "實測：小型協會也能命中統編（如 新世代博弈交流發展協會 → 統編 10640151，一步命中）",
+      "超級比對對人民團體現在能補到統編＋法人資料，不再一律 0",
+    ],
+  },
   {
     version: "2.7.3",
     date: "2026-07-01",

@@ -507,6 +507,26 @@ async function matchBrand(
     candidates = await searchByTaxId(resolvedTaxId);
   }
 
+  // ── Step 0.5：人民團體/法人優先走 twincn（協會/基金會不在公司登記，mygov/GCIS 查不到）──
+  const isOrg = /法人|協會|學會|公會|工會|基金會|促進會|聯誼會|委員會|農會|漁會|合作社|理事會|後援會/.test(brand.name);
+  if (isOrg && candidates.length === 0) {
+    step(`[法人] 偵測到人民團體/法人 → 優先查 twincn.com…`);
+    const t = await searchTwincn(brand.name);
+    if (t?.taxId) {
+      const taxCands = await searchByTaxId(t.taxId); // 有些法人 GCIS 也查得到詳情
+      if (taxCands.length > 0) {
+        candidates = taxCands; resolvedTaxId = t.taxId; source = "twincn_org";
+        step(`[法人] ✓ 命中 ${taxCands[0].Company_Name}（${resolvedTaxId}）`);
+      } else {
+        candidates = [{ Business_Accounting_NO: t.taxId, Company_Name: t.companyName || brand.name, Company_Location: t.address || undefined }];
+        resolvedTaxId = t.taxId; source = "twincn_org";
+        step(`[法人] ✓ 統編 ${resolvedTaxId}（法人資料）`);
+      }
+    } else {
+      step(`[法人] twincn 未找到，改走一般流程…`);
+    }
+  }
+
   // ── Step 1：mygov.tw（統編快搜，漸進式名稱搜尋）────────
   if (candidates.length === 0) {
     step(`[mygov.tw] 搜尋「${brand.name}」…`);
