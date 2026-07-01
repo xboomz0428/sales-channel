@@ -338,6 +338,34 @@ async function searchWebsiteNoApi(name: string): Promise<string | null> {
   return null;
 }
 
+// 用 Google Places 依「名稱＋縣市」找店家 → 取官網/電話/地圖/place_id。
+// 對政府匯入、無官網但有地址的名單（中醫診所、月子中心…）最有效：它們幾乎都在 Google 地圖上。
+async function findPlaceForBrand(name: string, address: string, apiKey: string): Promise<{ placeId?: string; website?: string; phone?: string; gmaps?: string } | null> {
+  try {
+    const city = (address.match(/^(臺|台)?[一-鿿]{1,3}[市縣]/) || [])[0] || "";
+    const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": "places.id,places.displayName,places.websiteUri,places.nationalPhoneNumber,places.googleMapsUri",
+      },
+      body: JSON.stringify({ textQuery: `${name} ${city}`.trim(), languageCode: "zh-TW", regionCode: "TW", pageSize: 3 }),
+      signal: AbortSignal.timeout(9000),
+    });
+    logApiUsage("places_search", 1);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { places?: { id?: string; displayName?: { text?: string }; websiteUri?: string; nationalPhoneNumber?: string; googleMapsUri?: string }[] };
+    const p = (data.places || [])[0];
+    if (!p) return null;
+    // 名稱需相關（避免亂配）：品牌名去掉「中醫診所/診所」等前 3 字要出現在 Google 名稱裡
+    const dn = p.displayName?.text || "";
+    const key = name.replace(/(中醫醫院|中醫診所|診所|醫院|中醫)/g, "").replace(/\s/g, "").slice(0, 3);
+    if (key && !dn.includes(key) && !name.includes(dn.slice(0, 3))) return null;
+    return { placeId: p.id, website: p.websiteUri, phone: p.nationalPhoneNumber, gmaps: p.googleMapsUri };
+  } catch { return null; }
+}
+
 async function enrichBrand(
   supabase: SupabaseServerClient,
   brandId: string,
@@ -348,16 +376,18 @@ async function enrichBrand(
 ): Promise<string[]> {
   // 載入門市資料 + 現有管道（判斷缺失）
   const [{ data: stores }, { data: existingChannels }] = await Promise.all([
-    supabase.from("stores").select("phone, website, gmaps_url, name").eq("brand_id", brandId).limit(5),
+    supabase.from("stores").select("id, phone, website, gmaps_url, name, address").eq("brand_id", brandId).limit(5),
     supabase.from("brand_channels").select("channel, value").eq("brand_id", brandId),
   ]);
 
   const have = new Set((existingChannels || []).map((c) => c.channel));
   const added: string[] = [...have];
   const phone = stores?.find((s) => s.phone)?.phone;
-  const website = stores?.find((s) => s.website)?.website;
+  let website = stores?.find((s) => s.website)?.website;
   const gmaps = stores?.find((s) => s.gmaps_url)?.gmaps_url;
   const storeName = stores?.find((s) => s.name)?.name || brandName;
+  const address = stores?.find((s) => s.address)?.address || "";
+  const storeId = stores?.find((s) => s.id)?.id;
   // 搜尋用名稱：品牌名 + 公司登記名（去重）
   const searchNames = [storeName];
   if (registeredName && registeredName !== storeName && registeredName !== brandName) {
@@ -377,6 +407,36 @@ async function enrichBrand(
   if (gmaps && isMissing("map")) {
     await upsertChannel(supabase, brandId, "map", gmaps);
     added.push("map"); have.add("map");
+  }
+
+  // ── 1.5 Google Places 找店家（無官網但有地址 → 中醫/月子等幾乎都在 Google 地圖）──
+  if (!website && address && anyMissing) {
+    const placesKey = await getCfg("GOOGLE_PLACES_API_KEY");
+    if (placesKey) {
+      await emit({ type: "step", text: `${prefix}Google 地圖找店家「${storeName}」…` });
+      const place = await findPlaceForBrand(storeName, address, placesKey);
+      if (place) {
+        if (storeId) {
+          const patch: Record<string, unknown> = {};
+          if (place.website) patch.website = place.website;
+          if (place.placeId) patch.place_id = place.placeId;
+          if (place.phone) patch.phone = place.phone;
+          if (place.gmaps) patch.gmaps_url = place.gmaps;
+          if (Object.keys(patch).length) await supabase.from("stores").update(patch).eq("id", storeId);
+        }
+        if (place.phone && isMissing("phone")) { await upsertChannel(supabase, brandId, "phone", place.phone, place.gmaps); added.push("phone"); have.add("phone"); }
+        if (place.gmaps && isMissing("map")) { await upsertChannel(supabase, brandId, "map", place.gmaps); added.push("map"); have.add("map"); }
+        if (place.website) {
+          website = place.website;
+          if (isMissing("website")) { await upsertChannel(supabase, brandId, "website", place.website, place.gmaps); added.push("website"); have.add("website"); }
+          await emit({ type: "step", text: `${prefix}Google 地圖找到官網，接著爬取…` });
+        } else {
+          await emit({ type: "step", text: `${prefix}Google 地圖有店家但無官網（已補地圖/電話）` });
+        }
+      } else {
+        await emit({ type: "step", text: `${prefix}Google 地圖找不到相符店家` });
+      }
+    }
   }
 
   // ── 2. 官網爬取（有缺失管道時一律重爬）──────────────────────────────────

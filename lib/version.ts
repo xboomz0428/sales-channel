@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.7.5";
+export const APP_VERSION = "2.7.6";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.7.6",
+    date: "2026-07-01",
+    title: "管道補齊：Google 地圖比對(中醫/月子等有地址名單)",
+    items: [
+      "無官網但有地址的名單(中醫診所、月子中心等幾乎都在 Google 地圖)→ 用『名稱＋縣市』比對 Google Places，取官網/電話/地圖 URL/place_id 並寫入門市",
+      "名稱需相關才採用，避免亂配；找到官網後接著爬取 FB/Email/LINE/IG",
+      "多方法堆疊：Google 地圖 → 免 API 搜尋引擎找官網 → 深度解 Email → FB 搜尋，命中率大幅提升",
+      "實測：順正中醫診所 → 補到 地圖＋電話＋官網＋FB＋Email",
+    ],
+  },
   {
     version: "2.7.5",
     date: "2026-07-01",
