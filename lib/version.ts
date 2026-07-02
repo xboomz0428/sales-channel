@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.8.2";
+export const APP_VERSION = "2.8.3";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.8.3",
+    date: "2026-07-02",
+    title: "診所依科別自動分類匯入",
+    items: [
+      "全部診所匯入時依名稱自動分科：牙醫/內科/小兒科/婦產科/皮膚科/眼科/耳鼻喉科/骨科/復健科/身心科…共 16 類",
+      "中醫已有專屬來源，全部診所自動跳過中醫避免重複",
+      "已實際匯入並分類 19,356 間診所（100% 含電話）：牙醫 7,388、一般診所 6,671、耳鼻喉 1,053、小兒科 866、眼科 755…",
+    ],
+  },
   {
     version: "2.8.2",
     date: "2026-07-02",

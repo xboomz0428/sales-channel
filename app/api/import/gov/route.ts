@@ -156,6 +156,31 @@ const intOf = (s: string): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+// 依診所名稱判斷科別（順序有意義：中醫/牙醫/專科先於一般內外科）
+const CLINIC_SPECIALTY: [RegExp, string][] = [
+  [/中醫/, "中醫診所"],
+  [/牙醫|齒科|口腔/, "牙醫診所"],
+  [/獸醫|動物醫院/, "獸醫診所"],
+  [/小兒|兒科/, "小兒科診所"],
+  [/婦產|婦科|產科|生殖|不孕/, "婦產科診所"],
+  [/皮膚|醫美|美容醫學|整形/, "皮膚科診所"],
+  [/眼科/, "眼科診所"],
+  [/耳鼻喉/, "耳鼻喉科診所"],
+  [/骨科/, "骨科診所"],
+  [/復健/, "復健科診所"],
+  [/身心|精神|心理/, "身心科診所"],
+  [/泌尿/, "泌尿科診所"],
+  [/神經/, "神經科診所"],
+  [/心臟|心血管/, "心臟科診所"],
+  [/家醫|家庭醫學/, "家醫科診所"],
+  [/外科/, "外科診所"],
+  [/內科|新陳代謝|腸胃|肝膽|胸腔|腎臟/, "內科診所"],
+];
+function classifyClinic(name: string): string {
+  for (const [re, cat] of CLINIC_SPECIALTY) if (re.test(name)) return cat;
+  return "一般診所";
+}
+
 interface ParsedRow {
   brand_key: string;
   name: string; industry: string; industry_sub: string | null;
@@ -226,12 +251,17 @@ function mapRow(src: GovSource, row: Record<string, unknown>): ParsedRow | null 
   const address = f.address || null;
   let industry = src.industry;
   if (src.id === "gov:lodging" && f.htype) industry = f.htype.includes("民宿") ? "民宿" : "旅館";
+  // 全部診所：依名稱自動分科（內科/小兒科/婦產科/牙醫…）；中醫已有專屬來源 gov:tcm，這裡跳過避免重複
+  if (src.id === "gov:clinic") {
+    if (/中醫/.test(f.name) || (f.sub || "").includes("中醫")) return null;
+    industry = classifyClinic(f.name);
+  }
 
   return {
     brand_key: `${src.id}|${normName(f.name)}|${cityOf(address || "")}`,
     name: f.name,
     industry,
-    industry_sub: f.sub || (src.id === "gov:lodging" ? f.htype || null : null),
+    industry_sub: f.sub || (src.id === "gov:lodging" ? f.htype || null : src.id === "gov:clinic" ? f.sub || null : null),
     address,
     phone: f.phone || null,
     website: f.website || null,
