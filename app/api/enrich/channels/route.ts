@@ -78,7 +78,7 @@ async function fetchSiteLinks(url: string): Promise<Record<string, string>> {
   try {
     const res = await fetch(url, {
       headers: { "User-Agent": "Mozilla/5.0 (compatible; HeroHerbBot/1.0)" },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(5000), // 加速：慢站直接放棄（原 8s）
       redirect: "follow",
     });
     if (!res.ok) return found;
@@ -124,7 +124,7 @@ async function discoverContactUrls(baseUrl: string): Promise<string[]> {
   try {
     const res = await fetch(baseUrl, {
       headers: { "User-Agent": "Mozilla/5.0 (compatible; HeroHerbBot/1.0)" },
-      signal: AbortSignal.timeout(6000),
+      signal: AbortSignal.timeout(4000), // 加速（原 6s）
       redirect: "follow",
     });
     if (!res.ok) return urls;
@@ -163,14 +163,13 @@ async function discoverContactUrls(baseUrl: string): Promise<string[]> {
 async function fetchContactPages(baseUrl: string): Promise<Record<string, string>> {
   const found: Record<string, string> = {};
   const urls = await discoverContactUrls(baseUrl);
-  for (const url of urls) {
-    try {
-      const links = await fetchSiteLinks(url);
-      for (const [ch, val] of Object.entries(links)) {
-        if (!found[ch]) found[ch] = val;
-      }
-      if (found.email && found.phone) break; // 找到主要的就停
-    } catch { /* 略過 */ }
+  // 加速：聯絡頁「並行」抓取（原本逐頁等待，最慢 5 頁×5 秒）
+  const settled = await Promise.allSettled(urls.slice(0, 5).map((u) => fetchSiteLinks(u)));
+  for (const r of settled) {
+    if (r.status !== "fulfilled") continue;
+    for (const [ch, val] of Object.entries(r.value)) {
+      if (!found[ch]) found[ch] = val;
+    }
   }
   return found;
 }
@@ -312,7 +311,7 @@ async function searchWebsiteNoApi(name: string): Promise<string | null> {
   };
   // 1) DuckDuckGo HTML（穩定、對伺服器友善）
   try {
-    const res = await fetch(`https://html.duckduckgo.com/html/?q=${q}`, { headers: ua, signal: AbortSignal.timeout(9000) });
+    const res = await fetch(`https://html.duckduckgo.com/html/?q=${q}`, { headers: ua, signal: AbortSignal.timeout(6000) });
     if (res.ok) {
       const html = await res.text();
       const rows = [...html.matchAll(/class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)].map((m) => {
@@ -325,7 +324,7 @@ async function searchWebsiteNoApi(name: string): Promise<string | null> {
   } catch { /* 換 Bing */ }
   // 2) Bing 備援
   try {
-    const res = await fetch(`https://www.bing.com/search?q=${q}&setlang=zh-tw&cc=tw`, { headers: ua, signal: AbortSignal.timeout(9000) });
+    const res = await fetch(`https://www.bing.com/search?q=${q}&setlang=zh-tw&cc=tw`, { headers: ua, signal: AbortSignal.timeout(6000) });
     if (res.ok) {
       const html = await res.text();
       const rows = [...html.matchAll(/<a[^>]+href="(https?:\/\/[^"]+)"[^>]*>((?:(?!<\/a>)[\s\S])*?)<\/a>/gi)]
@@ -351,7 +350,7 @@ async function findPlaceForBrand(name: string, address: string, apiKey: string):
         "X-Goog-FieldMask": "places.id,places.displayName,places.websiteUri,places.nationalPhoneNumber,places.googleMapsUri",
       },
       body: JSON.stringify({ textQuery: `${name} ${city}`.trim(), languageCode: "zh-TW", regionCode: "TW", pageSize: 3 }),
-      signal: AbortSignal.timeout(9000),
+      signal: AbortSignal.timeout(6000),
     });
     logApiUsage("places_search", 1);
     if (!res.ok) return null;
@@ -751,9 +750,11 @@ export async function POST(request: NextRequest) {
           } else {
             await emit({ type: "store", ok: false, text: `${prefix}— ${name}：無可新增的管道資料` });
           }
+          await emit({ type: "progress", done: doneCount, total: brands.length });
         } catch (e) {
           doneCount++;
           await emit({ type: "store", ok: false, text: `${prefix}✕ ${name}：${e instanceof Error ? e.message : "失敗"}` });
+          await emit({ type: "progress", done: doneCount, total: brands.length });
         }
       };
 

@@ -74,7 +74,7 @@ async function searchFindbiz(name: string): Promise<GcisCompany[]> {
     const url = `https://findbiz.nat.gov.tw/fts/query/QueryBar/queryInit.do?request_locale=zh_TW&fhl=zh_TW&queryType=cmpyType&queryString=${encodeURIComponent(name)}&isAlive=1`;
     const res = await fetch(url, {
       headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return [];
     const html = await res.text();
@@ -141,7 +141,7 @@ async function scrapeWebsite(website: string): Promise<WebsiteScrape> {
   try {
     const res = await fetch(website, {
       headers: { "User-Agent": WEBSITE_UA, "Accept": "text/html,*/*;q=0.8" },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(5000),
       redirect: "follow",
     });
     if (!res.ok) return out;
@@ -276,7 +276,7 @@ async function fetchMygovSearch(query: string): Promise<GcisCompany | null> {
     const q = encodeURIComponent(query);
     const res = await fetch(`https://mygov.tw/search?q=${q}`, {
       headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return null;
     const html = await res.text();
@@ -435,7 +435,7 @@ async function fetchTwincnSearch(
   try {
     const searchRes = await fetch(`https://twincn.com/Lq.aspx?q=${encodeURIComponent(q)}`, {
       headers: { "User-Agent": ua },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(5000),
       redirect: "follow",
     });
     if (!searchRes.ok) return null;
@@ -447,7 +447,7 @@ async function fetchTwincnSearch(
 
     const detailRes = await fetch(`https://twincn.com/item.aspx?no=${taxId}`, {
       headers: { "User-Agent": ua },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(5000),
       redirect: "follow",
     });
     if (!detailRes.ok) return { taxId };
@@ -941,10 +941,12 @@ export async function POST(request: NextRequest) {
             doneCount++;
             const ok = r.matched;
             send({ type: "store", ok, text: ok ? `  ✓ ${r.registered_name}（${r.tax_id}）[${r.source}]` : `  ✗ ${b.name} 未比對到` });
+            send({ type: "progress", done: doneCount, total: list.length });
           } catch (e) {
             results.push({ brand: b.name, matched: false });
             doneCount++;
             send({ type: "store", ok: false, text: `  ✗ ${b.name} 錯誤：${e instanceof Error ? e.message : "失敗"}` });
+            send({ type: "progress", done: doneCount, total: list.length });
           }
         };
 

@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.7.6";
+export const APP_VERSION = "2.8.1";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,29 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.8.1",
+    date: "2026-07-02",
+    title: "採集與讀取加速",
+    items: [
+      "讀取：完整統計(overview)與缺管道優先(gaps)加 5 分鐘 DB 快取(stats_cache, migration 0025)，首次 ~2 秒、之後毫秒級；?fresh=1 可強制重算",
+      "讀取：brands 加 (country, created_at DESC) 複合索引，加速清單排序查詢；view=ids 改先 count 再並行抓全部分頁(原本逐頁等待)",
+      "採集：官網爬取逾時 8s→5s、首頁連結探索 6s→4s、搜尋引擎/Google地圖 9s→6s、mygov/twincn/findbiz 8s→5s——慢站快速放棄，30 線整體吞吐大增",
+      "採集：聯絡頁(最多 5 頁)改並行抓取，原本逐頁等待最慢 25 秒 → 一次 5 秒內",
+    ],
+  },
+  {
+    version: "2.8.0",
+    date: "2026-07-02",
+    title: "採集流程整合：2 顆主按鈕 + 真實進度條 + 採集紀錄",
+    items: [
+      "工具列從 8 顆按鈕整併為 2 顆主要動作：「⚡ 採集新名單」(Google 地圖找新店家)與「🚀 批次採集」(補齊既有名單)；更新Places/連鎖偵測/官網爬蟲/CSV 收進「⋯ 更多工具」",
+      "批次採集面板統一：勾選要做的事(工商統編比對／管道補齊)，取代原本超級比對/工商比對/管道補齊三顆重疊按鈕",
+      "新增真實進度條：後端每處理完一個品牌回報 progress 事件，前端顯示「階段 + 完成數/總數 + %」，跨批次累計",
+      "新增「採集紀錄」(migration 0024 collection_runs)：每次批次採集永久記錄範圍、總數、成功/待確認/查無，面板內可查最近 15 次",
+      "結果摘要透明化：完成時顯示 統編寫入 X（Y 待確認、Z 查無）· 補到管道 W 個品牌",
+    ],
+  },
   {
     version: "2.7.6",
     date: "2026-07-01",

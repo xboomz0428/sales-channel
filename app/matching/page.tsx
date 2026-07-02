@@ -1811,18 +1811,31 @@ function WebsiteScraperPanel({ onClose, onDone, industries, filterCity, filterIn
 }
 
 // ── 工商登記批次比對面板 ──────────────────────────────
+interface RunRecord { id: string; kind: string; label: string | null; scope: string | null; total: number; succeeded: number; pending: number; failed: number; status: string; created_at: string }
+
 function GovBatchPanel({ industry, brandIds, onClose, onDone, concurrency, title, thenChannels, channelsMode }: { industry?: string | null; brandIds?: string[]; onClose: () => void; onDone?: () => void; concurrency?: number; title?: string; thenChannels?: boolean; channelsMode?: boolean }) {
   const [running, setRunning] = useState(false);
   const [steps, setSteps] = useState<{ type: string; text: string; ok?: boolean }[]>([]);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  // 模式勾選（統一面板：預設依開啟來源，可自行調整）
+  const [doGov, setDoGov] = useState(!channelsMode);
+  const [doChannels, setDoChannels] = useState(!!thenChannels || !!channelsMode);
+  // 進度：phase 名稱 + 全域完成數/總數（跨批次累計）
+  const [prog, setProg] = useState<{ phase: string; done: number; total: number } | null>(null);
+  const [history, setHistory] = useState<RunRecord[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
+
+  const loadHistory = () => {
+    fetch("/api/collection-runs").then((r) => r.json()).then((d) => { if (d.success) setHistory(d.data || []); }).catch(() => {});
+  };
+  useEffect(loadHistory, []);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [steps]);
 
   // 串流 NDJSON，回傳 done 的 data；log 只保留最近 200 行避免爆量
-  const streamNdjson = async (url: string, body: Record<string, unknown>): Promise<Record<string, number> | null> => {
+  const streamNdjson = async (url: string, body: Record<string, unknown>, onProgress?: (done: number) => void): Promise<Record<string, number> | null> => {
     const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     if (!res.ok || !res.body) return null;
     const reader = res.body.getReader();
@@ -1838,8 +1851,9 @@ function GovBatchPanel({ industry, brandIds, onClose, onDone, concurrency, title
         try {
           const evt = JSON.parse(t);
           if (evt.type === "done") done = evt.data;
+          else if (evt.type === "progress") onProgress?.(Number(evt.done) || 0);
           else if (evt.type === "error") setSteps((prev) => [...prev, { type: "error", text: `✕ ${evt.text}` }].slice(-200));
-          else setSteps((prev) => [...prev, { type: evt.type, text: evt.text, ok: evt.ok }].slice(-200));
+          else if (evt.text) setSteps((prev) => [...prev, { type: evt.type, text: evt.text, ok: evt.ok }].slice(-200));
         } catch {}
       }
     }
@@ -1847,12 +1861,13 @@ function GovBatchPanel({ industry, brandIds, onClose, onDone, concurrency, title
   };
 
   const run = async () => {
-    if (running) return;
+    if (running || (!doGov && !doChannels)) return;
     setRunning(true);
     setResult(null);
     setSteps([]);
-    const mode: "gov" | "channels" | "both" = thenChannels ? "both" : channelsMode ? "channels" : "gov";
+    setProg(null);
     const conc = concurrency || 30;
+    let runId: string | null = null;
     try {
       // 1) 取得「完整選擇」的 id 清單：有產業篩選 → 抓該產業全部；否則用目前清單
       let ids: string[] = [];
@@ -1871,33 +1886,54 @@ function GovBatchPanel({ industry, brandIds, onClose, onDone, concurrency, title
 
       const BATCH = 500;
       const batches = Math.ceil(ids.length / BATCH);
+      const kind = doGov && doChannels ? "super" : doGov ? "gov" : "channels";
+      const kindLabel = kind === "super" ? "超級比對" : kind === "gov" ? "工商登記比對" : "管道補齊";
       setSteps((prev) => [...prev, { type: "phase", text: `共 ${ids.length.toLocaleString()} 筆，分 ${batches} 批（每批 ${BATCH}、${conc} 線並行）以避免逾時` }]);
+
+      // 建立採集紀錄（永久保存「做了什麼、成果多少」）
+      try {
+        const cr = await fetch("/api/collection-runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, label: `${kindLabel}${industry ? `·${industry}` : ""}`, scope: industry ? `「${industry}」全部 ${ids.length} 筆` : `${ids.length} 筆`, total: ids.length }) }).then((r) => r.json());
+        runId = cr?.id || null;
+      } catch { /* 紀錄失敗不影響採集 */ }
 
       let govMatched = 0, govLow = 0, chEnriched = 0;
       // 第一階段：名稱 → 統一編號 → 工商登記
-      if (mode === "gov" || mode === "both") {
+      if (doGov) {
         for (let i = 0; i < batches; i++) {
           const batch = ids.slice(i * BATCH, (i + 1) * BATCH);
+          const base = i * BATCH;
           setSteps((prev) => [...prev, { type: "phase", text: `🏛 工商登記 批次 ${i + 1}/${batches}（${batch.length} 筆）…` }].slice(-200));
-          const d = await streamNdjson("/api/gov/lookup", { brand_ids: batch, concurrency: conc });
+          const d = await streamNdjson("/api/gov/lookup", { brand_ids: batch, concurrency: conc },
+            (done) => setProg({ phase: `① 工商登記比對${doChannels ? "（1/2）" : ""}`, done: base + done, total: ids.length }));
           govMatched += d?.matched || 0; govLow += d?.low_confidence || 0;
         }
       }
       // 第二階段：官網 → LINE / Email / IG
-      if (mode === "channels" || mode === "both") {
+      if (doChannels) {
         for (let i = 0; i < batches; i++) {
           const batch = ids.slice(i * BATCH, (i + 1) * BATCH);
+          const base = i * BATCH;
           setSteps((prev) => [...prev, { type: "phase", text: `🔗 管道補齊 批次 ${i + 1}/${batches}（${batch.length} 筆）…` }].slice(-200));
-          const d = await streamNdjson("/api/enrich/channels", { brand_ids: batch, concurrency: conc });
+          const d = await streamNdjson("/api/enrich/channels", { brand_ids: batch, concurrency: conc },
+            (done) => setProg({ phase: `${doGov ? "② " : ""}管道補齊${doGov ? "（2/2）" : ""}`, done: base + done, total: ids.length }));
           chEnriched += d?.enriched || 0;
         }
       }
       const parts: string[] = [];
-      if (mode !== "channels") parts.push(`工商比對 ${govMatched} 筆寫入統編（${govLow} 待確認）`);
-      if (mode !== "gov") parts.push(`管道補齊 ${chEnriched} 個品牌`);
+      if (doGov) parts.push(`統編寫入 ${govMatched} 筆（${govLow} 待確認、${Math.max(ids.length - govMatched - govLow, 0)} 查無）`);
+      if (doChannels) parts.push(`補到管道 ${chEnriched} 個品牌`);
       setResult({ ok: true, text: `完成 ${ids.length.toLocaleString()} 筆　·　${parts.join("　·　")}` });
+      // 更新採集紀錄
+      if (runId) {
+        await fetch("/api/collection-runs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: runId, status: "done", succeeded: doChannels && !doGov ? chEnriched : govMatched, pending: govLow, failed: doGov ? Math.max(ids.length - govMatched - govLow, 0) : Math.max(ids.length - chEnriched, 0), detail: { govMatched, govLow, chEnriched } }) }).catch(() => {});
+        loadHistory();
+      }
       onDone?.();
-    } catch { setResult({ ok: false, text: "網路錯誤" }); }
+    } catch {
+      setResult({ ok: false, text: "網路錯誤" });
+      if (runId) fetch("/api/collection-runs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: runId, status: "error" }) }).catch(() => {});
+    }
+    setProg(null);
     setRunning(false);
   };
 
@@ -1907,15 +1943,10 @@ function GovBatchPanel({ industry, brandIds, onClose, onDone, concurrency, title
       <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 510, width: "94vw", maxWidth: 520, maxHeight: "82vh", background: C.surface, borderRadius: 20, boxShadow: "0 24px 64px rgba(21,20,26,.22)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ padding: "18px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{title || (channelsMode ? "🔗 管道補齊（批次）" : "🏛 工商登記批次比對")}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{title || "🚀 批次採集"}</div>
             <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
-              30 線並行 · 分批完整處理（每批 500，避免逾時）·{" "}
-              {thenChannels
-                ? "① 名稱→統編→工商登記　② 官網→LINE/Email/IG"
-                : channelsMode
-                ? "官網/交叉搜尋補 LINE/Email/IG/官網"
-                : "名稱→統編→工商登記(mygov/twincn/GCIS/財政部)"}
-              {industry ? `　範圍：「${industry}」全部` : brandIds && brandIds.length ? `　範圍：${brandIds.length} 筆` : "　範圍：全部名單"}
+              30 線並行 · 每批 500 分批完整處理（避免逾時）
+              {industry ? `　範圍：「${industry}」全部` : brandIds && brandIds.length ? `　範圍：目前載入 ${brandIds.length} 筆` : "　範圍：全部名單"}
             </div>
           </div>
           <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: C.muted, fontSize: 24, lineHeight: 1 }}>×</button>
@@ -1927,15 +1958,36 @@ function GovBatchPanel({ industry, brandIds, onClose, onDone, concurrency, title
               建議先在上方「🎯 缺管道優先」或篩選<strong>選一個產業</strong>（如禮儀公司／養生館／旅行社／中醫診所）再比對。
             </div>
           )}
-          {channelsMode && (
-            <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: C.p50, border: `1px solid ${C.p100}`, fontSize: 12, color: C.text, lineHeight: 1.6 }}>
-              管道補齊需要品牌有<strong>官網</strong>可爬（Google Places 採集來的才有）。政府匯入的名單（禮儀／人民團體）多半沒有官網，補齊效果有限。
+          {/* 要做什麼：模式勾選（一個面板取代原本三顆按鈕）*/}
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            {([
+              { on: doGov, set: setDoGov, icon: "🏛", label: "工商統編比對", desc: "名稱→統編→登記資料（法人走 twincn）" },
+              { on: doChannels, set: setDoChannels, icon: "🔗", label: "管道補齊", desc: "Google地圖→官網→LINE/Email/IG/FB" },
+            ] as const).map((m) => (
+              <button key={m.label} disabled={running} onClick={() => m.set(!m.on)}
+                style={{ flex: 1, textAlign: "left", padding: "10px 12px", borderRadius: 10, cursor: running ? "default" : "pointer", border: `1.5px solid ${m.on ? "#7B6E99" : C.border}`, background: m.on ? "#F0EBF8" : C.surface }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: m.on ? "#7B6E99" : C.muted }}>{m.on ? "☑" : "☐"} {m.icon} {m.label}</div>
+                <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>{m.desc}</div>
+              </button>
+            ))}
+          </div>
+          <button onClick={run} disabled={running || (!doGov && !doChannels)} className="pressable"
+            style={{ width: "100%", padding: 13, borderRadius: 12, border: "none", background: running || (!doGov && !doChannels) ? C.surf2 : "#7B6E99", color: running || (!doGov && !doChannels) ? C.muted : "white", fontWeight: 700, fontSize: 15, cursor: running ? "default" : "pointer" }}>
+            {running ? <span><span className="spin" style={{ marginRight: 6 }}>↻</span>分批處理中，請保持頁面開啟…</span>
+              : doGov && doChannels ? "🚀 開始超級比對（統編＋管道）" : doChannels ? "🔗 開始批次管道補齊" : doGov ? "🏛 開始批次工商登記比對" : "請先勾選至少一項"}
+          </button>
+          {/* 即時進度條：跨批次累計 */}
+          {prog && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#7B6E99", fontWeight: 700, marginBottom: 4 }}>
+                <span>{prog.phase}</span>
+                <span style={{ fontVariantNumeric: "tabular-nums" }}>{prog.done.toLocaleString()} / {prog.total.toLocaleString()}（{prog.total ? Math.round((prog.done / prog.total) * 100) : 0}%）</span>
+              </div>
+              <div style={{ height: 8, borderRadius: 4, background: "#E4DEF0", overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${prog.total ? Math.round((prog.done / prog.total) * 100) : 0}%`, background: "linear-gradient(90deg,#7B6E99,#5B7C99)", borderRadius: 4, transition: "width 250ms" }} />
+              </div>
             </div>
           )}
-          <button onClick={run} disabled={running} className="pressable"
-            style={{ width: "100%", padding: 13, borderRadius: 12, border: "none", background: running ? C.surf2 : "#7B6E99", color: running ? C.muted : "white", fontWeight: 700, fontSize: 15, cursor: running ? "default" : "pointer" }}>
-            {running ? <span><span className="spin" style={{ marginRight: 6 }}>↻</span>分批處理中，請保持頁面開啟…</span> : (thenChannels ? "🚀 開始超級比對（統編＋管道）" : channelsMode ? "🔗 開始批次管道補齊" : "🏛 開始批次工商登記比對")}
-          </button>
           {steps.length > 0 && (
             <div ref={logRef} style={{ marginTop: 12, maxHeight: 340, overflowY: "auto", background: "#0e1a11", borderRadius: 10, padding: "10px 14px", fontFamily: "monospace", fontSize: 12, lineHeight: 1.75 }}>
               {steps.map((s, i) => (
@@ -1954,6 +2006,28 @@ function GovBatchPanel({ industry, brandIds, onClose, onDone, concurrency, title
           {result && (
             <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 10, background: result.ok ? C.successBg : C.dangerBg, fontSize: 13, color: result.ok ? C.success : C.danger, lineHeight: 1.6 }}>
               {result.ok ? "✓ " : "✕ "}{result.text}
+            </div>
+          )}
+
+          {/* 採集紀錄：每次做了什麼、成果多少，永久可查 */}
+          {history.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, marginBottom: 6 }}>📜 採集紀錄（最近 {history.length} 次）</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 190, overflowY: "auto" }}>
+                {history.map((h) => {
+                  const d = new Date(h.created_at);
+                  const when = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+                  return (
+                    <div key={h.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 9, background: C.surf2, fontSize: 12 }}>
+                      <span style={{ color: C.muted, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{when}</span>
+                      <span style={{ fontWeight: 700, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.label || h.kind}</span>
+                      <span style={{ marginLeft: "auto", flexShrink: 0, color: h.status === "running" ? C.primary : h.status === "error" ? C.danger : C.muted }}>
+                        {h.status === "running" ? "進行中…" : h.status === "error" ? "中斷" : `${h.total} 筆 → ✓${h.succeeded}${h.pending ? ` ⚠${h.pending}` : ""}${h.failed ? ` ✗${h.failed}` : ""}`}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
@@ -2061,6 +2135,7 @@ export default function MatchingPage() {
   const [govBatchOpen, setGovBatchOpen] = useState(false);
   const [superMatchOpen, setSuperMatchOpen] = useState(false);
   const [channelBatchOpen, setChannelBatchOpen] = useState(false);
+  const [moreToolsOpen, setMoreToolsOpen] = useState(false);
   const [gaps, setGaps] = useState<{ industry: string; total: number; miss_phone: number; miss_email: number; miss_line: number; miss_web: number; miss_fb: number; miss_ig: number; gap_score: number }[]>([]);
   const [gapsOpen, setGapsOpen] = useState(true);
   const [overview, setOverview] = useState<{ total: number; has_phone: number; has_email: number; has_line: number; has_web: number; has_gov: number; pipeline: number; won: number } | null>(null);
@@ -2375,65 +2450,60 @@ export default function MatchingPage() {
           ))}
         </div>
         <span className="d-only" style={{ fontSize: 13, color: C.muted }}>— 自動抓取各管道公開資料</span>
+        {/* 主要動作只留兩顆：①找新名單 ②補齊既有名單；其餘收進「更多」 */}
         <button
           onClick={() => setJobPanelOpen(true)}
           className="pressable"
+          title="用關鍵字＋縣市從 Google 地圖採集新店家進名單"
           style={{ marginLeft: "auto", padding: "7px 14px", borderRadius: 9, border: "none", background: C.primary, color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", gap: 5 }}
         >
-          ⚡ 新增採集任務
-        </button>
-        <button
-          onClick={() => setPlacesRefreshOpen(true)}
-          className="pressable"
-          style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid #D97706 60`, background: "#FEF3C7", color: "#B45309", fontSize: 13, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}
-        >
-          📍 更新 Places
-        </button>
-        <button
-          onClick={() => runBulk("chains")}
-          disabled={!!bulkRunning}
-          className="pressable"
-          style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid #0891B260`, background: "#E0F2FE", color: "#0369A1", fontSize: 13, fontWeight: 700, cursor: bulkRunning ? "default" : "pointer", flexShrink: 0 }}
-        >
-          {bulkRunning === "chains" ? <span className="spin">↻</span> : "🔗"} 連鎖偵測
+          ⚡ 採集新名單
         </button>
         <button
           onClick={() => setSuperMatchOpen(true)}
           className="pressable"
-          title="30 線並行，用電話 / 名稱 / 地址 / 官網交叉比對工商登記與各管道"
+          title="對既有名單批次補資料：工商統編＋官網/LINE/Email/IG（面板內可勾選、30 線分批、含進度與紀錄）"
           style={{ padding: "7px 15px", borderRadius: 9, border: "none", background: "linear-gradient(135deg,#7B6E99,#5B7C99)", color: "white", fontSize: 13, fontWeight: 800, cursor: "pointer", flexShrink: 0, boxShadow: "0 2px 8px rgba(123,110,153,.35)" }}
         >
-          🚀 超級比對（30線）{filterIndustry ? `·${filterIndustry}` : ""}
+          🚀 批次採集{filterIndustry ? `·${filterIndustry}` : ""}
         </button>
         <button
-          onClick={() => setGovBatchOpen(true)}
+          onClick={() => setMoreToolsOpen(!moreToolsOpen)}
           className="pressable"
-          style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid #7B6E9960`, background: "#EAE5F0", color: "#7B6E99", fontSize: 13, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}
+          style={{ padding: "7px 12px", borderRadius: 9, border: `1px solid ${moreToolsOpen ? C.primary : C.border}`, background: moreToolsOpen ? C.p50 : C.surface, color: moreToolsOpen ? C.primary : C.muted, fontSize: 13, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}
         >
-          🏛 工商登記比對{filterIndustry ? `（${filterIndustry}）` : ""}{filterCity ? `·${filterCity}` : ""}
-        </button>
-        <button
-          onClick={() => setChannelBatchOpen(true)}
-          className="pressable"
-          style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid #5B7C9960`, background: "#E3EDFB", color: "#5B7C99", fontSize: 13, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}
-        >
-          🔗 管道補齊{filterIndustry ? `（${filterIndustry}）` : ""}
-        </button>
-        <button
-          onClick={() => setWebsitePanelOpen(true)}
-          className="pressable"
-          style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid #2D7D4660`, background: "#E3F5EB", color: "#2D7D46", fontSize: 13, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}
-        >
-          🌐 官網爬蟲
-        </button>
-        <button
-          onClick={exportCSV}
-          className="pressable"
-          style={{ padding: "7px 13px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
-        >
-          ↓ CSV
+          ⋯ 更多工具{moreToolsOpen ? " ▲" : ""}
         </button>
       </div>
+      {/* 更多工具列（收納低頻操作，減少破碎感）*/}
+      {moreToolsOpen && (
+        <div style={{ display: "flex", gap: 8, padding: "8px 20px", background: C.surf2, borderBottom: `1px solid ${C.border}`, flexWrap: "wrap", flexShrink: 0 }}>
+          <button onClick={() => setPlacesRefreshOpen(true)} className="pressable"
+            title="用既有 place_id 重新抓電話/評分/評論"
+            style={{ padding: "6px 13px", borderRadius: 9, border: `1px solid #D9770660`, background: "#FEF3C7", color: "#B45309", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+            📍 更新 Places 詳情
+          </button>
+          <button onClick={() => runBulk("chains")} disabled={!!bulkRunning} className="pressable"
+            title="偵測名稱相似的品牌，歸戶為連鎖"
+            style={{ padding: "6px 13px", borderRadius: 9, border: `1px solid #0891B260`, background: "#E0F2FE", color: "#0369A1", fontSize: 12, fontWeight: 700, cursor: bulkRunning ? "default" : "pointer" }}>
+            {bulkRunning === "chains" ? <span className="spin">↻</span> : "🔗"} 連鎖偵測
+          </button>
+          <button onClick={() => setWebsitePanelOpen(true)} className="pressable"
+            title="進階官網爬蟲（自訂範圍/模式）"
+            style={{ padding: "6px 13px", borderRadius: 9, border: `1px solid #2D7D4660`, background: "#E3F5EB", color: "#2D7D46", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+            🌐 官網爬蟲（進階）
+          </button>
+          <button onClick={() => setGovBatchOpen(true)} className="pressable"
+            title="只跑工商統編比對（批次採集面板也能做到）"
+            style={{ padding: "6px 13px", borderRadius: 9, border: `1px solid #7B6E9960`, background: "#EAE5F0", color: "#7B6E99", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+            🏛 只比對工商統編
+          </button>
+          <button onClick={exportCSV} className="pressable"
+            style={{ padding: "6px 12px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+            ↓ 匯出採集狀態 CSV
+          </button>
+        </div>
+      )}
       {/* 管道補齊即時進度條 */}
       {bulkProgress && (
         <div style={{ padding: "8px 20px", background: "#E0F2FE", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
@@ -2832,7 +2902,7 @@ export default function MatchingPage() {
       {websitePanelOpen && <WebsiteScraperPanel onClose={() => setWebsitePanelOpen(false)} onDone={loadBrands} industries={availableIndustries} filterCity={filterCity} filterIndustry={filterIndustry} filterGroupName={groups.find((g) => g.id === filterGroup)?.name ?? null} visibleBrandIds={visibleBrands.map((b) => String(b.id))} />}
       {placesRefreshOpen && <PlacesRefreshPanel onClose={() => setPlacesRefreshOpen(false)} onDone={loadBrands} />}
       {govBatchOpen && <GovBatchPanel industry={filterIndustry} brandIds={visibleBrands.map((b) => String(b.id))} onClose={() => setGovBatchOpen(false)} onDone={loadBrands} />}
-      {superMatchOpen && <GovBatchPanel concurrency={30} thenChannels title="🚀 超級比對（30 線並行）" industry={filterIndustry} brandIds={visibleBrands.map((b) => String(b.id))} onClose={() => setSuperMatchOpen(false)} onDone={() => { loadBrands(); reloadGaps(); }} />}
+      {superMatchOpen && <GovBatchPanel concurrency={30} thenChannels title="🚀 批次採集（30 線並行）" industry={filterIndustry} brandIds={visibleBrands.map((b) => String(b.id))} onClose={() => setSuperMatchOpen(false)} onDone={() => { loadBrands(); reloadGaps(); }} />}
       {channelBatchOpen && <GovBatchPanel concurrency={30} channelsMode title="🔗 管道補齊（批次）" industry={filterIndustry} brandIds={visibleBrands.map((b) => String(b.id))} onClose={() => setChannelBatchOpen(false)} onDone={() => { loadBrands(); reloadGaps(); }} />}
     </>
   );

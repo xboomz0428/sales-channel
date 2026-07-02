@@ -74,28 +74,55 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, data: rows, count: count ?? rows.length, limited: (count ?? 0) > rows.length });
     }
 
-    // 只回 id 清單（給批次比對/補齊「完整選擇」用；分批處理避免逾時）。內部分頁抓齊。
+    // 只回 id 清單（給批次比對/補齊「完整選擇」用；分批處理避免逾時）。先 count 再並行抓所有分頁。
     if (searchParams.get("view") === "ids") {
       const CAP = 30000;
       const PAGE = 1000;
-      const ids: string[] = [];
-      for (let off = 0; off < CAP; off += PAGE) {
-        let q = supabase.from("brands").select("id").order("created_at", { ascending: false }).range(off, off + PAGE - 1);
+      let cq = supabase.from("brands").select("id", { count: "exact", head: true });
+      if (industry) cq = cq.ilike("industry", `%${industry}%`);
+      if (status) cq = cq.eq("status", status);
+      if (search) cq = cq.ilike("name", `%${search}%`);
+      cq = cq.eq("country", country || "TW");
+      const { count: idCount } = await cq;
+      const totalIds = Math.min(idCount ?? 0, CAP);
+      const pages = Math.max(1, Math.ceil(totalIds / PAGE));
+      const makeQ = (i: number) => {
+        let q = supabase.from("brands").select("id").order("created_at", { ascending: false }).range(i * PAGE, i * PAGE + PAGE - 1);
         if (industry) q = q.ilike("industry", `%${industry}%`);
         if (status) q = q.eq("status", status);
         if (search) q = q.ilike("name", `%${search}%`);
-        q = q.eq("country", country || "TW");
-        const { data, error } = await q;
-        if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-        const rows = (data || []) as { id: string }[];
-        ids.push(...rows.map((r) => r.id));
-        if (rows.length < PAGE) break;
+        return q.eq("country", country || "TW");
+      };
+      const settled = await Promise.all(Array.from({ length: pages }, (_, i) => makeQ(i)));
+      const ids: string[] = [];
+      for (const r of settled) {
+        if (r.error) return NextResponse.json({ success: false, error: r.error.message }, { status: 500 });
+        ids.push(...((r.data || []) as { id: string }[]).map((x) => x.id));
       }
       return NextResponse.json({ success: true, ids, count: ids.length });
     }
 
+    // 統計快取：overview/gaps 每次要掃全部名單(~2s)，改為 5 分鐘 TTL 快取（?fresh=1 強制重算）
+    const STATS_TTL_MS = 5 * 60 * 1000;
+    const wantFresh = searchParams.get("fresh") === "1";
+    const readStatsCache = async (key: string): Promise<Record<string, unknown> | null> => {
+      if (wantFresh) return null;
+      const { data } = await supabase.from("stats_cache").select("data, updated_at").eq("key", key).maybeSingle();
+      if (data && Date.now() - new Date(data.updated_at as string).getTime() < STATS_TTL_MS) {
+        return data.data as Record<string, unknown>;
+      }
+      return null;
+    };
+    // 注意：必須 await——serverless 回應送出後未完成的寫入會被凍結，快取永遠寫不進去
+    const writeStatsCache = async (key: string, data: Record<string, unknown>) => {
+      await supabase.from("stats_cache").upsert({ key, data, updated_at: new Date().toISOString() });
+    };
+
     // 統計層（第一層數據）：預設先讀這份完整統計，不用把全部名單抓進來；詳細資料再按需載入。
     if (searchParams.get("view") === "overview") {
+      const cacheKey = `overview:${country || "TW"}`;
+      const cached = await readStatsCache(cacheKey);
+      if (cached) return NextResponse.json({ success: true, cached: true, ...cached });
       const { data, error } = await supabase
         .from("brands_overview").select("*")
         .eq("country", country || "TW")
@@ -110,16 +137,21 @@ export async function GET(request: NextRequest) {
         won: sum("won"), pipeline: sum("pipeline"), new_cnt: sum("new_cnt"),
         industries: rows.length,
       };
+      await writeStatsCache(cacheKey, { summary, data: rows });
       return NextResponse.json({ success: true, summary, data: rows });
     }
 
     // 缺管道優先度：各產業缺多少管道（跨全部名單彙整），供比對中心排序/上色決定先採哪個
     if (searchParams.get("view") === "gaps") {
+      const cacheKey = `gaps:${country || "TW"}`;
+      const cached = await readStatsCache(cacheKey);
+      if (cached) return NextResponse.json({ success: true, cached: true, ...cached });
       const { data, error } = await supabase
         .from("industry_channel_gaps").select("*")
         .eq("country", country || "TW")
         .order("gap_score", { ascending: false });
       if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+      await writeStatsCache(cacheKey, { data: data || [] });
       return NextResponse.json({ success: true, data: data || [] });
     }
 
