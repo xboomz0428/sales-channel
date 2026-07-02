@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.8.5";
+export const APP_VERSION = "2.8.6";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.8.6",
+    date: "2026-07-02",
+    title: "匯入官方產後護理之家名單",
+    items: [
+      "從全國開業護理機構清冊(衛福部官方)匯入 241 間產後護理之家，100% 含電話+地址（tmip 等網站也是彙整此份官方資料）",
+      "gov:postpartum 產業標籤對齊為『產後護理之家』；產後護理之家現共 316 筆（241 官方 + 75 原 Google Places）",
+    ],
+  },
   {
     version: "2.8.5",
     date: "2026-07-02",
