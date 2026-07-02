@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.8.6";
+export const APP_VERSION = "2.8.7";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.8.7",
+    date: "2026-07-02",
+    title: "月子中心／產後護理之家合併為同一產業",
+    items: [
+      "將『產後護理之家』併入『月子中心』，統一為單一產業（原標籤保留於次分類）；合併後月子中心共 678 筆",
+      "gov:postpartum 匯入來源產業標籤同步改為『月子中心』，日後官方產後護理之家匯入自動歸入同產業",
+    ],
+  },
   {
     version: "2.8.6",
     date: "2026-07-02",

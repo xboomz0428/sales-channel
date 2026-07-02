@@ -165,8 +165,8 @@ export const GOV_SOURCES: GovSource[] = [
   // ── Phase 4：月子中心（全國開業護理機構清冊-產後護理之家）──────
   {
     id: "gov:postpartum",
-    label: "產後護理之家（月子中心·官方）",
-    industry: "產後護理之家",
+    label: "月子中心 / 產後護理之家（官方）",
+    industry: "月子中心",
     format: "csv",
     hasPhone: true,
     datasetUrl: "https://data.gov.tw/dataset/115950",
