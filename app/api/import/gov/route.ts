@@ -375,37 +375,31 @@ export async function POST(request: NextRequest) {
 
       for (let i = 0; i < parsed.length; i += CHUNK) {
         const chunk = parsed.slice(i, i + CHUNK);
-        const keys = chunk.map((c) => c.brand_key);
-        const { data: existing } = await sb.from("brands").select("brand_key").in("brand_key", keys);
-        const have = new Set((existing || []).map((e) => e.brand_key));
-        const fresh = chunk.filter((c) => !have.has(c.brand_key));
-        duplicate += chunk.length - fresh.length;
+        // DB 層級去重：onConflict=brand_key + ignoreDuplicates → 已存在者由 DB 自動略過，
+        // 只回傳「真正新增」的列。不再用脆弱的 .in(500 個長 key) 預先查詢（會因網址過長失效→撞唯一鍵）。
+        const { data: ins, error } = await sb.from("brands").upsert(
+          chunk.map((c) => ({
+            name: c.name, brand_key: c.brand_key, industry: c.industry, industry_sub: c.industry_sub,
+            owner_name: c.owner, data_source: src.id, status: "new",
+            hotel_stars: c.hotel_stars, hotel_rooms: c.hotel_rooms, hotel_type: c.hotel_type,
+          })),
+          { onConflict: "brand_key", ignoreDuplicates: true }
+        ).select("id, brand_key");
+        if (error) { await emit({ type: "store", ok: false, text: `批次寫入失敗：${error.message}` }); continue; }
 
-        if (fresh.length) {
-          const { data: ins, error } = await sb.from("brands").insert(
-            fresh.map((c) => ({
-              name: c.name, brand_key: c.brand_key, industry: c.industry, industry_sub: c.industry_sub,
-              owner_name: c.owner, data_source: src.id, status: "new",
-              hotel_stars: c.hotel_stars, hotel_rooms: c.hotel_rooms, hotel_type: c.hotel_type,
-            }))
-          ).select("id, brand_key");
-          if (error) { await emit({ type: "store", ok: false, text: `批次寫入失敗：${error.message}` }); continue; }
+        const idByKey = new Map((ins || []).map((b) => [b.brand_key, b.id]));
+        duplicate += chunk.length - (ins?.length || 0);
+        // 只對「真正新增」的品牌建立門市 / 電話管道
+        const stores = chunk.filter((c) => idByKey.has(c.brand_key) && (c.address || c.phone || c.website)).map((c) => ({
+          brand_id: idByKey.get(c.brand_key), name: c.name, address: c.address, phone: c.phone, website: c.website,
+        }));
+        if (stores.length) await sb.from("stores").insert(stores);
+        const chans = chunk.filter((c) => idByKey.has(c.brand_key) && c.phone).map((c) => ({
+          brand_id: idByKey.get(c.brand_key), channel: "phone", value: c.phone, fetched_at: new Date().toISOString(),
+        }));
+        if (chans.length) await sb.from("brand_channels").insert(chans);
 
-          const idByKey = new Map((ins || []).map((b) => [b.brand_key, b.id]));
-          // store（電話/地址/官網）
-          const stores = fresh.filter((c) => c.address || c.phone || c.website).map((c) => ({
-            brand_id: idByKey.get(c.brand_key), name: c.name,
-            address: c.address, phone: c.phone, website: c.website,
-          })).filter((s) => s.brand_id);
-          if (stores.length) await sb.from("stores").insert(stores);
-          // 電話管道
-          const chans = fresh.filter((c) => c.phone).map((c) => ({
-            brand_id: idByKey.get(c.brand_key), channel: "phone", value: c.phone, fetched_at: new Date().toISOString(),
-          })).filter((c) => c.brand_id);
-          if (chans.length) await sb.from("brand_channels").insert(chans);
-
-          imported += ins?.length || 0;
-        }
+        imported += ins?.length || 0;
         await emit({ type: "progress", text: `已處理 ${Math.min(i + CHUNK, parsed.length)}/${parsed.length}（新增 ${imported}、重複 ${duplicate}）`, imported, duplicate });
       }
 

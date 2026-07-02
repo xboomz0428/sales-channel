@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.8.3";
+export const APP_VERSION = "2.8.4";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.8.4",
+    date: "2026-07-02",
+    title: "修正匯入重複執行的 duplicate key 錯誤",
+    items: [
+      "根因：匯入前用 .in(500 個 brand_key) 查詢已存在者，key 是長中文字串使網址過長而查詢失效 → 誤以為都是新資料 → 硬插入已存在列 → 撞唯一鍵(brands_brand_key_key)。第一次匯入沒事、重複匯入必爆",
+      "改用 DB 層級去重：upsert(onConflict=brand_key, ignoreDuplicates)，由資料庫自動略過已存在者、只回傳真正新增列，重複匯入不再報錯",
+      "實測：同一筆重複匯入 → 新增 0、重複 1、零錯誤",
+    ],
+  },
   {
     version: "2.8.3",
     date: "2026-07-02",
