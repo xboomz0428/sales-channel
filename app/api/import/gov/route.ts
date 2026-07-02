@@ -17,7 +17,7 @@ import { getSource, type GovSource } from "@/lib/import/govSources";
 export const maxDuration = 300;
 
 const MAX_DEFAULT = 5000;
-const MAX_CAP = 20000;
+const MAX_CAP = 30000;
 const CHUNK = 500;
 
 // ── CSV 解析（處理雙引號包覆） ──────────────────────────────

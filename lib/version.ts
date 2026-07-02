@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.8.1";
+export const APP_VERSION = "2.8.2";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.8.2",
+    date: "2026-07-02",
+    title: "新增「全部診所」匯入來源（健保特約·各科別）",
+    items: [
+      "新增 gov:clinic 來源：健保特約全部診所（內科/小兒科/婦產科/皮膚科/中醫…），含電話+地址，科別存次分類，實測可匯入 2 萬+ 筆",
+      "資料同 tmip.com.tw 等網站的來源（皆彙整自健保署 NHI 開放資料），但直接匯入官方 CSV 更完整乾淨，免爬蟲",
+      "匯入上限 MAX_CAP 20000→30000，讓全診所一次匯齊",
+    ],
+  },
   {
     version: "2.8.1",
     date: "2026-07-02",

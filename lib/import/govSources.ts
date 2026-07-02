@@ -104,6 +104,25 @@ export const GOV_SOURCES: GovSource[] = [
     },
     rowFilter: { field: ["醫事機構種類", "醫事機構名稱"], includes: ["中醫"] },
   },
+  {
+    id: "gov:clinic",
+    label: "全部診所（健保特約·各科別）",
+    industry: "診所",
+    format: "csv",
+    hasPhone: true,
+    datasetUrl: "https://data.gov.tw/dataset/39283",
+    defaultUrl: "https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-D21004-009",
+    phase: 1,
+    note: "健保特約全部診所（內科/小兒科/婦產科/皮膚科/中醫…），含電話/地址；科別存到次分類。tmip 等網站也是彙整此份官方資料，直接匯入更完整乾淨。",
+    fields: {
+      name:    ["醫事機構名稱", "機構名稱", "名稱"],
+      tax_id:  ["醫事機構代碼", "機構代碼"],
+      address: ["地址", "醫事機構地址", "院所地址"],
+      phone:   ["電話", "聯絡電話", "電話號碼"],
+      sub:     ["醫事機構種類", "型態別"],
+    },
+    rowFilter: { field: ["醫事機構種類", "醫事機構名稱"], includes: ["診所"] },
+  },
 
   // ── Phase 3：人民團體（公會 / 協會 / 基金會 / 社福團體）──────────
   {
