@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.8.4";
+export const APP_VERSION = "2.8.5";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.8.5",
+    date: "2026-07-02",
+    title: "修正產業篩選只剩最新匯入那批（名單/比對中心統一）",
+    items: [
+      "根因：產業篩選下拉的選項是從『已載入的名單(最新 2000 筆)』推導。剛匯入 1.9 萬診所後，載入視窗全是診所→下拉只剩診所科別，選不到養生館/月子中心等",
+      "改為用『完整產業清單(跨全部名單)』：名單總覽取自 view=overview、比對中心取自缺管道統計(gaps)，與已載入資料合併，35 種產業全數可選",
+      "選任一產業即由伺服器端查詢該產業全部(例：養生館 258、月子中心 362)，不受清單上限影響",
+    ],
+  },
   {
     version: "2.8.4",
     date: "2026-07-02",

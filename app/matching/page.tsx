@@ -2395,7 +2395,8 @@ export default function MatchingPage() {
     }
   };
 
-  const availableIndustries = [...new Set(brands.map((b) => b.industry).filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-TW"));
+  // 產業清單用「完整統計(gaps，跨全部名單)」+ 已載入合併，避免只剩最新匯入那批的產業
+  const availableIndustries = [...new Set([...gaps.map((g) => g.industry), ...brands.map((b) => b.industry)].filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-TW"));
 
   // 目前選取群組的產業集合（空 = 未選群組）
   const groupIndustries = filterGroup ? (groups.find((g) => g.id === filterGroup)?.industries ?? []) : [];

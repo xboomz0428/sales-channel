@@ -1656,6 +1656,7 @@ export default function LeadsPage() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [overview, setOverview] = useState<{ total: number; has_phone: number; has_email: number; has_line: number; has_web: number; has_gov: number } | null>(null);
+  const [allIndustries, setAllIndustries] = useState<string[]>([]); // 完整產業清單（跨全部名單，不受載入上限影響）
   const [totalCount, setTotalCount] = useState<number | null>(null);
   const [limited, setLimited] = useState(false);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -1702,7 +1703,12 @@ export default function LeadsPage() {
   useEffect(() => {
     fetch("/api/brands?view=overview&country=TW")
       .then((r) => r.json())
-      .then((d) => { if (d.success) setOverview(d.summary); })
+      .then((d) => {
+        if (d.success) {
+          setOverview(d.summary);
+          setAllIndustries(((d.data || []) as { industry: string }[]).map((r) => r.industry).filter(Boolean));
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -1787,7 +1793,8 @@ export default function LeadsPage() {
       return n;
     });
 
-  const availableIndustries = [...new Set(brands.map((b) => b.industry).filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-TW"));
+  // 產業下拉用「完整清單」(跨全部名單) + 已載入的合併，避免只剩最新匯入那批的產業
+  const availableIndustries = [...new Set([...allIndustries, ...brands.map((b) => b.industry)].filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-TW"));
   const availableCities = [...new Set(brands.flatMap((b) => b.citiesList))].sort((a, b) => a.localeCompare(b, "zh-TW"));
   const channelCounts: Record<string, number> = {};
   for (const ch of [...new Set([...CHANNEL_ORDER, "email"])]) {
