@@ -342,7 +342,10 @@ export async function POST(request: NextRequest) {
       } catch (e) {
         const cause = (e as { cause?: { code?: string; message?: string } })?.cause;
         const detail = cause?.code || cause?.message ? `（${cause?.code || ""} ${cause?.message || ""}）` : "";
-        await emit({ type: "error", text: `下載/解析失敗：${e instanceof Error ? e.message : "格式錯誤"}${detail}` }); return;
+        const msg = (e instanceof Error ? e.message : "") + (cause?.code || "");
+        const isConn = /ETIMEDOUT|ENOTFOUND|ECONNREFUSED|ECONNRESET|timeout|fetch failed/i.test(msg);
+        const hint = isConn ? "：政府網站此刻連不上（常態性不穩）。請稍後重試，或展開下方「改貼上檔案內容」把在瀏覽器下載到的檔案貼上匯入。" : "";
+        await emit({ type: "error", text: `下載/解析失敗：${e instanceof Error ? e.message : "格式錯誤"}${detail}${hint}` }); return;
       }
       await emit({ type: "step", text: `原始 ${rows.length} 筆，開始對應欄位…` });
 

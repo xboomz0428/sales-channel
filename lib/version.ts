@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.8.7";
+export const APP_VERSION = "2.8.8";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.8.8",
+    date: "2026-07-02",
+    title: "政府網站連不上時的錯誤提示更清楚",
+    items: [
+      "下載政府資料遇連線逾時(ETIMEDOUT 等)時，錯誤訊息改提示『政府網站此刻連不上，請稍後重試或用改貼上檔案內容』，不再只丟原始錯誤碼",
+    ],
+  },
   {
     version: "2.8.7",
     date: "2026-07-02",
