@@ -185,12 +185,14 @@ interface ParsedRow {
   brand_key: string;
   name: string; industry: string; industry_sub: string | null;
   address: string | null; phone: string | null; website: string | null; owner: string | null;
+  tax_id: string | null; registered_name: string | null; setup_date: string | null; capital: number | null;
   hotel_stars: number | null; hotel_rooms: number | null; hotel_type: string | null;
 }
 
 interface RawFields {
   name: string; tax_id?: string; address?: string; phone?: string; website?: string;
-  owner?: string; sub?: string; stars?: number | null; rooms?: number | null; htype?: string;
+  owner?: string; sub?: string; registered_name?: string; setup_date?: string; capital?: string;
+  stars?: number | null; rooms?: number | null; htype?: string;
 }
 
 // 巢狀格式（觀光署旅宿 V2.0）專屬對應；其他來源走通用 pick
@@ -241,6 +243,9 @@ function mapRow(src: GovSource, row: Record<string, unknown>): ParsedRow | null 
       website: pick(row, src.fields.website) || undefined,
       owner: pick(row, src.fields.owner) || undefined,
       sub: pick(row, src.fields.sub) || undefined,
+      registered_name: pick(row, src.fields.registered_name) || undefined,
+      setup_date: pick(row, src.fields.setup_date) || undefined,
+      capital: pick(row, src.fields.capital) || undefined,
       stars: intOf(pick(row, src.fields.stars)),
       rooms: intOf(pick(row, src.fields.rooms)),
       htype: pick(row, src.fields.htype) || undefined,
@@ -257,6 +262,11 @@ function mapRow(src: GovSource, row: Record<string, unknown>): ParsedRow | null 
     industry = classifyClinic(f.name);
   }
 
+  // 統編：只留數字（8 碼）；資本額：只取數字轉整數；設立日期：斜線轉破折號
+  const taxId = (f.tax_id || "").replace(/\D/g, "");
+  const capNum = f.capital ? parseInt(String(f.capital).replace(/[^\d]/g, ""), 10) : NaN;
+  const setupDate = (f.setup_date || "").trim().replace(/\//g, "-") || null;
+
   return {
     brand_key: `${src.id}|${normName(f.name)}|${cityOf(address || "")}`,
     name: f.name,
@@ -266,6 +276,10 @@ function mapRow(src: GovSource, row: Record<string, unknown>): ParsedRow | null 
     phone: f.phone || null,
     website: f.website || null,
     owner: f.owner || null,
+    tax_id: taxId.length >= 8 ? taxId.slice(0, 8) : null,
+    registered_name: f.registered_name || null,
+    setup_date: setupDate,
+    capital: Number.isFinite(capNum) && capNum > 0 ? capNum : null,
     hotel_stars: f.stars ?? null,
     hotel_rooms: f.rooms ?? null,
     hotel_type: f.htype || null,
@@ -368,7 +382,7 @@ export async function POST(request: NextRequest) {
       if (parsed.length === 0) { await emit({ type: "done", data: { imported: 0, duplicate: 0, parsed: 0, dryRun } }); return; }
 
       // 4) 寫入（分批；以 brand_key 去重，已存在者跳過 → 可重複匯入不會重複）
-      let imported = 0, duplicate = 0;
+      let imported = 0, duplicate = 0, backfilled = 0;
       const sample = parsed.slice(0, 5).map((p) => ({ name: p.name, industry: p.industry, phone: p.phone, address: p.address }));
 
       if (dryRun) {
@@ -384,6 +398,10 @@ export async function POST(request: NextRequest) {
           chunk.map((c) => ({
             name: c.name, brand_key: c.brand_key, industry: c.industry, industry_sub: c.industry_sub,
             owner_name: c.owner, data_source: src.id, status: "new",
+            // 工商登記欄位（如來源有帶）→ 直接寫入名單，比對更精準快速
+            tax_id: c.tax_id, registered_name: c.registered_name,
+            setup_date: c.setup_date, capital: c.capital,
+            company_address: c.address,
             hotel_stars: c.hotel_stars, hotel_rooms: c.hotel_rooms, hotel_type: c.hotel_type,
           })),
           { onConflict: "brand_key", ignoreDuplicates: true }
@@ -402,11 +420,24 @@ export async function POST(request: NextRequest) {
         }));
         if (chans.length) await sb.from("brand_channels").insert(chans);
 
+        // 既有品牌（被去重略過）回填工商欄位：只補「還沒有統編」者，不覆蓋已人工修正、也不動狀態/管道。
+        // 僅有統編的來源（旅行社/禮儀）會觸發，量小；分批並行避免一次太多。
+        const govDups = chunk.filter((c) => !idByKey.has(c.brand_key) && c.tax_id);
+        for (let j = 0; j < govDups.length; j += 25) {
+          await Promise.all(govDups.slice(j, j + 25).map((c) =>
+            sb.from("brands").update({
+              tax_id: c.tax_id, registered_name: c.registered_name, setup_date: c.setup_date,
+              capital: c.capital, company_address: c.address, owner_name: c.owner,
+            }).eq("brand_key", c.brand_key).is("tax_id", null)
+          ));
+        }
+        if (govDups.length) backfilled += govDups.length;
+
         imported += ins?.length || 0;
         await emit({ type: "progress", text: `已處理 ${Math.min(i + CHUNK, parsed.length)}/${parsed.length}（新增 ${imported}、重複 ${duplicate}）`, imported, duplicate });
       }
 
-      await emit({ type: "done", data: { parsed: parsed.length, imported, duplicate, dryRun: false, sample } });
+      await emit({ type: "done", data: { parsed: parsed.length, imported, duplicate, backfilled, dryRun: false, sample } });
     } catch (e) {
       await emit({ type: "error", text: e instanceof Error ? e.message : "匯入失敗" });
     } finally {

@@ -25,6 +25,10 @@ export interface GovSource {
     owner?:   string[];
     sub?:     string[];   // 次分類 → industry_sub
     website?: string[];
+    // 工商登記（有統編/公司全名的來源，寫入 brands 對應欄位以利精準比對）
+    registered_name?: string[]; // 公司全名 → brands.registered_name
+    setup_date?: string[];      // 設立日期 → brands.setup_date
+    capital?: string[];         // 資本額 → brands.capital
     // 旅宿專屬
     stars?:   string[];
     rooms?:   string[];
@@ -76,12 +80,16 @@ export const GOV_SOURCES: GovSource[] = [
     datasetUrl: "https://data.gov.tw/dataset/72074",
     defaultUrl: "https://travelagency.tad.gov.tw/Forms/XML/TravelAgent.aspx?key=DF8T1NkUg",
     phase: 1,
-    note: "觀光署旅行業 XML，含地址、電話、負責人、註冊別（綜合/甲種/乙種 → 次分類）。",
+    note: "觀光署旅行業 XML，含統一編號、公司全名、地址、電話、負責人、資本額、設立日期、註冊別（綜合/甲種/乙種 → 次分類）。統編等工商欄位直接寫入名單，比對更精準快速。",
     fields: {
       name:    ["TRACNAME", "公司名稱", "名稱"],
+      tax_id:  ["TRATAXID", "統一編號", "統編"],
+      registered_name: ["TRAFORMALNAME", "公司全名", "正式名稱"],
       address: ["TRAADD", "地址"],
       phone:   ["TRATEL", "電話"],
-      owner:   ["TRAMANAGER", "負責人"],
+      owner:   ["TRAMANAGER", "負責人", "代表人"],
+      setup_date: ["TRASETUPDATE", "設立日期"],
+      capital: ["TRAAMOUNT", "資本額"],
       sub:     ["TRASIKEY_I", "註冊別", "種類"],
     },
   },

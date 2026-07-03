@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "3.0.0";
+export const APP_VERSION = "3.0.1";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.0.1",
+    date: "2026-07-03",
+    title: "旅行社匯入寫入統編等工商欄位（比對更精準）",
+    items: [
+      "旅行社 XML 新增對應：統一編號(TRATAXID)、公司全名(TRAFORMALNAME)、負責人、資本額、設立日期，全部寫入名單對應欄位",
+      "修正匯入引擎長期未寫入 tax_id 的問題：現在 tax_id/registered_name/setup_date/capital/company_address 都會寫進 brands（統編清成 8 碼、資本額轉整數、日期正規化）",
+      "重新匯入會回填既有名單缺少的工商欄位（只補『還沒統編』者，不覆蓋已修正資料、不動狀態/管道）——實測旅行社統編覆蓋 436→4,185 筆",
+      "有統編後即可直接精準比對，免再逐筆查工商登記，速度大幅提升",
+    ],
+  },
   {
     version: "3.0.0",
     date: "2026-07-03",
