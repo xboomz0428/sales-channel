@@ -20,6 +20,7 @@ export const NAV: NavItem[] = [
   { id: "email-dashboard", label: "郵件儀表板", sym: "✉", href: "/outreach/email-dashboard" },
   { id: "newsletter", label: "電子報發送", sym: "◎", href: "/outreach/newsletter" },
   { id: "email-editor", label: "郵件編輯器", sym: "✏", href: "/outreach/email-editor" },
+  { id: "voice", label: "AI 語音外撥", sym: "☎", href: "/outreach/voice" },
   { kind: "section", label: "系統" },
   { id: "settings", label: "設定", sym: "⚙", href: "/settings" },
   { id: "guide", label: "使用說明", sym: "?", href: "/guide" },

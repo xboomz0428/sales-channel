@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.9.4";
+export const APP_VERSION = "2.9.5";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,19 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.9.5",
+    date: "2026-07-03",
+    title: "AI 語音外撥橋接：名單匯出 + 通話紀錄回寫 + 拒撥名單",
+    items: [
+      "新增「AI 語音外撥」頁(migration 0029)：平台無關的橋接，不代為撥打，只做名單匯出與結果紀錄",
+      "① 可外撥名單匯出：只含有電話、未拒撥、未遮蔽的品牌，CSV 帶話術變數(品牌名/產業/縣市/負責人)，可直接餵 Bland/Retell/Vapi/ElevenLabs",
+      "② 通話結果回寫：平台 CSV 或手動匯入 → 存逐字稿/錄音/秒數，寫回聯繫紀錄、接通者 new→contacted、『拒撥』自動加入拒撥名單(下次匯出排除)",
+      "③ 通話紀錄檢視：狀態/成效/逐字稿/錄音，含有興趣/拒撥統計",
+      "合規提醒常駐頁面：用自己的聲音、開場表明 AI、告知錄音、維護拒撥名單",
+      "匯出效能：有產業篩選時依 id 分塊查電話，實測 ~0.9 秒",
+    ],
+  },
   {
     version: "2.9.4",
     date: "2026-07-03",
