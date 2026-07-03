@@ -79,7 +79,8 @@ export default function NewsletterPage() {
   // manualList 不再需要前端暫存，手動名單已持久化到資料庫，從 recipients API 取回
   // 發送紀錄
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [history, setHistory] = useState<{ id: string; to_email: string; subject: string | null; status: string; sent_at: string | null; open_count: number; click_count: number; brands?: { name?: string } | null }[]>([]);
+  const [history, setHistory] = useState<{ id: string; to_email: string; subject: string | null; status: string; sent_at: string | null; open_count: number; click_count: number; error_detail?: string | null; brands?: { name?: string } | null }[]>([]);
+  const [resendingId, setResendingId] = useState<string | null>(null);
 
   // 寄信設定狀態（真實 / 模擬）
   useEffect(() => {
@@ -329,6 +330,23 @@ export default function NewsletterPage() {
 
   const canSend = tplId && selected.size > 0;
 
+  // 重寄失敗/退信的郵件（黑名單封鎖的會被擋下並說明原因）
+  async function resendMessage(id: string) {
+    setResendingId(id);
+    try {
+      const res = await fetch('/api/outreach/resend', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ messageId: id }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (d.success) alert('✓ 已重寄成功');
+      else alert(d.error || '重寄失敗');
+      loadHistory();
+    } catch { alert('連線失敗'); }
+    finally { setResendingId(null); }
+  }
+
   // 寄測試信：把目前模板寄到指定信箱（不略過重複、不影響名單），確認版面後再群發
   async function sendTest() {
     if (!tplId) { alert('請先選擇模板'); return; }
@@ -551,12 +569,23 @@ export default function NewsletterPage() {
               <tbody>
                 {history.slice(0, 50).map((m) => {
                   const st = { sent: '已寄出', delivered: '已送達', read: '已開信', replied: '已回覆', failed: '失敗', bounced: '退信', queued: '排隊', draft: '草稿', sending: '寄送中' }[m.status] || m.status;
-                  const stColor = ['failed', 'bounced'].includes(m.status) ? '#a4452f' : ['read', 'replied'].includes(m.status) ? '#2f7d6b' : '#4a6b3f';
+                  const isFail = ['failed', 'bounced'].includes(m.status);
+                  const stColor = isFail ? '#a4452f' : ['read', 'replied'].includes(m.status) ? '#2f7d6b' : '#4a6b3f';
                   return (
                     <tr key={m.id}>
                       <td>{m.brands?.name || m.to_email}</td>
                       <td className="subj">{m.subject || '—'}</td>
-                      <td><span style={{ color: stColor, fontWeight: 600 }}>{st}</span></td>
+                      <td>
+                        <span style={{ color: stColor, fontWeight: 600 }} title={isFail && m.error_detail ? m.error_detail : undefined}>{st}</span>
+                        {isFail && m.error_detail && (
+                          <div className="errdetail" title={m.error_detail}>{m.error_detail.length > 42 ? `${m.error_detail.slice(0, 42)}…` : m.error_detail}</div>
+                        )}
+                        {isFail && (
+                          <button className="resendbtn" disabled={resendingId === m.id} onClick={() => resendMessage(m.id)}>
+                            {resendingId === m.id ? '重寄中…' : '↻ 重寄'}
+                          </button>
+                        )}
+                      </td>
                       <td>{m.open_count || 0}</td>
                       <td>{m.click_count || 0}</td>
                       <td className="muted">{m.sent_at ? m.sent_at.slice(5, 16).replace('T', ' ') : '—'}</td>
@@ -719,6 +748,10 @@ export default function NewsletterPage() {
         .histtable th { text-align: left; font-size: 11px; color: #8a8472; font-weight: 500; padding: 6px 6px; border-bottom: 1px solid #e3ded3; }
         .histtable td { font-size: 12px; padding: 8px 6px; border-bottom: 1px solid #f0ece1; }
         .histtable .subj { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .errdetail { font-size: 10.5px; color: #a4452f; opacity: 0.8; max-width: 220px; line-height: 1.4; margin-top: 2px; }
+        .resendbtn { border: 1px solid #d9b3a8; background: #fbeee9; color: #a4452f; border-radius: 6px; padding: 2px 8px; font-size: 11px; cursor: pointer; font-family: inherit; margin-top: 3px; }
+        .resendbtn:hover { background: #f6e2da; }
+        .resendbtn:disabled { opacity: 0.5; cursor: default; }
         .subj { font-size: 13px; margin: 10px 0 8px; color: #4a4a40; }
         .previewbox { border: 1px solid #e3ded3; border-radius: 10px; overflow: hidden; height: 420px; background: #f3f0e7; margin-top: 10px; }
         .frame { width: 100%; height: 100%; border: none; }

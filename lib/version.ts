@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.9.1";
+export const APP_VERSION = "2.9.2";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.9.2",
+    date: "2026-07-02",
+    title: "寄送失敗看得到原因、可一鍵重寄",
+    items: [
+      "發送紀錄：失敗/退信的郵件直接顯示失敗原因(硬退信/軟退信/供應商錯誤訊息)，滑鼠停留看完整內容",
+      "新增「↻ 重寄」：失敗/退信的郵件可單封重寄(走完整寄送流程：黑名單檢查/變數替換/追蹤注入)；已被封鎖的信箱會擋下並說明原因",
+      "重寄防呆：只有 failed/bounced 可重寄，已寄出的擋下避免重複轟炸",
+    ],
+  },
   {
     version: "2.9.1",
     date: "2026-07-02",
