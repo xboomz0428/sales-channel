@@ -142,18 +142,80 @@ function FlowGuide() {
   );
 }
 
-// ── 動態工作流程圖 ───────────────────────────────────
-type WFStep = { label: string; sub?: string; color?: string; tone?: "start" | "auto" | "branch" | "end" };
+// ── 動態工作流程圖（可點擊展開子流程與判斷分支）─────────────
+type Rule = { when: string; then: string; kind?: "ok" | "bad" | "auto" };
+type Decision = { q: string; rules: Rule[] };
+type Detail = { flow?: string[]; decisions?: Decision[]; mech?: string[] };
+type WFStep = { label: string; sub?: string; color?: string; tone?: "start" | "auto" | "branch" | "end"; detail?: Detail };
 const TONE: Record<string, string> = { start: "#5B7C99", auto: "#7B6E99", branch: "#A6824A", end: "#4A6B50" };
+const RULE_COLOR: Record<string, string> = { ok: "#4A6B50", bad: "#A66A4F", auto: "#7B6E99" };
+
+function SubFlow({ d }: { d: Detail }) {
+  return (
+    <div style={{ width: "100%", maxWidth: 460, background: C.surf2, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px", marginTop: 8 }}>
+      {d.flow && (
+        <div style={{ marginBottom: d.decisions || d.mech ? 12 : 0 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: 0.5, marginBottom: 7 }}>子流程</div>
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 4 }}>
+            {d.flow.map((f, i) => (
+              <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <span style={{ fontSize: 12, color: C.text, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 7, padding: "3px 8px" }}>{f}</span>
+                {i < d.flow!.length - 1 && <span style={{ color: C.primary, fontWeight: 700 }}>→</span>}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {d.decisions && d.decisions.map((dec, di) => (
+        <div key={di} style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text, marginBottom: 6 }}>
+            <span style={{ color: "#A6824A" }}>◆ 判斷：</span>{dec.q}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5, paddingLeft: 6 }}>
+            {dec.rules.map((r, ri) => (
+              <div key={ri} style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 12.5, lineHeight: 1.5 }}>
+                <span style={{ color: C.muted }}>{ri === dec.rules.length - 1 ? "└" : "├"}</span>
+                <span style={{ color: C.muted }}>若 <b style={{ color: C.text }}>{r.when}</b></span>
+                <span style={{ color: RULE_COLOR[r.kind || "auto"] }}>→ {r.then}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+      {d.mech && (
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: 0.5, marginBottom: 6 }}>機制</div>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {d.mech.map((m, i) => <li key={i} style={{ fontSize: 12, color: C.muted, lineHeight: 1.7 }}>{m}</li>)}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function WorkflowStep({ s, last }: { s: WFStep; last: boolean }) {
+  const [open, setOpen] = useState(false);
   const color = s.color || TONE[s.tone || "auto"];
+  const clickable = !!s.detail;
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%" }}>
-      <div style={{ width: "100%", maxWidth: 460, background: C.surface, border: `1px solid ${C.border}`, borderLeft: `4px solid ${color}`, borderRadius: 10, padding: "11px 14px" }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: C.text }}>{s.label}</div>
+      <div
+        onClick={clickable ? () => setOpen((v) => !v) : undefined}
+        role={clickable ? "button" : undefined}
+        aria-expanded={clickable ? open : undefined}
+        style={{ width: "100%", maxWidth: 460, background: open ? C.p50 : C.surface, border: `1px solid ${open ? color : C.border}`, borderLeft: `4px solid ${color}`, borderRadius: 10, padding: "11px 14px", cursor: clickable ? "pointer" : "default", transition: "background 120ms, border-color 120ms" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ flex: 1, fontSize: 13.5, fontWeight: 700, color: C.text }}>{s.label}</div>
+          {clickable && (
+            <span style={{ fontSize: 11, color: color, fontWeight: 700, whiteSpace: "nowrap" }}>
+              {open ? "▾ 收合" : "▸ 展開子流程"}
+            </span>
+          )}
+        </div>
         {s.sub && <div style={{ fontSize: 12, color: C.muted, marginTop: 3, lineHeight: 1.5 }}>{s.sub}</div>}
       </div>
+      {open && s.detail && <SubFlow d={s.detail} />}
       {!last && (
         <div className="wf-conn" aria-hidden>
           <span className="wf-dot" style={{ background: color }} />
@@ -187,40 +249,94 @@ function DiagramsGuide() {
         @keyframes wf-fall { 0% { top: -4px; opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } 100% { top: 26px; opacity: 0; } }
         @media (prefers-reduced-motion: reduce) { .wf-dot { animation: none; opacity: .6; top: 9px; } }
       `}</style>
-      <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.7, marginBottom: 14 }}>
-        每個模組的資料怎麼流、系統自動做了什麼，一圖看懂。實線流程箭頭上的移動點代表「資料流向」，紫色＝系統自動執行、綠色＝結果落地。
+      <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.7, marginBottom: 14, background: C.p50, borderRadius: 9, padding: "10px 12px" }}>
+        👆 <b>點任一個藍/紫/綠區塊</b>可展開它的<b>子流程</b>與<b>判斷分支（◆ 判斷）</b>，看清系統怎麼決策。移動的點代表資料流向；紫＝系統自動執行、綠＝結果落地、褐＝條件分支。
       </div>
 
       <Workflow title="① 名單採集與管道補齊" badge="採集任務 / 比對中心"
         steps={[
-          { label: "取得名單", sub: "Google 地圖採集 · 政府開放資料 · 手動/CSV 匯入", tone: "start" },
-          { label: "工商統編比對", sub: "名稱→統編→工商登記（mygov / GCIS / twincn）", tone: "auto" },
-          { label: "管道補齊（免費優先）", sub: "官網爬蟲→交叉搜尋→DDG/Bing 並行找官網與 FB/IG/LINE", tone: "auto" },
-          { label: "Email 網域推測", sub: "有官網無 Email → 推測 info@ 並驗證 MX", tone: "auto" },
-          { label: "付費 API 備援（勾選才用）", sub: "免費補不到才呼叫 Google Places / CSE", tone: "branch" },
-          { label: "寫回名單 · 低價值自動遮蔽", sub: "採後仍無電話+Email → 標記遮蔽，之後批次跳過", tone: "end" },
+          { label: "取得名單", sub: "Google 地圖 · 政府開放資料 · 手動/CSV", tone: "start",
+            detail: { flow: ["搜尋/匯入來源", "解析欄位", "去重", "建立品牌+門市"],
+              decisions: [{ q: "品牌是否已存在（brand_key）？", rules: [{ when: "已存在", then: "略過不新增", kind: "auto" }, { when: "不存在", then: "新增名單", kind: "ok" }] }],
+              mech: ["政府資料用官方名冊、免爬蟲；DB 層 upsert 去重，重複匯入不報錯"] } },
+          { label: "工商統編比對", sub: "名稱→統編→工商登記", tone: "auto",
+            detail: { flow: ["名稱正規化", "查統一編號", "抓工商登記資料"],
+              decisions: [
+                { q: "品牌是法人（協會/基金會/公會）？", rules: [{ when: "是法人", then: "優先查 twincn 台灣公司網", kind: "auto" }, { when: "一般公司", then: "mygov → GCIS 依序查", kind: "auto" }] },
+                { q: "比對信心度？", rules: [{ when: "高信心", then: "直接寫回統編", kind: "ok" }, { when: "低信心", then: "標記待人工確認", kind: "bad" }] }] } },
+          { label: "管道補齊（免費優先）", sub: "官網/社群/Email，先免費後付費", tone: "auto",
+            detail: { flow: ["門市電話/地圖", "有官網→爬官網", "交叉搜尋", "DDG+Bing 並行", "Email 網域推測"],
+              decisions: [
+                { q: "品牌有官網嗎？", rules: [{ when: "有官網", then: "直接爬官網＋聯絡頁", kind: "ok" }, { when: "無官網", then: "搜尋引擎並行找官網與社群", kind: "auto" }] },
+                { q: "搜尋結果的網站/社群可信嗎？", rules: [{ when: "標題含公司名", then: "採用（官網或 FB/IG/LINE）", kind: "ok" }, { when: "不含或為名錄站", then: "丟棄不寫入", kind: "bad" }] }],
+              mech: ["兩引擎並行（最慢 12s→6s）", "小店只有粉專沒官網 → 搜尋結果的 FB/IG/LINE 直接收為管道"] } },
+          { label: "Email 網域推測", sub: "有官網無 Email 時的最後手段", tone: "auto",
+            detail: { flow: ["取官網網域", "排除自由信箱/社群網域", "試 info@/contact@…", "驗證網域 MX"],
+              decisions: [{ q: "網域有 MX（能收信）嗎？", rules: [{ when: "有 MX", then: "寫入並標記為 guessed（推測）", kind: "ok" }, { when: "無 MX / 非企業網域", then: "放棄，不亂寫", kind: "bad" }] }],
+              mech: ["Hunter.io 式做法；寄信前仍會 MX 清洗，退信自動進黑名單"] } },
+          { label: "付費 API 備援（勾選才用）", sub: "免費補不到才呼叫 Google", tone: "branch",
+            detail: { decisions: [{ q: "有勾『💰 付費 API 當備援』且仍缺管道？", rules: [{ when: "有勾且仍缺", then: "呼叫 Places / CSE（計費）", kind: "auto" }, { when: "沒勾（預設）", then: "完全跳過，零費用", kind: "ok" }] }],
+              mech: ["預設關閉；平常批次維持免費，要衝命中率時再單獨開"] } },
+          { label: "寫回名單 · 低價值自動遮蔽", sub: "缺電話+Email 者自動遮蔽", tone: "end",
+            detail: { decisions: [{ q: "採集後仍無『電話與 Email』？", rules: [{ when: "兩者皆無", then: "標記 exhausted（遮蔽）", kind: "bad" }, { when: "至少有一種", then: "保留為正常名單", kind: "ok" }] }],
+              mech: ["遮蔽者批次採集跳過、清單預設隱藏，加快讀取", "可『顯示已遮蔽』檢視或還原"] } },
         ]}
         note="效率機制：已完整的品牌自動剃除；7 天內試過的預設跳過；30 線並行；進度條顯示每分鐘筆數與預估剩餘時間。" />
 
       <Workflow title="② 電子報外發與自動化" badge="編輯器 / 發送 / 自動化"
         steps={[
-          { label: "編輯內容", sub: "單一大欄位撰寫 · 11 組範本 · AI 生成 · 可翻日/英文", tone: "start" },
-          { label: "選收件名單", sub: "自動帶出有 Email 的客戶（採集/聯絡人/名單）· 排除黑名單", tone: "start" },
-          { label: "寄送 / 排程", sub: "分批 30 封 · 每日額度控管 · 可寄測試信 · 略過重複", tone: "auto" },
-          { label: "每天 8AM 自動化", sub: "到期排程寄出 · 自動跟進未開信 · 補寄佇列 · 掃描退信", tone: "auto" },
-          { label: "成效追蹤", sub: "開信/點擊/回覆 · 退信自動進黑名單 · 失敗可一鍵重寄", tone: "end" },
+          { label: "編輯內容", sub: "單一大欄位 · 範本 · AI 生成 · 可翻譯", tone: "start",
+            detail: { flow: ["選範本 / AI 生成", "單一欄位編輯", "存成模板"],
+              mech: ["11 組情境範本；可一鍵翻日文/英文另存新模板"] } },
+          { label: "選收件名單", sub: "只列有 Email、排除黑名單", tone: "start",
+            detail: { flow: ["反查有 Email 品牌", "合併採集/聯絡人/名單", "排除黑名單+拒收"],
+              decisions: [{ q: "此信箱狀態？", rules: [{ when: "在黑名單/已退訂", then: "排除不寄", kind: "bad" }, { when: "正常", then: "納入名單", kind: "ok" }] }] } },
+          { label: "寄送 / 排程", sub: "分批 · 額度 · 略過重複", tone: "auto",
+            detail: { flow: ["寄前 MX 清洗", "分批 30 封", "注入追蹤像素+連結改寫", "送出"],
+              decisions: [
+                { q: "超過今日額度？", rules: [{ when: "超過", then: "排隊 queued，等 8AM 補寄", kind: "auto" }, { when: "未超過", then: "即時寄出", kind: "ok" }] },
+                { q: "開啟『略過重複』且已寄過此模板？", rules: [{ when: "是", then: "略過不重寄", kind: "auto" }, { when: "否", then: "正常寄出", kind: "ok" }] }] } },
+          { label: "每天 8AM 自動化", sub: "排程/跟進/補寄/退信一次做完", tone: "auto",
+            detail: { flow: ["寄到期排程", "跑自動跟進規則", "補寄佇列", "掃描退信", "LINE 通知結果"],
+              decisions: [{ q: "跟進規則條件（N 天後）？", rules: [{ when: "未開信 / 未回覆", then: "自動寄跟進模板", kind: "auto" }, { when: "已互動", then: "不再打擾", kind: "ok" }] }] } },
+          { label: "成效追蹤", sub: "開信/點擊/回覆 · 退信處理", tone: "end",
+            detail: { decisions: [
+              { q: "退信類型？", rules: [{ when: "硬退信（查無此人）", then: "立即封鎖信箱", kind: "bad" }, { when: "軟退信（暫時）", then: "累計 3 次才封鎖", kind: "auto" }] },
+              { q: "寄送失敗？", rules: [{ when: "失敗/退信", then: "顯示原因、可一鍵重寄", kind: "auto" }] }] } },
         ]}
-        note="失敗處理：硬退信立即封鎖、軟退信累計 3 次封鎖；發送紀錄顯示失敗原因，可單封重寄。" />
+        note="送達無法 100% 確認（Email 協定限制）；點擊與回覆才是最可靠的互動指標。" />
 
       <Workflow title="③ AI 語音外撥" badge="AI 語音外撥 → 商機進度"
         steps={[
-          { label: "匯出可外撥名單", sub: "有電話·未拒撥·未遮蔽 · CSV 帶 brand_id 與話術變數", tone: "start" },
-          { label: "語音平台外撥", sub: "Bland / Retell / Vapi / ElevenLabs · 克隆聲音即時對話", tone: "start" },
-          { label: "webhook 自動回寫", sub: "通話結束送回逐字稿/錄音/秒數/成效 · external_id 去重", tone: "auto" },
-          { label: "寫入通話紀錄", sub: "逐字稿 · 錄音連結 · 成效統計", tone: "auto" },
-          { label: "推進商機進度（註記 AI 語音）", sub: "無論接通與否都建立/推進商機；沒興趣/拒撥→流失", tone: "end" },
+          { label: "匯出可外撥名單", sub: "三關過濾 · 帶 brand_id 與話術變數", tone: "start",
+            detail: { decisions: [{ q: "此品牌可外撥嗎？（三關）", rules: [
+              { when: "無電話", then: "排除", kind: "bad" }, { when: "在拒撥名單", then: "排除", kind: "bad" },
+              { when: "被遮蔽", then: "排除", kind: "bad" }, { when: "三關皆過", then: "納入 CSV", kind: "ok" }] }],
+              mech: ["CSV 帶 brand_id，回寫時才能自動對上品牌"] } },
+          { label: "語音平台外撥", sub: "Bland/Retell/Vapi/ElevenLabs（外部）", tone: "start",
+            detail: { flow: ["匯入名單", "克隆聲音 agent", "外撥即時對話", "錄音"],
+              mech: ["撥號時把 brand_id 放進平台 metadata / dynamic variables 帶著跑"] } },
+          { label: "webhook 自動回寫", sub: "通話結束自動送回、去重", tone: "auto",
+            detail: { flow: ["偵測平台", "對應欄位", "external_id 去重", "寫入"],
+              decisions: [
+                { q: "同一通電話重送？", rules: [{ when: "provider+external_id 已存在", then: "略過（去重）", kind: "auto" }, { when: "新的通話", then: "寫入", kind: "ok" }] },
+                { q: "payload 沒帶 brand_id？", rules: [{ when: "沒帶", then: "用電話回查品牌", kind: "auto" }] }],
+              mech: ["可設 VOICE_WEBHOOK_TOKEN 密鑰驗證；或改用『匯入結果 CSV』手動"] } },
+          { label: "寫入通話紀錄 + 聯繫紀錄", sub: "逐字稿/錄音/成效 + 品牌狀態", tone: "auto",
+            detail: { decisions: [{ q: "有接通？", rules: [{ when: "接通", then: "品牌 new→已聯繫", kind: "ok" }, { when: "沒接通", then: "狀態不變", kind: "auto" }] }] } },
+          { label: "推進商機進度（註記 AI 語音）", sub: "無論接通與否都進商機", tone: "end",
+            detail: { decisions: [
+              { q: "依通話成效推進商機階段", rules: [
+                { when: "有興趣 / 約回撥 / 接通", then: "推進到『已聯繫』", kind: "ok" },
+                { when: "沒興趣 / 拒撥 / 號碼有誤", then: "登記『流失』", kind: "bad" },
+                { when: "未接 / 語音信箱 / 忙線", then: "不推進，但建商機留軌跡", kind: "auto" }] },
+              { q: "品牌原本有商機嗎？", rules: [
+                { when: "沒有", then: "建立（owner=AI語音）", kind: "ok" },
+                { when: "已成交/流失", then: "不再變動", kind: "auto" },
+                { when: "進行中", then: "只前進不倒退", kind: "auto" }] },
+              { q: "拒撥？", rules: [{ when: "是", then: "加入拒撥名單，下次匯出排除", kind: "bad" }] }] } },
         ]}
-        note="閉環：接通→已聯繫、有興趣/約回撥→留在管道、拒撥→登記流失並加入拒撥名單，下次匯出自動排除。商機階段只前進不倒退。" />
+        note="閉環：拒撥自動排除、商機只前進不倒退，讓 AI 語音的每次接觸都留在商機進度可追蹤。" />
     </>
   );
 }

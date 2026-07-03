@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.9.7";
+export const APP_VERSION = "2.9.8";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.9.8",
+    date: "2026-07-03",
+    title: "工作流程圖可點擊展開子流程與判斷分支",
+    items: [
+      "使用說明「工作流程圖」每個區塊改為可點擊：展開該步驟的子流程、判斷分支(◆ 判斷：條件→結果)與機制說明，看懂系統怎麼決策",
+      "判斷分支以樹狀＋顏色標示(綠=採用/前進、褐=排除/流失、紫=自動)：涵蓋去重、法人優先 twincn、有無官網、名錄站過濾、MX 驗證、付費開關、自動遮蔽、額度排隊、退信硬/軟分類、webhook 去重、商機只前進不倒退等",
+      "每個區塊獨立展開/收合，預設收合；三大流程(採集/電子報/語音)皆完整標註",
+    ],
+  },
   {
     version: "2.9.7",
     date: "2026-07-03",
