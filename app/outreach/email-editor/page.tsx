@@ -286,23 +286,32 @@ function RichTextBlock({ block, onChange, placeholder, minHeight }: {
   );
 }
 
+// 把多個區塊併成單一富文字 HTML（標題保留 h2、圖片/按鈕/分隔線轉行內元素）
+function mergeBlocksHtml(blocks: Block[]): string {
+  return blocks.map((b) => {
+    if (b.type === 'heading') return `<h2>${b.html ?? plainToHtml(b.text || '')}</h2>`;
+    if (b.type === 'text') return b.html ?? plainToHtml(b.text || '');
+    if (b.type === 'image' && b.url) return `<p><img src="${b.url}" style="max-width:100%;border-radius:8px;"/></p>`;
+    if (b.type === 'button' && b.text) return `<p><a href="${b.url || '#'}" style="display:inline-block;background:#4a6b3f;color:#fff;text-decoration:none;padding:12px 26px;border-radius:999px;">${b.text}</a></p>`;
+    if (b.type === 'file' && b.url) return `<p><a href="${b.url}">📎 ${b.fileName || '下載檔案'}</a></p>`;
+    if (b.type === 'divider') return '<hr/>';
+    return '';
+  }).filter(Boolean).join('');
+}
+// 區塊 → 單一大欄位（預設編輯型態）
+const toSingleField = (blocks: Block[]): Block[] => [{ id: uid(), type: 'text', html: mergeBlocksHtml(blocks) } as Block];
+
 export default function EmailEditorPage() {
   const [subject, setSubject] = useState('來自好漢草的問候');
   const [name, setName] = useState('電子報母版');
-  const [blocks, setBlocks] = useState<Block[]>(STARTER);
-  const [blogMode, setBlogMode] = useState(false);
+  // 預設「單一大欄位」：整封信一個編輯區，不分段（可切「進階區塊模式」做拖拉排版）
+  const [blocks, setBlocks] = useState<Block[]>(() => toSingleField(STARTER));
+  const [blogMode, setBlogMode] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // 部落格模式：把多個區塊併成「一個大富文字欄位」，像寫部落格一樣編輯
+  // 進階區塊模式 → 單一大欄位：把目前區塊併成一個富文字欄位
   const toBlogMode = () => {
-    const merged = blocks.map((b) => {
-      if (b.type === 'heading' || b.type === 'text') return b.html ?? plainToHtml(b.text || '');
-      if (b.type === 'image' && b.url) return `<p><img src="${b.url}" style="max-width:100%"/></p>`;
-      if (b.type === 'button' && b.text) return `<p><a href="${b.url || '#'}">${b.text}</a></p>`;
-      if (b.type === 'divider') return '<hr/>';
-      return '';
-    }).filter(Boolean).join('');
-    setBlocks([{ id: uid(), type: 'text', html: merged || '' } as Block]);
+    setBlocks((b) => toSingleField(b));
     setBlogMode(true);
   };
   const [msg, setMsg] = useState('');
@@ -359,19 +368,19 @@ export default function EmailEditorPage() {
   };
   useEffect(loadTemplates, []);
 
-  // 套用預設樣板：複製 blocks 並重新產生 id，避免共用參照
+  // 套用預設樣板：合併為單一大欄位（不分段），可再切「進階區塊模式」
   const loadPreset = (p: Preset) => {
-    setBlogMode(false);
+    setBlogMode(true);
     setEditingId(null);
     setSubject(p.subject);
     setName(`${p.name}範本`);
-    setBlocks(p.blocks.map((b) => ({ ...b, id: uid() })));
+    setBlocks(toSingleField(p.blocks));
     setMsg(`已套用「${p.name}」樣板（另存為新模板）`);
   };
 
-  // 載入既有模板進編輯器：優先用 blocks_json 還原完整格式，否則由 body 切段
+  // 載入既有模板進編輯器：優先用 blocks_json 還原，再合併為單一大欄位
   const loadTemplate = (t: SavedTemplate) => {
-    setBlogMode(false);
+    setBlogMode(true);
     setEditingId(t.id);
     setName(t.name);
     setSubject(t.subject || '');
@@ -388,15 +397,16 @@ export default function EmailEditorPage() {
         ? paras.map((p, i) => ({ id: uid(), type: i === 0 ? 'heading' : 'text', text: p } as Block))
         : [{ id: uid(), type: 'text', text: t.body || '' }];
     }
-    setBlocks(blks);
+    setBlocks(toSingleField(blks));
     setMsg(`正在編輯模板「${t.name}」`);
   };
 
   const newTemplate = () => {
+    setBlogMode(true);
     setEditingId(null);
     setName('新模板');
     setSubject('');
-    setBlocks(STARTER.map((b) => ({ ...b, id: uid() })));
+    setBlocks(toSingleField(STARTER));
     setMsg('已開新模板');
   };
 
@@ -420,11 +430,12 @@ export default function EmailEditorPage() {
       setEditingId(null);
       if (data.subject) setSubject(data.subject);
       setName('AI 草稿');
-      setBlocks([
+      setBlogMode(true);
+      setBlocks(toSingleField([
         ...(data.subject ? [{ id: uid(), type: 'heading' as BlockType, text: data.subject }] : []),
         ...paras.map((p: string) => ({ id: uid(), type: 'text' as BlockType, text: p })),
         { id: uid(), type: 'button' as BlockType, text: '了解更多', url: 'https://heroherb.co' },
-      ]);
+      ]));
       setAiOpen(false);
       setMsg(data.complianceFlag ? `⚠ 已生成，但偵測到合規警示：${data.complianceNote}` : '✓ AI 草稿已生成，可再編輯');
     } catch {
@@ -484,6 +495,40 @@ export default function EmailEditorPage() {
     setUploadingId(null);
   };
 
+  // 單一欄位模式：在內容尾端插入片段（圖片/按鈕/分隔線/附件）。
+  // RichTextBlock 只在 block.id 變更時重設內容，故以「換新 id」讓插入立即顯示。
+  const appendHtml = (snippet: string) => {
+    setBlocks((b) => {
+      const cur = b[0];
+      const curHtml = cur?.html ?? plainToHtml(cur?.text || '');
+      return [{ id: uid(), type: 'text', html: curHtml + snippet } as Block];
+    });
+  };
+  const insertButtonInline = () => {
+    const text = prompt('按鈕文字', '看看我們的產品');
+    if (!text) return;
+    const u = prompt('按鈕連結網址', 'https://heroherb.co');
+    if (!u) return;
+    appendHtml(`<p><a href="${u}" style="display:inline-block;background:#4a6b3f;color:#fff;text-decoration:none;padding:12px 26px;border-radius:999px;">${text}</a></p>`);
+  };
+  const uploadInline = async (file: File, asFile: boolean) => {
+    setUploadingId('inline');
+    setMsg('');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/upload', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.success) {
+        appendHtml(asFile
+          ? `<p><a href="${data.url}">📎 ${data.name || '下載檔案'}</a></p>`
+          : `<p><img src="${data.url}" style="max-width:100%;border-radius:8px;"/></p>`);
+        setMsg('✓ 已插入');
+      } else setMsg(`✗ ${data.error || '上傳失敗'}`);
+    } catch { setMsg('✗ 上傳失敗'); }
+    setUploadingId(null);
+  };
+
   async function saveTemplate() {
     setSaving(true);
     setMsg('');
@@ -523,7 +568,7 @@ export default function EmailEditorPage() {
       <header className="bar">
         <div>
           <h1>電子報編輯器</h1>
-          <p>圖文拖放排版 · 即時預覽 · 存成可寄送的 HTML 模板</p>
+          <p>單一欄位直接寫整封信 · 圖片/按鈕/附件一鍵插入 · 即時預覽 · 存成可寄送的 HTML 模板</p>
         </div>
         <div className="actions">
           <select
@@ -605,9 +650,10 @@ export default function EmailEditorPage() {
           </details>
 
           <div className="adders">
-            <button className="chip" style={{ fontWeight: 700, background: blogMode ? '#4a6b3f' : '#e7efe3', color: blogMode ? '#fff' : '#3a5c2f' }}
-              onClick={() => (blogMode ? setBlogMode(false) : toBlogMode())}>
-              {blogMode ? '🧱 切回區塊模式' : '📝 部落格模式（單一大欄位）'}
+            <button className="chip" style={{ fontWeight: 700, background: blogMode ? '#e7efe3' : '#4a6b3f', color: blogMode ? '#3a5c2f' : '#fff' }}
+              onClick={() => (blogMode ? setBlogMode(false) : toBlogMode())}
+              title={blogMode ? '需要拖拉排版時再切換（會拆回區塊）' : '把區塊併回單一欄位'}>
+              {blogMode ? '🧱 進階區塊模式' : '📝 回到單一欄位（預設）'}
             </button>
             {!blogMode && (Object.keys(BLOCK_LABEL) as BlockType[]).map((t) => (
               <button key={t} className="chip" onClick={() => add(t)}>
@@ -631,11 +677,25 @@ export default function EmailEditorPage() {
                     <button key={c} className="swatch" onMouseDown={(e) => e.preventDefault()} onClick={() => applySelFormat('foreColor', c)} title="選取文字改色" style={{ background: c }} />
                   ))}
                   <button className="fmtbtn sel" onMouseDown={(e) => e.preventDefault()} onClick={() => { const u = prompt('連結網址', 'https://'); if (u) applySelFormat('createLink', u); }} title="加連結">🔗</button>
+                  <span className="fmtsep" />
+                  {/* 插入元素：加在內容最後，插入後可直接繼續編輯 */}
+                  <label className="fmtbtn ins" title="插入圖片（上傳，加在內容最後）">
+                    {uploadingId === 'inline' ? '…' : '🖼'}
+                    <input type="file" accept="image/*" style={{ display: 'none' }} disabled={uploadingId === 'inline'}
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadInline(f, false); e.target.value = ''; }} />
+                  </label>
+                  <button className="fmtbtn ins" onClick={insertButtonInline} title="插入按鈕（加在內容最後）">🔘</button>
+                  <label className="fmtbtn ins" title="夾帶檔案（PDF 等，加在內容最後）">
+                    📎
+                    <input type="file" style={{ display: 'none' }} disabled={uploadingId === 'inline'}
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadInline(f, true); e.target.value = ''; }} />
+                  </label>
+                  <button className="fmtbtn ins" onClick={() => appendHtml('<hr/>')} title="插入分隔線（加在內容最後）">─</button>
                 </div>
                 <RichTextBlock
                   block={blocks[0]}
                   onChange={(patch) => update(blocks[0].id, patch)}
-                  placeholder="像寫部落格一樣，在這裡輸入整篇內容。反白文字可套用上方格式；用 [文字](網址) 也能加超連結。"
+                  placeholder="整封信在這一個欄位完成：直接輸入內容，反白文字可套用上方格式；🖼/🔘/📎 可插入圖片、按鈕、附件。"
                   minHeight={440}
                 />
               </div>
@@ -1100,6 +1160,7 @@ export default function EmailEditorPage() {
           margin: 0 3px;
         }
         .fmtbtn.sel { color: #2f3d2f; }
+        .fmtbtn.ins { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
         .fmtbtn.sel sup { font-size: 8px; margin-left: 1px; }
         .swatch {
           width: 22px;

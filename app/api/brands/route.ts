@@ -123,10 +123,9 @@ export async function GET(request: NextRequest) {
       const cacheKey = `overview:${country || "TW"}`;
       const cached = await readStatsCache(cacheKey);
       if (cached) return NextResponse.json({ success: true, cached: true, ...cached });
+      // 走 RPC(SET statement_timeout=30s)避免 anon 3s 逾時；資料仍即時計算
       const { data, error } = await supabase
-        .from("brands_overview").select("*")
-        .eq("country", country || "TW")
-        .order("total", { ascending: false });
+        .rpc("brands_overview_rows", { p_country: country || "TW" });
       if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
       const rows = (data || []) as Record<string, number>[];
       const sum = (k: string) => rows.reduce((s, r) => s + (Number(r[k]) || 0), 0);
@@ -146,10 +145,9 @@ export async function GET(request: NextRequest) {
       const cacheKey = `gaps:${country || "TW"}`;
       const cached = await readStatsCache(cacheKey);
       if (cached) return NextResponse.json({ success: true, cached: true, ...cached });
+      // 走 RPC(SET statement_timeout=30s)：原本 .from(view) 在 anon 3s 下會 500 → 類別下拉塌掉
       const { data, error } = await supabase
-        .from("industry_channel_gaps").select("*")
-        .eq("country", country || "TW")
-        .order("gap_score", { ascending: false });
+        .rpc("industry_channel_gaps_rows", { p_country: country || "TW" });
       if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
       await writeStatsCache(cacheKey, { data: data || [] });
       return NextResponse.json({ success: true, data: data || [] });
@@ -182,11 +180,15 @@ export async function GET(request: NextRequest) {
         gov_records(id, tax_id, name, owner_name, match_confidence)`;
       const limit = Math.min(Math.max(parseInt(searchParams.get("limit") || "1000", 10) || 1000, 1), 5000);
 
-      let mq = supabase.from("brands").select(lightSel).eq("gov_records.match_confidence", "low");
-      if (industry) mq = mq.eq("industry", industry);
-      if (status) mq = mq.eq("status", status);
-      if (search) mq = mq.ilike("name", `%${search}%`);
-      mq = mq.eq("country", country || "TW").order("created_at", { ascending: false }).range(0, limit - 1);
+      // PostgREST 單次回應上限 1000 筆 → limit>1000 時並行分頁抓（與 view=ids 同法）
+      const PAGE = 1000;
+      const buildPage = (from: number, to: number) => {
+        let mq = supabase.from("brands").select(lightSel).eq("gov_records.match_confidence", "low");
+        if (industry) mq = mq.eq("industry", industry);
+        if (status) mq = mq.eq("status", status);
+        if (search) mq = mq.ilike("name", `%${search}%`);
+        return mq.eq("country", country || "TW").order("created_at", { ascending: false }).range(from, to);
+      };
 
       let cQ2 = supabase.from("brands").select("id", { count: "exact", head: true });
       if (industry) cQ2 = cQ2.eq("industry", industry);
@@ -194,9 +196,13 @@ export async function GET(request: NextRequest) {
       if (search) cQ2 = cQ2.ilike("name", `%${search}%`);
       cQ2 = cQ2.eq("country", country || "TW");
 
-      const [{ data, error }, { count }] = await Promise.all([mq, cQ2]);
-      if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-      return NextResponse.json({ success: true, data: data || [], count: count ?? (data?.length ?? 0), limited: (count ?? 0) > (data?.length ?? 0) });
+      const pages = Array.from({ length: Math.ceil(limit / PAGE) }, (_, i) =>
+        buildPage(i * PAGE, Math.min((i + 1) * PAGE, limit) - 1));
+      const [pageResults, { count }] = await Promise.all([Promise.all(pages), cQ2]);
+      const firstErr = pageResults.find((r) => r.error);
+      if (firstErr?.error) return NextResponse.json({ success: false, error: firstErr.error.message }, { status: 500 });
+      const data = pageResults.flatMap((r) => r.data || []);
+      return NextResponse.json({ success: true, data, count: count ?? data.length, limited: (count ?? 0) > data.length });
     }
 
     // gov_records 只帶待人工確認的低信心比對（採集中心「比對結果」分頁用）

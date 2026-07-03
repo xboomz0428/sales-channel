@@ -70,7 +70,8 @@ export default function NewsletterPage() {
   const [scheduling, setScheduling] = useState(false);
   const [result, setResult] = useState<SendResult | null>(null);
   const [loading, setLoading] = useState(true);
-  const [cfg, setCfg] = useState<{ mode: string; fromEmail: string | null; providerLabel?: string } | null>(null);
+  const [cfg, setCfg] = useState<{ mode: string; fromEmail: string | null; providerLabel?: string; dailyCap?: number; usedToday?: number; remainingToday?: number } | null>(null);
+  const [testSending, setTestSending] = useState(false);
   // 手動新增
   const [manualOpen, setManualOpen] = useState(false);
   const [manualName, setManualName] = useState('');
@@ -328,6 +329,26 @@ export default function NewsletterPage() {
 
   const canSend = tplId && selected.size > 0;
 
+  // 寄測試信：把目前模板寄到指定信箱（不略過重複、不影響名單），確認版面後再群發
+  async function sendTest() {
+    if (!tplId) { alert('請先選擇模板'); return; }
+    const to = prompt('測試信寄到哪個信箱？', cfg?.fromEmail || '');
+    if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(to.trim())) { if (to !== null) alert('信箱格式不正確'); return; }
+    setTestSending(true);
+    try {
+      const res = await fetch('/api/outreach/newsletter/send', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ templateId: tplId, manualEmails: [{ name: '測試', email: to.trim() }], skipDuplicates: false }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && (d.sent || 0) > 0) alert(`✓ 測試信已寄到 ${to.trim()}，請到信箱確認版面`);
+      else alert(d.error || (d.cleaned ? '信箱被判定無效（語法/MX 檢查未過）' : '測試寄送失敗，請確認寄信設定'));
+      loadHistory();
+    } catch { alert('連線失敗'); }
+    finally { setTestSending(false); }
+  }
+
   // AI 翻譯模板
   const translateTemplate = async (targetLang: string) => {
     if (!tplId) { alert('請先選擇要翻譯的模板'); return; }
@@ -561,11 +582,19 @@ export default function NewsletterPage() {
             <span className="muted">請選擇至少一位名單與一個模板</span>
           )}
         </div>
+        {cfg && typeof cfg.remainingToday === 'number' && cfg.dailyCap ? (
+          <span className="quota" title={`每日上限 ${cfg.dailyCap} 封（設定頁可調），今日已寄 ${cfg.usedToday}。超出的會排隊，由每天早上的自動化補寄。`}>
+            今日還可寄 <b>{cfg.remainingToday}</b> 封
+          </span>
+        ) : null}
         <label className="dupchk" title="若收件人先前已收過此模板，預設略過不重複寄送">
           <input type="checkbox" checked={skipDup} onChange={(e) => setSkipDup(e.target.checked)} />
           略過已寄過此模板
         </label>
         <a className="autolink" href="/outreach/automation" title="排程清單、自動跟進、節流設定">⚙ 自動化</a>
+        <button className="btn ghost" disabled={!tplId || testSending} onClick={sendTest} title="先寄一封到自己的信箱確認版面，再群發">
+          {testSending ? '測試中…' : '✉ 寄測試信'}
+        </button>
         <button className="btn ghost" disabled={!canSend || sending} onClick={() => { setScheduleOpen(true); }}>
           🕒 排程
         </button>
@@ -584,12 +613,13 @@ export default function NewsletterPage() {
               className="in"
               type="datetime-local"
               value={scheduleAt}
-              min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
+              min={(() => { const d = new Date(Date.now() + 60000 - new Date().getTimezoneOffset() * 60000); return d.toISOString().slice(0, 16); })()}
               onChange={(e) => setScheduleAt(e.target.value)}
               style={{ marginTop: 8 }}
             />
             <p className="muted small" style={{ marginTop: 8 }}>
-              系統每 5 分鐘檢查一次，到時自動分批寄送並套用每日上限。{skipDup ? '已開啟略過重複。' : ''}
+              ⏰ 排程由「每天早上 8 點（台灣時間）」的自動化統一執行：到期的排程會在當天早上 8 點寄出，並套用每日上限。
+              若要立即寄送請直接按「寄送」。{skipDup ? '已開啟略過重複。' : ''}
             </p>
             <div className="dbtns">
               <button className="btn ghost" onClick={() => setScheduleOpen(false)}>取消</button>
@@ -697,6 +727,8 @@ export default function NewsletterPage() {
         .rmsel { border: 1px solid #d9b3a8; background: #fbeee9; color: #a4452f; border-radius: 8px; padding: 7px 12px; font-size: 12px; cursor: pointer; font-family: inherit; white-space: nowrap; }
         .rmsel:hover { background: #f6e2da; }
         .rmsel:disabled { opacity: 0.5; cursor: default; }
+        .quota { font-size: 12px; color: #5a6b4f; background: #eef0e6; border-radius: 999px; padding: 5px 12px; white-space: nowrap; }
+        .quota b { color: #3f6b3f; }
         .dupchk { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #5a6b4f; cursor: pointer; white-space: nowrap; user-select: none; }
         .dupchk input { width: 15px; height: 15px; accent-color: #4a6b3f; cursor: pointer; }
         .autolink { font-size: 13px; color: #4a6b3f; text-decoration: none; white-space: nowrap; padding: 8px 10px; border-radius: 8px; }

@@ -371,7 +371,8 @@ async function enrichBrand(
   brandName: string,
   emit: (obj: Record<string, unknown>) => Promise<void>,
   prefix: string,
-  registeredName?: string | null
+  registeredName?: string | null,
+  usePlaces: boolean = true
 ): Promise<string[]> {
   // 載入門市資料 + 現有管道（判斷缺失）
   const [{ data: stores }, { data: existingChannels }] = await Promise.all([
@@ -409,7 +410,8 @@ async function enrichBrand(
   }
 
   // ── 1.5 Google Places 找店家（無官網但有地址 → 中醫/月子等幾乎都在 Google 地圖）──
-  if (!website && address && anyMissing) {
+  // usePlaces=false 時完全跳過（Places API 要收費），改靠下方免 API 搜尋引擎找官網。
+  if (usePlaces && !website && address && anyMissing) {
     const placesKey = await getCfg("GOOGLE_PLACES_API_KEY");
     if (placesKey) {
       await emit({ type: "step", text: `${prefix}Google 地圖找店家「${storeName}」…` });
@@ -541,9 +543,9 @@ async function enrichBrand(
     }
   }
 
-  // ── 3. Google CSE 搜尋品牌聯絡資訊 ────────────────────────────────────
+  // ── 3. Google CSE 搜尋品牌聯絡資訊（付費 API，usePlaces=false 時一併跳過）──
   const stillMissing1 = TARGET_CHANNELS.filter((ch) => !have.has(ch));
-  if (stillMissing1.length > 0) {
+  if (usePlaces && stillMissing1.length > 0) {
     const apiKey = await getCfg("GOOGLE_PLACES_API_KEY");
     const cseId = await getCfg("GOOGLE_CSE_ID");
     if (apiKey && cseId) {
@@ -731,6 +733,8 @@ export async function POST(request: NextRequest) {
 
       // 預設 30 線並行；可由 body.concurrency 指定，上限 30
       const CONCURRENCY = Math.min(30, Math.max(1, Math.floor(Number(body.concurrency) || 30)));
+      // usePlaces：是否使用 Google 付費 API（Places 找店家 + CSE 搜尋）。預設開啟；前端可取消勾選以省費用。
+      const usePlaces = body.usePlaces === undefined ? true : Boolean(body.usePlaces);
       await emit({ type: "init", total: brands.length, skipped });
       await emit({ type: "step", text: `開始採集 ${brands.length} 個品牌（${CONCURRENCY} 並行）${skipped > 0 ? `，已剃除 ${skipped} 個完整品牌` : ""}…` });
 
@@ -742,7 +746,7 @@ export async function POST(request: NextRequest) {
         const { id, name } = brands[idx];
         const prefix = `[${idx + 1}/${brands.length}] `;
         try {
-          const channels = await enrichBrand(supabase, id, name, emit, prefix, (brands[idx] as any).registered_name);
+          const channels = await enrichBrand(supabase, id, name, emit, prefix, (brands[idx] as any).registered_name, usePlaces);
           doneCount++;
           if (channels.length > 0) {
             enriched++;

@@ -784,16 +784,19 @@ type StatusFilter = "done" | "running" | "error" | "pending" | null;
 
 function SummaryBar({
   brands,
+  totalCount,
   lastRunAll,
   activeFilter,
   onFilter,
 }: {
   brands: ScrapeBrand[];
+  totalCount?: number | null;
   lastRunAll: string | null;
   activeFilter: StatusFilter;
   onFilter: (f: StatusFilter) => void;
 }) {
-  const all = brands.length;
+  // 「品牌」顯示完整總數(跨全部名單)；採集完整/中/失敗等仍是已載入清單的即時狀態
+  const all = totalCount ?? brands.length;
   const done = brands.filter((b) => completeness(b.tasks) === 100).length;
   const allTasks = brands.flatMap((b) => Object.values(b.tasks));
   const running = allTasks.filter((t) => t.status === "running").length;
@@ -1820,6 +1823,8 @@ function GovBatchPanel({ industry, brandIds, onClose, onDone, concurrency, title
   // 模式勾選（統一面板：預設依開啟來源，可自行調整）
   const [doGov, setDoGov] = useState(!channelsMode);
   const [doChannels, setDoChannels] = useState(!!thenChannels || !!channelsMode);
+  // 是否使用 Google 付費 API（Places 找店家 + CSE 搜尋）。預設關閉以省費用，需要時再勾。
+  const [usePlaces, setUsePlaces] = useState(false);
   // 進度：phase 名稱 + 全域完成數/總數（跨批次累計）
   const [prog, setProg] = useState<{ phase: string; done: number; total: number } | null>(null);
   const [history, setHistory] = useState<RunRecord[]>([]);
@@ -1914,7 +1919,7 @@ function GovBatchPanel({ industry, brandIds, onClose, onDone, concurrency, title
           const batch = ids.slice(i * BATCH, (i + 1) * BATCH);
           const base = i * BATCH;
           setSteps((prev) => [...prev, { type: "phase", text: `🔗 管道補齊 批次 ${i + 1}/${batches}（${batch.length} 筆）…` }].slice(-200));
-          const d = await streamNdjson("/api/enrich/channels", { brand_ids: batch, concurrency: conc },
+          const d = await streamNdjson("/api/enrich/channels", { brand_ids: batch, concurrency: conc, usePlaces },
             (done) => setProg({ phase: `${doGov ? "② " : ""}管道補齊${doGov ? "（2/2）" : ""}`, done: base + done, total: ids.length }));
           chEnriched += d?.enriched || 0;
         }
@@ -1971,6 +1976,20 @@ function GovBatchPanel({ industry, brandIds, onClose, onDone, concurrency, title
               </button>
             ))}
           </div>
+          {/* Places 付費 API 開關：只有做管道補齊時才有意義 */}
+          {doChannels && (
+            <button disabled={running} onClick={() => setUsePlaces(!usePlaces)}
+              style={{ width: "100%", textAlign: "left", padding: "9px 12px", marginBottom: 12, borderRadius: 10, cursor: running ? "default" : "pointer", border: `1.5px solid ${usePlaces ? "#C08A2D" : C.border}`, background: usePlaces ? "#FBF3E3" : C.surface }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: usePlaces ? "#B37A1E" : C.muted }}>
+                {usePlaces ? "☑" : "☐"} 💰 使用 Google 付費 API（Places 地圖 ＋ CSE 搜尋）
+              </div>
+              <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2, lineHeight: 1.5 }}>
+                {usePlaces
+                  ? "會呼叫 Google Places/CSE 找店家與聯絡資訊（每次呼叫計費，命中率最高）"
+                  : "不花錢：只用免費的搜尋引擎（Bing/DuckDuckGo）找官網＋爬官網補管道；有地址無官網的名單命中率較低"}
+              </div>
+            </button>
+          )}
           <button onClick={run} disabled={running || (!doGov && !doChannels)} className="pressable"
             style={{ width: "100%", padding: 13, borderRadius: 12, border: "none", background: running || (!doGov && !doChannels) ? C.surf2 : "#7B6E99", color: running || (!doGov && !doChannels) ? C.muted : "white", fontWeight: 700, fontSize: 15, cursor: running ? "default" : "pointer" }}>
             {running ? <span><span className="spin" style={{ marginRight: 6 }}>↻</span>分批處理中，請保持頁面開啟…</span>
@@ -2073,7 +2092,7 @@ export default function MatchingPage() {
   // 門市明細/評論/比對等重資料在選取單一品牌時再補抓（見 ensureDetail）。
   const loadBrands = useCallback(() => {
     setLoadError(null);
-    const p = new URLSearchParams({ view: "match", country, limit: "1000" });
+    const p = new URLSearchParams({ view: "match", country, limit: "3000" });
     if (filterIndustry) p.set("industry", filterIndustry);
     if (debouncedSearch) p.set("search", debouncedSearch);
     fetch(`/api/brands?${p.toString()}`)
@@ -2174,7 +2193,8 @@ export default function MatchingPage() {
       const res = await fetch("/api/enrich/channels", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brand_ids: visibleBrands.map((b) => String(b.id)) }),
+        // 批次「全部執行」預設不呼叫 Google 付費 API（省費用）；要用 Places 請走「🚀 批次採集」面板勾選
+        body: JSON.stringify({ brand_ids: visibleBrands.map((b) => String(b.id)), usePlaces: false }),
       });
       if (!res.ok || !res.body) {
         const text = await res.text().catch(() => "");
@@ -2552,7 +2572,7 @@ export default function MatchingPage() {
         </div>
       )}
 
-      <SummaryBar brands={brands} lastRunAll={lastRunAll} activeFilter={filterStatus} onFilter={setFilterStatus} />
+      <SummaryBar brands={brands} totalCount={overview?.total ?? totalCount} lastRunAll={lastRunAll} activeFilter={filterStatus} onFilter={setFilterStatus} />
 
       {/* 缺管道優先度：紅=最缺、最該先採集；點選即篩選該產業 */}
       {gaps.length > 0 && (
@@ -2614,10 +2634,13 @@ export default function MatchingPage() {
           onClick={() => { setFilterIndustry(null); }}
           style={{ padding: "4px 12px", borderRadius: 999, fontSize: 12, fontWeight: filterIndustry === null ? 700 : 400, border: `1px solid ${filterIndustry === null ? C.primary : C.border}`, background: filterIndustry === null ? C.p50 : "transparent", color: filterIndustry === null ? C.primary : C.muted, cursor: "pointer" }}
         >
-          全部（{filterGroup ? brands.filter((b) => groupIndustries.includes(b.industry)).length : brands.length}）
+          全部（{filterGroup
+            ? (gaps.filter((g) => groupIndustries.includes(g.industry)).reduce((s, g) => s + g.total, 0) || brands.filter((b) => groupIndustries.includes(b.industry)).length)
+            : (overview?.total ?? (gaps.reduce((s, g) => s + g.total, 0) || brands.length))}）
         </button>
         {availableIndustries.filter((ind) => !filterGroup || groupIndustries.includes(ind)).map((ind) => {
-          const cnt = brands.filter((b) => b.industry === ind).length;
+          // 數字取自完整統計(gaps.total，跨全部名單)，非只算已載入的 1000 筆；查無再退回載入數
+          const cnt = gaps.find((g) => g.industry === ind)?.total ?? brands.filter((b) => b.industry === ind).length;
           const active = filterIndustry === ind;
           return (
             <button

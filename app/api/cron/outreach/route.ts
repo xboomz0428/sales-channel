@@ -95,6 +95,11 @@ export async function GET(req: Request) {
         .from("outreach_messages").select("parent_message_id").eq("followup_rule_id", rule.id).in("parent_message_id", originIds);
       const fuSet = new Set((alreadyFu || []).map((x: any) => x.parent_message_id));
 
+      // 取跟進模板（一次即可，勿在每位收件人迴圈內重查）
+      const { data: fuTpl } = await supabaseAdmin
+        .from("outreach_templates").select("subject, body, body_html").eq("id", rule.followup_template_id).single();
+      if (!fuTpl || !fuTpl.body_html) continue;
+
       let ruleSent = 0;
       for (const o of origins) {
         if (budget <= 0) break;
@@ -103,10 +108,6 @@ export async function GET(req: Request) {
         if (rule.condition === "no_open" && (o.open_count || 0) > 0) continue;
         if (rule.condition === "no_reply" && o.status === "replied") continue;
         if (!o.to_email) continue;
-        // 取跟進模板
-        const { data: fuTpl } = await supabaseAdmin
-          .from("outreach_templates").select("subject, body, body_html").eq("id", rule.followup_template_id).single();
-        if (!fuTpl || !fuTpl.body_html) break;
         const { data: msg } = await supabaseAdmin.from("outreach_messages").insert({
           brand_id: o.brand_id,
           channel: "EM", direction: "out", status: "queued",

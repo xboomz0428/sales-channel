@@ -112,6 +112,11 @@ export default function AutomationPage() {
         <p>排程寄送 · 自動跟進序列 · 寄送節流（節流與 LINE 通知請至「設定」）</p>
       </header>
 
+      <div className="cronnote">
+        ⏰ 自動化每天<b>早上 8 點（台灣時間）</b>執行一次：屆時寄出「已到期的排程」、跑跟進規則、補寄排隊郵件、掃描退信，完成後發 LINE 通知。
+        排定在 8 點之後的時間，會等到<b>隔天早上 8 點</b>才寄出。
+      </div>
+
       {/* 自動化流程範本：說明 + 一鍵套用 */}
       <section className="panel">
         <div className="phead"><strong>⚡ 自動化流程範本</strong><span className="count">選流程一鍵啟用</span></div>
@@ -143,7 +148,7 @@ export default function AutomationPage() {
       <section className="panel">
         <div className="phead"><strong>🕒 排程寄送</strong><span className="count">待寄 {upcoming.length}</span></div>
         {upcoming.length === 0 ? (
-          <div className="muted small">目前沒有待寄送的排程。可在「電子報發送」頁選好名單與模板後按「🕒 排程」。</div>
+          <div className="muted small">目前沒有待寄送的排程。可在「電子報發送」頁選好名單與模板後按「🕒 排程」（到期後於每天早上 8 點統一寄出）。</div>
         ) : (
           <table className="t">
             <thead><tr><th>模板</th><th>收件數</th><th>排定時間</th><th>狀態</th><th></th></tr></thead>
@@ -246,6 +251,7 @@ export default function AutomationPage() {
         header p { margin: 4px 0 16px; font-size: 12px; color: #8a8472; }
         .muted { color: #9a9384; }
         .small { font-size: 12px; line-height: 1.6; }
+        .cronnote { background: #fdf4e3; border: 1px solid #e8dcae; color: #8a6d1f; border-radius: 10px; padding: 10px 14px; font-size: 12.5px; line-height: 1.7; margin-bottom: 14px; }
         .panel { background: #fffdf8; border: 1px solid #e3ded3; border-radius: 14px; padding: 16px; margin-bottom: 16px; }
         .phead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
         .count { font-size: 12px; background: #eef0e6; color: #4a6b3f; padding: 3px 10px; border-radius: 999px; }
