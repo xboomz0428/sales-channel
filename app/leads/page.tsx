@@ -1659,6 +1659,10 @@ export default function LeadsPage() {
   const [allIndustries, setAllIndustries] = useState<string[]>([]); // 完整產業清單（跨全部名單，不受載入上限影響）
   const [totalCount, setTotalCount] = useState<number | null>(null);
   const [limited, setLimited] = useState(false);
+  const [hasMore, setHasMore] = useState(false);       // 瀑布流：是否還有下一頁
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadingMoreRef = useRef(false);
+  const LEADS_FIRST = 100, LEADS_MORE = 50;
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiText, setAiText] = useState("");
@@ -1674,13 +1678,17 @@ export default function LeadsPage() {
     return () => clearTimeout(t);
   }, [search]);
 
-  // 清單層：輕量 + 上限 + 伺服器端搜尋/產業篩選（名單量達數萬筆，不能一次全載）
-  const loadBrands = useCallback(() => {
-    setLoadErr(null);
-    const p = new URLSearchParams({ view: "list", country: "TW", limit: "2000" });
+  // 清單層：瀑布流——預設 100 筆，往下捲動再抓 50 筆並附加（名單量達數萬筆，不一次全載）
+  const buildListUrl = useCallback((offset: number, limit: number) => {
+    const p = new URLSearchParams({ view: "list", country: "TW", limit: String(limit), offset: String(offset) });
     if (debouncedSearch) p.set("search", debouncedSearch);
     if (filters.industry) p.set("industry", filters.industry);
-    fetch(`/api/brands?${p.toString()}`)
+    return `/api/brands?${p.toString()}`;
+  }, [debouncedSearch, filters.industry]);
+
+  const loadBrands = useCallback(() => {
+    setLoadErr(null);
+    fetch(buildListUrl(0, LEADS_FIRST))
       .then((r) => r.json())
       .then((result) => {
         if (result.success && Array.isArray(result.data)) {
@@ -1688,16 +1696,45 @@ export default function LeadsPage() {
           setUsingApi(true);
           setTotalCount(result.count ?? result.data.length);
           setLimited(!!result.limited);
+          setHasMore(!!result.hasMore);
         } else {
-          setBrands([]);
+          setBrands([]); setHasMore(false);
           setLoadErr(result.error || "讀取失敗，請重試");
         }
       })
       .catch((e) => setLoadErr(e instanceof Error ? e.message : "網路錯誤，請重試"))
       .finally(() => setLoading(false));
-  }, [debouncedSearch, filters.industry]);
+  }, [buildListUrl]);
+
+  const loadMoreBrands = useCallback(() => {
+    if (loadingMoreRef.current || !hasMore) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    fetch(buildListUrl(brands.length, LEADS_MORE))
+      .then((r) => r.json())
+      .then((result) => {
+        if (result.success && Array.isArray(result.data)) {
+          const mapped = result.data.map(mapBrandRow);
+          setBrands((prev) => {
+            const seen = new Set(prev.map((b) => b.id));
+            return [...prev, ...mapped.filter((m: BrandVM) => !seen.has(m.id))];
+          });
+          setTotalCount(result.count ?? null);
+          setHasMore(!!result.hasMore);
+        }
+      })
+      .catch(() => {})
+      .finally(() => { loadingMoreRef.current = false; setLoadingMore(false); });
+  }, [buildListUrl, brands.length, hasMore]);
 
   useEffect(() => { loadBrands(); }, [loadBrands]);
+
+  // 瀑布流：捲到接近底部 → 載入下一頁
+  const onContentScroll = useCallback((e: { currentTarget: HTMLDivElement }) => {
+    if (!hasMore || loadingMore) return;
+    const el = e.currentTarget;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 400) loadMoreBrands();
+  }, [hasMore, loadingMore, loadMoreBrands]);
 
   // 統計層：完整名單統計（跨全部名單，不受清單上限影響）
   useEffect(() => {
@@ -1827,7 +1864,7 @@ export default function LeadsPage() {
           <h1 style={{ fontSize: 17, fontWeight: 600, color: C.text, margin: 0 }}>名單總覽</h1>
           <span style={{ fontSize: 13, color: C.muted }}>
             全部 {(overview?.total ?? totalCount ?? brands.length).toLocaleString()} 筆
-            {limited ? <span style={{ color: C.warning }}>（顯示 {brands.length.toLocaleString()}，請用搜尋/篩選）</span> : null}
+            {hasMore ? <span style={{ color: C.muted }}>（已載入 {brands.length.toLocaleString()}，捲動自動載入）</span> : null}
           </span>
         </div>
 
@@ -1984,7 +2021,7 @@ export default function LeadsPage() {
       )}
 
       {/* Content */}
-      <div style={{ flex: 1, overflowY: "auto", paddingBottom: 80 }}>
+      <div style={{ flex: 1, overflowY: "auto", paddingBottom: 80 }} onScroll={onContentScroll}>
         {loading ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 20px", gap: 14, color: C.muted }}>
             <div className="spin" style={{ width: 28, height: 28, border: `3px solid ${C.border}`, borderTopColor: C.primary, borderRadius: "50%" }} />
@@ -2000,6 +2037,12 @@ export default function LeadsPage() {
                 ? visible.map((b) => <BrandCard key={b.id} brand={b} onClick={() => setSelected(b)} onStatusChange={changeStatus} />)
                 : <Empty />}
             </div>
+            {/* 瀑布流載入指示 + 手動載入後備 */}
+            {(hasMore || loadingMore) && (
+              <div style={{ padding: "16px", textAlign: "center", fontSize: 12.5, color: C.muted }}>
+                {loadingMore ? "載入更多…" : <button onClick={() => loadMoreBrands()} style={{ border: "none", background: "none", color: C.primary, cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}>往下捲動或點此載入更多</button>}
+              </div>
+            )}
           </>
         )}
       </div>

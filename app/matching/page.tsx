@@ -250,6 +250,9 @@ function BrandList({
   onSearch,
   total,
   limited,
+  hasMore,
+  loadingMore,
+  onLoadMore,
 }: {
   brands: ScrapeBrand[];
   selectedId: number | string | null;
@@ -260,7 +263,16 @@ function BrandList({
   onSearch: (s: string) => void;
   total?: number | null;
   limited?: boolean;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }) {
+  // 瀑布流：捲到接近底部（400px 內）→ 載入下一頁（onScroll 對巢狀捲動容器最可靠）
+  const onListScroll = (e: { currentTarget: HTMLDivElement }) => {
+    if (!hasMore || loadingMore || !onLoadMore) return;
+    const el = e.currentTarget;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 400) onLoadMore();
+  };
   return (
     <div style={{ width: isMobile ? "100%" : 280, flexShrink: 0, borderRight: isMobile ? "none" : `1px solid ${C.border}`, display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
@@ -285,13 +297,13 @@ function BrandList({
           placeholder="搜尋品牌名稱…"
           style={{ padding: "7px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.surf2, color: C.text, outline: "none" }}
         />
-        {limited && (
-          <div style={{ fontSize: 11, color: C.warning }}>
-            資料量大，僅載入前 {brands.length.toLocaleString()} 筆（共 {total?.toLocaleString()}）。用搜尋或上方產業/篩選縮小範圍。
+        {total != null && total > brands.length && (
+          <div style={{ fontSize: 11, color: C.muted }}>
+            已載入 {brands.length.toLocaleString()} / {total.toLocaleString()} 筆，往下捲動自動載入更多。
           </div>
         )}
       </div>
-      <div style={{ flex: 1, overflowY: "auto" }}>
+      <div style={{ flex: 1, overflowY: "auto" }} onScroll={onListScroll}>
         {brands.map((b) => {
           const pct = completeness(b.tasks);
           const conflicts = b.conflicts.filter((c) => c.accepted === null).length;
@@ -335,6 +347,12 @@ function BrandList({
             </div>
           );
         })}
+        {/* 瀑布流載入指示 + 手動載入後備 */}
+        {(hasMore || loadingMore) && (
+          <div style={{ padding: "12px 16px", textAlign: "center", fontSize: 12, color: C.muted }}>
+            {loadingMore ? "載入更多…" : <button onClick={() => onLoadMore?.()} style={{ border: "none", background: "none", color: C.primary, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>往下捲動或點此載入更多</button>}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2092,6 +2110,10 @@ export default function MatchingPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [totalCount, setTotalCount] = useState<number | null>(null);
   const [limited, setLimited] = useState(false);
+  const [hasMore, setHasMore] = useState(false);      // 瀑布流：是否還有下一頁
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadingMoreRef = useRef(false);               // 防止重複觸發下一頁
+  const PAGE_FIRST = 100, PAGE_MORE = 50;
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const detailLoaded = useRef<Set<string>>(new Set());
@@ -2117,15 +2139,20 @@ export default function MatchingPage() {
     return () => clearTimeout(t);
   }, [searchTerm]);
 
-  // 名單量已達數萬筆：清單改用「輕量 view=match」+ 伺服器端篩選/搜尋 + 上限，
+  // 名單量已達數萬筆：清單改「瀑布流」——預設 100 筆，往下捲動再抓 50 筆並附加。
   // 門市明細/評論/比對等重資料在選取單一品牌時再補抓（見 ensureDetail）。
-  const loadBrands = useCallback(() => {
-    setLoadError(null);
-    const p = new URLSearchParams({ view: "match", country, limit: "3000" });
+  const buildListUrl = useCallback((offset: number, limit: number) => {
+    const p = new URLSearchParams({ view: "match", country, limit: String(limit), offset: String(offset) });
     if (filterIndustry) p.set("industry", filterIndustry);
     if (debouncedSearch) p.set("search", debouncedSearch);
     if (showMasked) p.set("includeMasked", "1");
-    fetch(`/api/brands?${p.toString()}`)
+    return `/api/brands?${p.toString()}`;
+  }, [country, filterIndustry, debouncedSearch, showMasked]);
+
+  // 第一頁（重置）：篩選/搜尋/國家/遮蔽改變時觸發
+  const loadBrands = useCallback(() => {
+    setLoadError(null);
+    fetch(buildListUrl(0, PAGE_FIRST))
       .then((r) => r.json())
       .then((result) => {
         if (result.success && Array.isArray(result.data)) {
@@ -2135,15 +2162,38 @@ export default function MatchingPage() {
           setUsingApi(true);
           setTotalCount(result.count ?? mapped.length);
           setLimited(!!result.limited);
+          setHasMore(!!result.hasMore);
           setSelectedId((prev) => (mapped.some((m: ScrapeBrand) => m.id === prev) ? prev : (mapped[0]?.id ?? null)));
         } else {
-          setBrands([]);
+          setBrands([]); setHasMore(false);
           setLoadError(result.error || "讀取失敗，請重試");
         }
       })
       .catch((e) => setLoadError(e instanceof Error ? e.message : "網路錯誤，請重試"))
       .finally(() => setLoadingBrands(false));
-  }, [country, filterIndustry, debouncedSearch, showMasked]);
+  }, [buildListUrl]);
+
+  // 下一頁（附加）：捲到底時觸發，用目前已載入筆數當 offset
+  const loadMoreBrands = useCallback(() => {
+    if (loadingMoreRef.current || !hasMore) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    fetch(buildListUrl(brands.length, PAGE_MORE))
+      .then((r) => r.json())
+      .then((result) => {
+        if (result.success && Array.isArray(result.data)) {
+          const mapped = result.data.map(dbBrandToScrapeBrand);
+          setBrands((prev) => {
+            const seen = new Set(prev.map((b) => b.id));
+            return [...prev, ...mapped.filter((m: ScrapeBrand) => !seen.has(m.id))];
+          });
+          setTotalCount(result.count ?? null);
+          setHasMore(!!result.hasMore);
+        }
+      })
+      .catch(() => {})
+      .finally(() => { loadingMoreRef.current = false; setLoadingMore(false); });
+  }, [buildListUrl, brands.length, hasMore]);
 
   // 遮蔽/還原：把目前產業(或目前清單)缺電話+Email 的低價值名單標為遮蔽（批次採集跳過、清單隱藏）
   const maskContactless = async (action: "mask" | "unmask") => {
@@ -2951,6 +3001,9 @@ export default function MatchingPage() {
           onSearch={setSearchTerm}
           total={totalCount}
           limited={limited}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          onLoadMore={loadMoreBrands}
           onSelect={(id) => {
             setSelectedId(id);
             setTab("tasks");

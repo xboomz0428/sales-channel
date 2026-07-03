@@ -60,18 +60,22 @@ export async function GET(request: NextRequest) {
       if (country) countQ = countQ.eq("country", country); else countQ = countQ.eq("country", "TW");
       const { count } = await countQ;
       const PAGE = 1000;
-      // 名單量達數萬筆：一次抓全部的巢狀 join 會逾時。改為上限載入（預設最新 2000 筆，可用 limit 調整、上限 5000）。
-      const limit = Math.min(Math.max(parseInt(searchParams.get("limit") || "2000", 10) || 2000, PAGE), 5000);
-      const pages = Math.max(1, Math.min(Math.ceil((count ?? 0) / PAGE), Math.ceil(limit / PAGE)));
-      const settled = await Promise.all(
-        Array.from({ length: pages }, (_, i) => listQuery().order("created_at", { ascending: false }).range(i * PAGE, i * PAGE + PAGE - 1))
-      );
+      // 瀑布流：offset + limit 視窗載入（預設一次上限 2000；往下捲動用 offset 取下一頁）
+      const limit = Math.min(Math.max(parseInt(searchParams.get("limit") || "2000", 10) || 2000, 1), 5000);
+      const offset = Math.max(parseInt(searchParams.get("offset") || "0", 10) || 0, 0);
+      const winPages: ReturnType<typeof listQuery>[] = [];
+      for (let from = offset; from < offset + limit; from += PAGE) {
+        winPages.push(listQuery().order("created_at", { ascending: false }).range(from, Math.min(from + PAGE, offset + limit) - 1));
+      }
+      const settled = await Promise.all(winPages);
       const rows: Record<string, unknown>[] = [];
       for (const r of settled) {
         if (r.error) return NextResponse.json({ success: false, error: r.error.message }, { status: 500 });
         if (r.data) rows.push(...(r.data as Record<string, unknown>[]));
       }
-      return NextResponse.json({ success: true, data: rows, count: count ?? rows.length, limited: (count ?? 0) > rows.length });
+      const listTotal = count ?? offset + rows.length;
+      const hasMore = offset + rows.length < listTotal;
+      return NextResponse.json({ success: true, data: rows, count: listTotal, offset, hasMore, limited: hasMore });
     }
 
     // 只回 id 清單（給批次比對/補齊「完整選擇」用；分批處理避免逾時）。先 count 再並行抓所有分頁。
@@ -179,6 +183,8 @@ export async function GET(request: NextRequest) {
         brand_channels(channel, value), stores(city, address),
         gov_records(id, tax_id, name, owner_name, match_confidence)`;
       const limit = Math.min(Math.max(parseInt(searchParams.get("limit") || "1000", 10) || 1000, 1), 5000);
+      // 瀑布流：offset 從第幾筆開始（往下捲動時遞增）
+      const offset = Math.max(parseInt(searchParams.get("offset") || "0", 10) || 0, 0);
       // 預設隱藏已遮蔽(exhausted/masked)的低價值品牌，加快讀取；?includeMasked=1 可顯示
       const includeMasked = searchParams.get("includeMasked") === "1";
 
@@ -200,13 +206,18 @@ export async function GET(request: NextRequest) {
       if (!includeMasked) cQ2 = cQ2.eq("enrich_state", "active");
       cQ2 = cQ2.eq("country", country || "TW");
 
-      const pages = Array.from({ length: Math.ceil(limit / PAGE) }, (_, i) =>
-        buildPage(i * PAGE, Math.min((i + 1) * PAGE, limit) - 1));
+      // 抓 [offset, offset+limit) 這個視窗；跨 1000 筆邊界時內部再分頁並行
+      const pages: ReturnType<typeof buildPage>[] = [];
+      for (let from = offset; from < offset + limit; from += PAGE) {
+        pages.push(buildPage(from, Math.min(from + PAGE, offset + limit) - 1));
+      }
       const [pageResults, { count }] = await Promise.all([Promise.all(pages), cQ2]);
       const firstErr = pageResults.find((r) => r.error);
       if (firstErr?.error) return NextResponse.json({ success: false, error: firstErr.error.message }, { status: 500 });
       const data = pageResults.flatMap((r) => r.data || []);
-      return NextResponse.json({ success: true, data, count: count ?? data.length, limited: (count ?? 0) > data.length });
+      const total = count ?? offset + data.length;
+      const hasMore = offset + data.length < total;
+      return NextResponse.json({ success: true, data, count: total, offset, hasMore, limited: hasMore });
     }
 
     // gov_records 只帶待人工確認的低信心比對（採集中心「比對結果」分頁用）

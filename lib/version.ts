@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.9.9";
+export const APP_VERSION = "3.0.0";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.0.0",
+    date: "2026-07-03",
+    title: "清單改瀑布流載入（預設 100、捲動 +50）",
+    items: [
+      "名單總覽與比對中心清單改為瀑布流：預設載入 100 筆，往下捲動到接近底部自動再載 50 筆並附加，持續顯示，不再一次吞數千筆",
+      "後端 view=match / view=list 支援 offset 視窗分頁，回傳 hasMore；第一頁實測 list 0.4 秒、match 0.7 秒(暖)",
+      "捲動偵測用 onScroll(對巢狀捲動容器最可靠)＋附『點此載入更多』後備按鈕；附加時以 id 去重、選取狀態與詳情快取不受影響",
+      "清單頁頭改顯示『已載入 X / 總數』，篩選/搜尋/產業/國家改變會重置回第一頁",
+    ],
+  },
   {
     version: "2.9.9",
     date: "2026-07-03",
