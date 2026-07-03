@@ -147,12 +147,14 @@ type Rule = { when: string; then: string; kind?: "ok" | "bad" | "auto" };
 type Decision = { q: string; rules: Rule[] };
 type Detail = { flow?: string[]; decisions?: Decision[]; mech?: string[] };
 type WFStep = { label: string; sub?: string; color?: string; tone?: "start" | "auto" | "branch" | "end"; detail?: Detail };
+// 節點：單一步驟，或「並列群組」（mode: all=同時執行 / one=擇一）
+type WFNode = ({ type?: "step" } & WFStep) | { type: "par"; label: string; mode?: "all" | "one"; items: WFStep[] };
 const TONE: Record<string, string> = { start: "#5B7C99", auto: "#7B6E99", branch: "#A6824A", end: "#4A6B50" };
 const RULE_COLOR: Record<string, string> = { ok: "#4A6B50", bad: "#A66A4F", auto: "#7B6E99" };
 
 function SubFlow({ d }: { d: Detail }) {
   return (
-    <div style={{ width: "100%", maxWidth: 460, background: C.surf2, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px", marginTop: 8 }}>
+    <div style={{ width: "100%", maxWidth: 540, background: C.surf2, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px", marginTop: 8 }}>
       {d.flow && (
         <div style={{ marginBottom: d.decisions || d.mech ? 12 : 0 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: 0.5, marginBottom: 7 }}>子流程</div>
@@ -194,28 +196,56 @@ function SubFlow({ d }: { d: Detail }) {
   );
 }
 
-function WorkflowStep({ s, last }: { s: WFStep; last: boolean }) {
+// 單一步驟卡（可點開子流程）
+function StepCard({ s, compact }: { s: WFStep; compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const color = s.color || TONE[s.tone || "auto"];
   const clickable = !!s.detail;
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%" }}>
+    <div style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "center" }}>
       <div
         onClick={clickable ? () => setOpen((v) => !v) : undefined}
         role={clickable ? "button" : undefined}
         aria-expanded={clickable ? open : undefined}
-        style={{ width: "100%", maxWidth: 460, background: open ? C.p50 : C.surface, border: `1px solid ${open ? color : C.border}`, borderLeft: `4px solid ${color}`, borderRadius: 10, padding: "11px 14px", cursor: clickable ? "pointer" : "default", transition: "background 120ms, border-color 120ms" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ flex: 1, fontSize: 13.5, fontWeight: 700, color: C.text }}>{s.label}</div>
-          {clickable && (
-            <span style={{ fontSize: 11, color: color, fontWeight: 700, whiteSpace: "nowrap" }}>
-              {open ? "▾ 收合" : "▸ 展開子流程"}
-            </span>
-          )}
+        style={{ width: "100%", background: open ? C.p50 : C.surface, borderStyle: "solid", borderWidth: 1, borderLeftWidth: 4, borderTopColor: open ? color : C.border, borderRightColor: open ? color : C.border, borderBottomColor: open ? color : C.border, borderLeftColor: color, borderRadius: 10, padding: compact ? "9px 11px" : "11px 14px", cursor: clickable ? "pointer" : "default", transition: "background 120ms" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ flex: 1, fontSize: compact ? 12.5 : 13.5, fontWeight: 700, color: C.text, lineHeight: 1.35 }}>{s.label}</div>
+          {clickable && <span style={{ fontSize: 10.5, color, fontWeight: 700, whiteSpace: "nowrap" }}>{open ? "▾" : "▸"}</span>}
         </div>
-        {s.sub && <div style={{ fontSize: 12, color: C.muted, marginTop: 3, lineHeight: 1.5 }}>{s.sub}</div>}
+        {s.sub && <div style={{ fontSize: compact ? 11 : 12, color: C.muted, marginTop: 3, lineHeight: 1.5 }}>{s.sub}</div>}
       </div>
       {open && s.detail && <SubFlow d={s.detail} />}
+    </div>
+  );
+}
+
+// 並列群組：多個功能同時執行（all）或擇一（one），並排顯示
+function ParallelGroup({ label, mode, items }: { label: string; mode?: "all" | "one"; items: WFStep[] }) {
+  const tag = mode === "one" ? "◇ 擇一" : "⇉ 並行";
+  return (
+    <div style={{ width: "100%", border: `1px dashed ${C.border}`, borderRadius: 12, padding: "10px 12px 12px", background: "rgba(0,0,0,0.012)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 9 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: C.primary, background: C.p50, borderRadius: 999, padding: "2px 9px" }}>{tag}</span>
+        <span style={{ fontSize: 12, color: C.muted }}>{label}</span>
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
+        {items.map((it, i) => (
+          <div key={i} style={{ flex: "1 1 150px", minWidth: 150 }}>
+            <StepCard s={it} compact />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function WorkflowNode({ n, last }: { n: WFNode; last: boolean }) {
+  const color = n.type === "par" ? C.primary : (n.color || TONE[n.tone || "auto"]);
+  return (
+    <div style={{ width: "100%", maxWidth: 540, display: "flex", flexDirection: "column", alignItems: "center" }}>
+      {n.type === "par"
+        ? <ParallelGroup label={n.label} mode={n.mode} items={n.items} />
+        : <StepCard s={n} />}
       {!last && (
         <div className="wf-conn" aria-hidden>
           <span className="wf-dot" style={{ background: color }} />
@@ -225,7 +255,7 @@ function WorkflowStep({ s, last }: { s: WFStep; last: boolean }) {
   );
 }
 
-function Workflow({ title, badge, steps, note }: { title: string; badge?: string; steps: WFStep[]; note?: string }) {
+function Workflow({ title, badge, nodes, note }: { title: string; badge?: string; nodes: WFNode[]; note?: string }) {
   return (
     <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: "18px 20px", marginBottom: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
@@ -233,7 +263,7 @@ function Workflow({ title, badge, steps, note }: { title: string; badge?: string
         {badge && <span style={{ fontSize: 11, padding: "2px 9px", borderRadius: 999, background: C.p50, color: C.primary, fontWeight: 600 }}>{badge}</span>}
       </div>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-        {steps.map((s, i) => <WorkflowStep key={i} s={s} last={i === steps.length - 1} />)}
+        {nodes.map((n, i) => <WorkflowNode key={i} n={n} last={i === nodes.length - 1} />)}
       </div>
       {note && <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.7, marginTop: 12, background: C.surf2, padding: "10px 12px", borderRadius: 9 }}>{note}</div>}
     </div>
@@ -250,93 +280,136 @@ function DiagramsGuide() {
         @media (prefers-reduced-motion: reduce) { .wf-dot { animation: none; opacity: .6; top: 9px; } }
       `}</style>
       <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.7, marginBottom: 14, background: C.p50, borderRadius: 9, padding: "10px 12px" }}>
-        👆 <b>點任一個藍/紫/綠區塊</b>可展開它的<b>子流程</b>與<b>判斷分支（◆ 判斷）</b>，看清系統怎麼決策。移動的點代表資料流向；紫＝系統自動執行、綠＝結果落地、褐＝條件分支。
+        👆 <b>點任一區塊</b>展開它的<b>子流程</b>、<b>判斷分支（◆ 判斷：條件→結果）</b>與機制。
+        虛線框代表功能<b>並列</b>：<b>⇉ 並行</b>＝同時執行、<b>◇ 擇一</b>＝多選一。移動的點＝資料流向；紫＝系統自動、綠＝採用/落地、褐＝條件分支。
       </div>
 
       <Workflow title="① 名單採集與管道補齊" badge="採集任務 / 比對中心"
-        steps={[
-          { label: "取得名單", sub: "Google 地圖 · 政府開放資料 · 手動/CSV", tone: "start",
-            detail: { flow: ["搜尋/匯入來源", "解析欄位", "去重", "建立品牌+門市"],
-              decisions: [{ q: "品牌是否已存在（brand_key）？", rules: [{ when: "已存在", then: "略過不新增", kind: "auto" }, { when: "不存在", then: "新增名單", kind: "ok" }] }],
-              mech: ["政府資料用官方名冊、免爬蟲；DB 層 upsert 去重，重複匯入不報錯"] } },
+        nodes={[
+          { type: "par", label: "資料來源（可同時用、亦可擇一）", mode: "one", items: [
+            { label: "Google 地圖採集", sub: "關鍵字＋縣市找新店家", tone: "start",
+              detail: { flow: ["搜尋店家", "解析電話/地址/評論", "建立品牌+門市"], mech: ["需 Places 金鑰；含評分與評論"] } },
+            { label: "政府開放資料匯入", sub: "9 種官方名冊", tone: "start",
+              detail: { flow: ["下載官方檔", "欄位對應", "去重寫入"], mech: ["診所/旅宿/禮儀/宮廟/月子/人民團體…免爬蟲、資料乾淨"] } },
+            { label: "手動 / CSV 匯入", sub: "自訂名單", tone: "start",
+              detail: { flow: ["貼上/上傳", "對應欄位", "寫入"] } },
+          ] },
+          { label: "去重寫入品牌 + 門市", sub: "brand_key 唯一鍵", tone: "auto",
+            detail: { decisions: [{ q: "品牌是否已存在（brand_key）？", rules: [{ when: "已存在", then: "DB upsert 略過，不報錯", kind: "auto" }, { when: "不存在", then: "新增名單", kind: "ok" }] }] } },
           { label: "工商統編比對", sub: "名稱→統編→工商登記", tone: "auto",
-            detail: { flow: ["名稱正規化", "查統一編號", "抓工商登記資料"],
+            detail: { flow: ["名稱正規化", "查統一編號", "抓工商登記"],
               decisions: [
-                { q: "品牌是法人（協會/基金會/公會）？", rules: [{ when: "是法人", then: "優先查 twincn 台灣公司網", kind: "auto" }, { when: "一般公司", then: "mygov → GCIS 依序查", kind: "auto" }] },
+                { q: "品牌是法人（協會/基金會/公會）？", rules: [{ when: "是法人", then: "優先 twincn 台灣公司網", kind: "auto" }, { when: "一般公司", then: "mygov → GCIS 依序", kind: "auto" }] },
                 { q: "比對信心度？", rules: [{ when: "高信心", then: "直接寫回統編", kind: "ok" }, { when: "低信心", then: "標記待人工確認", kind: "bad" }] }] } },
-          { label: "管道補齊（免費優先）", sub: "官網/社群/Email，先免費後付費", tone: "auto",
-            detail: { flow: ["門市電話/地圖", "有官網→爬官網", "交叉搜尋", "DDG+Bing 並行", "Email 網域推測"],
-              decisions: [
-                { q: "品牌有官網嗎？", rules: [{ when: "有官網", then: "直接爬官網＋聯絡頁", kind: "ok" }, { when: "無官網", then: "搜尋引擎並行找官網與社群", kind: "auto" }] },
-                { q: "搜尋結果的網站/社群可信嗎？", rules: [{ when: "標題含公司名", then: "採用（官網或 FB/IG/LINE）", kind: "ok" }, { when: "不含或為名錄站", then: "丟棄不寫入", kind: "bad" }] }],
-              mech: ["兩引擎並行（最慢 12s→6s）", "小店只有粉專沒官網 → 搜尋結果的 FB/IG/LINE 直接收為管道"] } },
-          { label: "Email 網域推測", sub: "有官網無 Email 時的最後手段", tone: "auto",
-            detail: { flow: ["取官網網域", "排除自由信箱/社群網域", "試 info@/contact@…", "驗證網域 MX"],
-              decisions: [{ q: "網域有 MX（能收信）嗎？", rules: [{ when: "有 MX", then: "寫入並標記為 guessed（推測）", kind: "ok" }, { when: "無 MX / 非企業網域", then: "放棄，不亂寫", kind: "bad" }] }],
-              mech: ["Hunter.io 式做法；寄信前仍會 MX 清洗，退信自動進黑名單"] } },
-          { label: "付費 API 備援（勾選才用）", sub: "免費補不到才呼叫 Google", tone: "branch",
-            detail: { decisions: [{ q: "有勾『💰 付費 API 當備援』且仍缺管道？", rules: [{ when: "有勾且仍缺", then: "呼叫 Places / CSE（計費）", kind: "auto" }, { when: "沒勾（預設）", then: "完全跳過，零費用", kind: "ok" }] }],
-              mech: ["預設關閉；平常批次維持免費，要衝命中率時再單獨開"] } },
-          { label: "寫回名單 · 低價值自動遮蔽", sub: "缺電話+Email 者自動遮蔽", tone: "end",
-            detail: { decisions: [{ q: "採集後仍無『電話與 Email』？", rules: [{ when: "兩者皆無", then: "標記 exhausted（遮蔽）", kind: "bad" }, { when: "至少有一種", then: "保留為正常名單", kind: "ok" }] }],
-              mech: ["遮蔽者批次採集跳過、清單預設隱藏，加快讀取", "可『顯示已遮蔽』檢視或還原"] } },
+          { label: "管道補齊 ①：門市基礎", sub: "電話 / 地圖", tone: "auto",
+            detail: { mech: ["政府/地圖匯入時多半已帶電話與地址，直接落地"] } },
+          { label: "管道補齊 ②：有官網→爬官網", sub: "首頁＋聯絡頁", tone: "auto",
+            detail: { flow: ["連線官網", "抓 LINE/FB/IG/Email", "找 /contact /about 補 Email"],
+              decisions: [{ q: "官網首頁沒 Email？", rules: [{ when: "沒有", then: "再爬聯絡頁（含 Cloudflare 解碼）", kind: "auto" }] }] } },
+          { label: "管道補齊 ③：交叉搜尋", sub: "用已知 FB/IG 互找缺漏", tone: "auto",
+            detail: { mech: ["已有 FB→爬 FB 找 IG/電話/Email/LINE；能省下付費 API"] } },
+          { type: "par", label: "管道補齊 ④：免 API 搜尋引擎（兩引擎同時查）", mode: "all", items: [
+            { label: "DuckDuckGo", sub: "HTML 結果頁", tone: "auto" },
+            { label: "Bing", sub: "結果頁", tone: "auto" },
+          ] },
+          { label: "採用搜尋結果", sub: "官網或 FB/IG/LINE", tone: "auto",
+            detail: { decisions: [{ q: "結果可信嗎？", rules: [{ when: "標題含公司名", then: "採用（含社群連結）", kind: "ok" }, { when: "名錄站/不相關", then: "丟棄不寫入", kind: "bad" }] }],
+              mech: ["兩引擎並行：逐一等最慢 12s → 並行 6s", "小店常只有粉專沒官網 → 直接收 FB/IG/LINE"] } },
+          { label: "管道補齊 ⑤：Email 網域推測", sub: "有官網卻無 Email", tone: "auto",
+            detail: { flow: ["取官網網域", "排除自由信箱/社群", "試 info@/contact@…", "驗證 MX"],
+              decisions: [{ q: "網域有 MX（能收信）？", rules: [{ when: "有 MX", then: "寫入並標記 guessed", kind: "ok" }, { when: "無 MX/非企業網域", then: "放棄不亂寫", kind: "bad" }] }] } },
+          { type: "par", label: "付費備援：勾選才用（免費補不到才呼叫）", mode: "all", items: [
+            { label: "Google Places", sub: "找店家/電話/官網", tone: "branch",
+              detail: { decisions: [{ q: "有勾且仍缺？", rules: [{ when: "是", then: "呼叫（計費）", kind: "auto" }, { when: "沒勾（預設）", then: "跳過零費用", kind: "ok" }] }] } },
+            { label: "Google CSE", sub: "搜聯絡資訊/官網", tone: "branch" },
+            { label: "CSE 搜 FB 粉專", sub: "找官方粉專", tone: "branch" },
+          ] },
+          { label: "寫回名單 · 低價值自動遮蔽", sub: "缺電話+Email 者遮蔽", tone: "end",
+            detail: { decisions: [{ q: "採後仍無『電話與 Email』？", rules: [{ when: "兩者皆無", then: "標記 exhausted 遮蔽", kind: "bad" }, { when: "至少有一種", then: "保留正常", kind: "ok" }] }],
+              mech: ["遮蔽者批次跳過、清單隱藏，加快讀取；可顯示/還原"] } },
         ]}
-        note="效率機制：已完整的品牌自動剃除；7 天內試過的預設跳過；30 線並行；進度條顯示每分鐘筆數與預估剩餘時間。" />
+        note="效率機制：已完整品牌自動剃除、7 天內試過預設跳過、30 線並行；進度條顯示每分鐘筆數與預估剩餘時間。" />
 
       <Workflow title="② 電子報外發與自動化" badge="編輯器 / 發送 / 自動化"
-        steps={[
-          { label: "編輯內容", sub: "單一大欄位 · 範本 · AI 生成 · 可翻譯", tone: "start",
-            detail: { flow: ["選範本 / AI 生成", "單一欄位編輯", "存成模板"],
-              mech: ["11 組情境範本；可一鍵翻日文/英文另存新模板"] } },
-          { label: "選收件名單", sub: "只列有 Email、排除黑名單", tone: "start",
-            detail: { flow: ["反查有 Email 品牌", "合併採集/聯絡人/名單", "排除黑名單+拒收"],
-              decisions: [{ q: "此信箱狀態？", rules: [{ when: "在黑名單/已退訂", then: "排除不寄", kind: "bad" }, { when: "正常", then: "納入名單", kind: "ok" }] }] } },
-          { label: "寄送 / 排程", sub: "分批 · 額度 · 略過重複", tone: "auto",
+        nodes={[
+          { type: "par", label: "備妥內容（擇一起手）", mode: "one", items: [
+            { label: "套用範本", sub: "11 組情境", tone: "start", detail: { mech: ["初次開發/報價/節慶/回訪…"] } },
+            { label: "✨ AI 生成", sub: "輸入目的自動產草稿", tone: "start", detail: { mech: ["需 ANTHROPIC_API_KEY 等；可指定產業"] } },
+            { label: "手動撰寫", sub: "單一大欄位", tone: "start" },
+          ] },
+          { label: "編輯 + 存成模板", sub: "可一鍵翻日/英文", tone: "auto",
+            detail: { mech: ["圖片/按鈕/附件工具列插入；翻譯另存新模板"] } },
+          { type: "par", label: "收件 Email 來源（三來源合併）", mode: "all", items: [
+            { label: "採集管道", sub: "brand_channels", tone: "auto" },
+            { label: "聯絡人", sub: "contacts", tone: "auto" },
+            { label: "名單信箱", sub: "brands.email", tone: "auto" },
+          ] },
+          { label: "過濾收件名單", sub: "排除黑名單/退訂", tone: "auto",
+            detail: { decisions: [{ q: "此信箱狀態？", rules: [{ when: "黑名單/已退訂", then: "排除不寄", kind: "bad" }, { when: "正常", then: "納入", kind: "ok" }] }] } },
+          { label: "寄送 / 排程", sub: "清洗→分批→追蹤", tone: "auto",
             detail: { flow: ["寄前 MX 清洗", "分批 30 封", "注入追蹤像素+連結改寫", "送出"],
               decisions: [
-                { q: "超過今日額度？", rules: [{ when: "超過", then: "排隊 queued，等 8AM 補寄", kind: "auto" }, { when: "未超過", then: "即時寄出", kind: "ok" }] },
-                { q: "開啟『略過重複』且已寄過此模板？", rules: [{ when: "是", then: "略過不重寄", kind: "auto" }, { when: "否", then: "正常寄出", kind: "ok" }] }] } },
-          { label: "每天 8AM 自動化", sub: "排程/跟進/補寄/退信一次做完", tone: "auto",
-            detail: { flow: ["寄到期排程", "跑自動跟進規則", "補寄佇列", "掃描退信", "LINE 通知結果"],
-              decisions: [{ q: "跟進規則條件（N 天後）？", rules: [{ when: "未開信 / 未回覆", then: "自動寄跟進模板", kind: "auto" }, { when: "已互動", then: "不再打擾", kind: "ok" }] }] } },
-          { label: "成效追蹤", sub: "開信/點擊/回覆 · 退信處理", tone: "end",
-            detail: { decisions: [
-              { q: "退信類型？", rules: [{ when: "硬退信（查無此人）", then: "立即封鎖信箱", kind: "bad" }, { when: "軟退信（暫時）", then: "累計 3 次才封鎖", kind: "auto" }] },
-              { q: "寄送失敗？", rules: [{ when: "失敗/退信", then: "顯示原因、可一鍵重寄", kind: "auto" }] }] } },
+                { q: "超過今日額度？", rules: [{ when: "超過", then: "排隊 queued 等 8AM 補寄", kind: "auto" }, { when: "未超過", then: "即時寄", kind: "ok" }] },
+                { q: "已寄過此模板（且開略過重複）？", rules: [{ when: "是", then: "略過不重寄", kind: "auto" }, { when: "否", then: "正常寄", kind: "ok" }] }] } },
+          { type: "par", label: "每天 8AM 自動化（一次做完）", mode: "all", items: [
+            { label: "到期排程寄出", tone: "auto" },
+            { label: "自動跟進", sub: "未開信/未回覆", tone: "auto",
+              detail: { decisions: [{ q: "N 天後仍符合條件？", rules: [{ when: "未開信/未回覆", then: "寄跟進模板（每人一次）", kind: "auto" }, { when: "已互動", then: "不打擾", kind: "ok" }] }] } },
+            { label: "補寄佇列", sub: "排隊的信", tone: "auto" },
+            { label: "掃描退信", tone: "auto" },
+            { label: "LINE 通知", sub: "結果彙整", tone: "auto" },
+          ] },
+          { type: "par", label: "成效追蹤（並行統計）", mode: "all", items: [
+            { label: "開信 / 點擊 / 回覆", sub: "追蹤像素＋連結", tone: "end" },
+            { label: "退信處理", sub: "硬/軟分類", tone: "end",
+              detail: { decisions: [{ q: "退信類型？", rules: [{ when: "硬退信（查無此人）", then: "立即封鎖", kind: "bad" }, { when: "軟退信（暫時）", then: "累計 3 次才封鎖", kind: "auto" }] }] } },
+            { label: "失敗重寄", sub: "顯示原因·一鍵重寄", tone: "end" },
+          ] },
         ]}
         note="送達無法 100% 確認（Email 協定限制）；點擊與回覆才是最可靠的互動指標。" />
 
       <Workflow title="③ AI 語音外撥" badge="AI 語音外撥 → 商機進度"
-        steps={[
-          { label: "匯出可外撥名單", sub: "三關過濾 · 帶 brand_id 與話術變數", tone: "start",
+        nodes={[
+          { label: "匯出可外撥名單", sub: "三關過濾 · 帶 brand_id", tone: "start",
             detail: { decisions: [{ q: "此品牌可外撥嗎？（三關）", rules: [
               { when: "無電話", then: "排除", kind: "bad" }, { when: "在拒撥名單", then: "排除", kind: "bad" },
               { when: "被遮蔽", then: "排除", kind: "bad" }, { when: "三關皆過", then: "納入 CSV", kind: "ok" }] }],
-              mech: ["CSV 帶 brand_id，回寫時才能自動對上品牌"] } },
-          { label: "語音平台外撥", sub: "Bland/Retell/Vapi/ElevenLabs（外部）", tone: "start",
-            detail: { flow: ["匯入名單", "克隆聲音 agent", "外撥即時對話", "錄音"],
-              mech: ["撥號時把 brand_id 放進平台 metadata / dynamic variables 帶著跑"] } },
-          { label: "webhook 自動回寫", sub: "通話結束自動送回、去重", tone: "auto",
-            detail: { flow: ["偵測平台", "對應欄位", "external_id 去重", "寫入"],
-              decisions: [
-                { q: "同一通電話重送？", rules: [{ when: "provider+external_id 已存在", then: "略過（去重）", kind: "auto" }, { when: "新的通話", then: "寫入", kind: "ok" }] },
-                { q: "payload 沒帶 brand_id？", rules: [{ when: "沒帶", then: "用電話回查品牌", kind: "auto" }] }],
-              mech: ["可設 VOICE_WEBHOOK_TOKEN 密鑰驗證；或改用『匯入結果 CSV』手動"] } },
-          { label: "寫入通話紀錄 + 聯繫紀錄", sub: "逐字稿/錄音/成效 + 品牌狀態", tone: "auto",
-            detail: { decisions: [{ q: "有接通？", rules: [{ when: "接通", then: "品牌 new→已聯繫", kind: "ok" }, { when: "沒接通", then: "狀態不變", kind: "auto" }] }] } },
+              mech: ["CSV 帶 brand_id，回寫才能自動對上品牌"] } },
+          { type: "par", label: "語音平台（擇一，皆為外部平台）", mode: "one", items: [
+            { label: "Bland AI", tone: "start", detail: { mech: ["metadata 帶 brand_id"] } },
+            { label: "Retell", tone: "start", detail: { mech: ["事件 call_analyzed；metadata 帶 brand_id"] } },
+            { label: "Vapi", tone: "start", detail: { mech: ["end-of-call-report；metadata 帶 brand_id"] } },
+            { label: "ElevenLabs", tone: "start", detail: { mech: ["聲音克隆最佳；dynamic variables 帶 brand_id"] } },
+          ] },
+          { type: "par", label: "結果回寫（擇一）", mode: "one", items: [
+            { label: "webhook 自動", sub: "通話結束即回寫", tone: "auto",
+              detail: { flow: ["偵測平台", "對應欄位", "external_id 去重", "寫入"],
+                decisions: [
+                  { q: "同一通重送？", rules: [{ when: "provider+external_id 已存在", then: "略過去重", kind: "auto" }, { when: "新通話", then: "寫入", kind: "ok" }] },
+                  { q: "沒帶 brand_id？", rules: [{ when: "沒帶", then: "用電話回查品牌", kind: "auto" }] }],
+                mech: ["可設 VOICE_WEBHOOK_TOKEN 密鑰"] } },
+            { label: "CSV 手動匯入", sub: "平台跑完下載", tone: "auto" },
+          ] },
+          { type: "par", label: "自動寫入（同時發生）", mode: "all", items: [
+            { label: "通話紀錄", sub: "逐字稿/錄音/秒數/成效", tone: "auto" },
+            { label: "聯繫紀錄", sub: "outreach_logs", tone: "auto" },
+            { label: "品牌狀態", sub: "接通→已聯繫", tone: "auto",
+              detail: { decisions: [{ q: "有接通？", rules: [{ when: "接通", then: "new→已聯繫", kind: "ok" }, { when: "沒接通", then: "狀態不變", kind: "auto" }] }] } },
+            { label: "拒撥名單", sub: "拒撥→加入", tone: "auto" },
+          ] },
           { label: "推進商機進度（註記 AI 語音）", sub: "無論接通與否都進商機", tone: "end",
             detail: { decisions: [
-              { q: "依通話成效推進商機階段", rules: [
+              { q: "依通話成效推進階段", rules: [
                 { when: "有興趣 / 約回撥 / 接通", then: "推進到『已聯繫』", kind: "ok" },
                 { when: "沒興趣 / 拒撥 / 號碼有誤", then: "登記『流失』", kind: "bad" },
                 { when: "未接 / 語音信箱 / 忙線", then: "不推進，但建商機留軌跡", kind: "auto" }] },
               { q: "品牌原本有商機嗎？", rules: [
                 { when: "沒有", then: "建立（owner=AI語音）", kind: "ok" },
                 { when: "已成交/流失", then: "不再變動", kind: "auto" },
-                { when: "進行中", then: "只前進不倒退", kind: "auto" }] },
-              { q: "拒撥？", rules: [{ when: "是", then: "加入拒撥名單，下次匯出排除", kind: "bad" }] }] } },
+                { when: "進行中", then: "只前進不倒退", kind: "auto" }] }],
+              mech: ["每通電話都在商機進度可追蹤，並標記來源為 AI語音"] } },
         ]}
-        note="閉環：拒撥自動排除、商機只前進不倒退，讓 AI 語音的每次接觸都留在商機進度可追蹤。" />
+        note="閉環：拒撥自動排除、商機只前進不倒退，讓 AI 語音的每次接觸都留在商機進度。" />
     </>
   );
 }

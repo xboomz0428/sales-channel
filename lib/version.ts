@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.9.8";
+export const APP_VERSION = "2.9.9";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.9.9",
+    date: "2026-07-03",
+    title: "工作流程圖詳細化＋並列分支（⇉ 並行 / ◇ 擇一）",
+    items: [
+      "流程圖大幅細化：採集拆成資料來源(擇一)、去重、工商比對、管道補齊①~⑤、付費備援、遮蔽等節點；每步可點開子流程/判斷/機制",
+      "支援並列顯示：虛線框標示功能『⇉ 並行』(同時執行，如三來源 Email 合併、8AM 五項自動化、語音四項同時寫入)或『◇ 擇一』(多選一，如語音平台、回寫方式)，並列子項也可各自點開",
+      "電子報/語音流程同步細化：收件三來源合併、8AM 自動化五工作、語音平台四選一、回寫兩方式、四項同時寫入、商機推進判斷",
+      "修正流程圖卡片邊框 shorthand/longhand 混用的 React 警告",
+    ],
+  },
   {
     version: "2.9.8",
     date: "2026-07-03",
