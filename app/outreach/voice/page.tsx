@@ -71,7 +71,7 @@ export default function VoicePage() {
       })).filter((c) => c.phone);
       const res = await fetch('/api/voice/calls', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ calls }) });
       const d = await res.json();
-      if (d.success) { setMsg({ ok: true, text: `已匯入 ${d.saved} 筆通話（${d.contactedUpdated} 個品牌轉為已聯繫、${d.dncAdded} 個加入拒撥）` }); loadCalls(); }
+      if (d.success) { setMsg({ ok: true, text: `已匯入 ${d.saved} 筆通話（${d.oppsTouched || 0} 筆寫入商機進度、${d.contactedUpdated} 個轉為已聯繫、${d.dncAdded} 個加入拒撥）` }); loadCalls(); }
       else setMsg({ ok: false, text: d.error || '匯入失敗' });
     } catch { setMsg({ ok: false, text: '檔案解析失敗' }); }
     finally { setImporting(false); }
@@ -84,7 +84,7 @@ export default function VoicePage() {
       body: JSON.stringify({ phone: mPhone.trim(), status: mStatus, outcome: mOutcome, notes: mNote || undefined }),
     });
     const d = await res.json();
-    if (d.success) { setMsg({ ok: true, text: '已記錄一筆通話' }); setMPhone(''); setMNote(''); loadCalls(); }
+    if (d.success) { setMsg({ ok: true, text: `已記錄一筆通話${d.oppsTouched ? '，並寫入商機進度' : ''}` }); setMPhone(''); setMNote(''); loadCalls(); }
     else setMsg({ ok: false, text: d.error || '記錄失敗' });
   }
 
@@ -97,6 +97,9 @@ export default function VoicePage() {
 
       <div className="note">
         ⚖️ 合規提醒：請用<b>自己的聲音</b>、通話開場<b>表明是 AI 助理</b>、<b>告知錄音</b>、並維護<b>拒撥名單</b>（此頁「拒撥」的通話會自動加入，之後匯出名單即排除）。本工具只做名單匯出與結果紀錄，不代為撥打。
+      </div>
+      <div className="pipe">
+        📈 每通電話<b>無論接通與否</b>都會自動寫入「<a href="/opportunities">商機進度</a>」並註記為 <b>AI 語音</b>：接通→已聯繫、有興趣/約回撥→留在管道、沒興趣/拒撥→登記流失（商機階段只前進不倒退）。
       </div>
 
       {summary && (
@@ -237,7 +240,9 @@ export default function VoicePage() {
         h1 { font-family: 'Noto Serif TC', serif; font-size: 23px; margin: 0; }
         header p { margin: 4px 0 16px; font-size: 12px; color: #8a8472; }
         .muted { color: #9a9384; }
-        .note { background: #fdf4e3; border: 1px solid #e8dcae; color: #8a6d1f; border-radius: 10px; padding: 10px 14px; font-size: 12.5px; line-height: 1.7; margin-bottom: 14px; }
+        .note { background: #fdf4e3; border: 1px solid #e8dcae; color: #8a6d1f; border-radius: 10px; padding: 10px 14px; font-size: 12.5px; line-height: 1.7; margin-bottom: 10px; }
+        .pipe { background: #e8f2e8; border: 1px solid #cdd6bf; color: #3f6b3f; border-radius: 10px; padding: 10px 14px; font-size: 12.5px; line-height: 1.7; margin-bottom: 14px; }
+        .pipe a { color: #2f7d6b; font-weight: 700; }
         .cards { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
         .card { flex: 1; min-width: 90px; background: #fffdf8; border: 1px solid #e3ded3; border-radius: 12px; padding: 12px 14px; text-align: center; }
         .card b { font-family: 'Noto Serif TC', serif; font-size: 22px; display: block; }

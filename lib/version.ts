@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.9.6";
+export const APP_VERSION = "2.9.7";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.9.7",
+    date: "2026-07-03",
+    title: "語音通話寫入商機進度 + 使用說明大改版（動態工作流程圖）",
+    items: [
+      "AI 語音每通電話(無論接通與否)自動寫入『商機進度』並註記 AI語音：接通→已聯繫、有興趣/約回撥→留管道、沒興趣/拒撥→流失；商機階段只前進不倒退",
+      "無商機的品牌會建立一筆(product_line=AI 語音外撥、owner=AI語音)留下接觸軌跡；語音頁與回寫結果顯示『寫入商機進度』數",
+      "使用說明新增『工作流程圖』分頁：採集/電子報/語音三大流程的動態圖(資料流動點動畫)，紫=系統自動、綠=結果落地",
+      "使用說明內容全面更新：免費優先採集、付費 API 開關、7 天冷卻、Email 網域推測、低價值遮蔽、AI 語音外撥與 webhook、商機註記，並補上相關 FAQ 與 VOICE_WEBHOOK_TOKEN 設定",
+    ],
+  },
   {
     version: "2.9.6",
     date: "2026-07-03",
