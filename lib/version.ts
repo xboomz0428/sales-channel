@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.9.5";
+export const APP_VERSION = "2.9.6";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.9.6",
+    date: "2026-07-03",
+    title: "AI 語音外撥可自動串接：webhook 回寫 + 各平台協作說明",
+    items: [
+      "新增 webhook 端點 /api/voice/webhook：Bland/Retell/Vapi/ElevenLabs 通話結束自動回寫逐字稿/錄音/秒數/成效，不用手動匯 CSV",
+      "自動對應各平台 payload(含自動偵測平台)，並以 provider+external_id 去重避免平台重送造成重複紀錄(migration 0030)",
+      "可選 VOICE_WEBHOOK_TOKEN 密鑰驗證；brand_id/outcome 由平台 metadata/dynamic variables/structured data 帶回，自動對上品牌與拒撥名單",
+      "語音頁新增「如何跟各平台協作」說明：webhook 網址、每個平台的設定步驟與欄位對應",
+      "寫入邏輯抽成共用模組 lib/voice/ingest（CSV 匯入與 webhook 共用）",
+    ],
+  },
   {
     version: "2.9.5",
     date: "2026-07-03",

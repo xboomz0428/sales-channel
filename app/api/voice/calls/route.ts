@@ -1,15 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
+import { ingestCalls, OUTCOME_LABEL, STATUS_LABEL } from "@/lib/voice/ingest";
 
 export const runtime = "nodejs";
-
-const OUTCOME_LABEL: Record<string, string> = {
-  interested: "有興趣", not_interested: "沒興趣", callback: "約回撥",
-  do_not_call: "拒撥", wrong_number: "號碼有誤", unknown: "未定",
-};
-const STATUS_LABEL: Record<string, string> = {
-  completed: "已接通", no_answer: "未接", voicemail: "語音信箱", busy: "忙線", failed: "失敗",
-};
 
 /**
  * GET  /api/voice/calls        列出最近通話紀錄（含品牌名）
@@ -50,61 +43,10 @@ export async function POST(req: Request) {
   try {
     const supabase = getSupabaseServerClient();
     const body = await req.json().catch(() => ({}));
-    const list: any[] = Array.isArray(body.calls) ? body.calls : (body.phone ? [body] : []);
+    const list = Array.isArray(body.calls) ? body.calls : (body.phone ? [body] : []);
     if (list.length === 0) return NextResponse.json({ success: false, error: "請提供 phone 或 calls[]" }, { status: 400 });
-
-    let saved = 0, contactedUpdated = 0, dncAdded = 0;
-    for (const c of list) {
-      const phone = String(c.phone || "").trim();
-      if (!phone) continue;
-      let brandId: string | null = c.brand_id || null;
-      // 未帶 brand_id → 用電話回查品牌（brand_channels 或 stores）
-      if (!brandId) {
-        const { data: bc } = await supabase.from("brand_channels").select("brand_id").eq("channel", "phone").eq("value", phone).maybeSingle();
-        brandId = bc?.brand_id || null;
-        if (!brandId) {
-          const { data: st } = await supabase.from("stores").select("brand_id").eq("phone", phone).maybeSingle();
-          brandId = st?.brand_id || null;
-        }
-      }
-      const status = String(c.status || "completed");
-      const outcome = c.outcome ? String(c.outcome) : null;
-      const calledAt = c.called_at ? new Date(c.called_at).toISOString() : new Date().toISOString();
-
-      // ① 存通話紀錄
-      const { error } = await supabase.from("voice_calls").insert({
-        brand_id: brandId, phone, brand_name: c.brand_name || null, campaign: c.campaign || null,
-        status, outcome, transcript: c.transcript || null, recording_url: c.recording_url || null,
-        duration_sec: c.duration_sec != null ? parseInt(String(c.duration_sec), 10) || null : null,
-        notes: c.notes || null, called_at: calledAt,
-      });
-      if (error) continue;
-      saved++;
-
-      if (brandId) {
-        // ② 寫回聯繫紀錄
-        const parts = [`📞 AI 語音外撥（${STATUS_LABEL[status] || status}${outcome ? `·${OUTCOME_LABEL[outcome] || outcome}` : ""}）`];
-        if (c.duration_sec) parts.push(`通話 ${c.duration_sec} 秒`);
-        if (c.recording_url) parts.push(`錄音：${c.recording_url}`);
-        await supabase.from("outreach_logs").insert({
-          brand_id: brandId, channel: "voice", log_type: "call",
-          summary: parts.join("｜"), created_at: calledAt,
-        });
-        // ③ 接通 → 品牌 new→contacted
-        if (status === "completed") {
-          const { data: upd } = await supabase.from("brands").update({ status: "contacted", updated_at: calledAt }).eq("id", brandId).eq("status", "new").select("id");
-          if (upd && upd.length) contactedUpdated++;
-        }
-      }
-
-      // ④ 拒撥 → 加入拒撥名單
-      if (outcome === "do_not_call") {
-        await supabase.from("phone_dnc").upsert({ phone, brand_id: brandId, reason: "通話中表達拒撥" }, { onConflict: "phone", ignoreDuplicates: true });
-        dncAdded++;
-      }
-    }
-
-    return NextResponse.json({ success: true, saved, contactedUpdated, dncAdded });
+    const r = await ingestCalls(supabase, list);
+    return NextResponse.json({ success: true, ...r });
   } catch (err) {
     return NextResponse.json({ success: false, error: err instanceof Error ? err.message : "寫入失敗" }, { status: 500 });
   }

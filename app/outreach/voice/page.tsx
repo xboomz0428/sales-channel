@@ -29,6 +29,9 @@ export default function VoicePage() {
   const [mStatus, setMStatus] = useState('completed');
   const [mOutcome, setMOutcome] = useState('interested');
   const [mNote, setMNote] = useState('');
+  const [base, setBase] = useState('');
+  useEffect(() => { setBase(window.location.origin); }, []);
+  const hookUrl = (p: string) => `${base || 'https://你的網域'}/api/voice/webhook?provider=${p}`;
 
   const loadCalls = () => {
     fetch('/api/voice/calls').then((r) => r.json()).then((d) => {
@@ -147,6 +150,53 @@ export default function VoicePage() {
       {msg && <div className={`msg ${msg.ok ? 'ok' : 'bad'}`}>{msg.ok ? '✓' : '✕'} {msg.text}<button onClick={() => setMsg(null)}>×</button></div>}
 
       <section className="panel">
+        <div className="phead"><strong>🔌 如何跟各平台協作（可自動串接）</strong><span className="hint">兩種做法：手動匯入 CSV，或設 webhook 自動回寫</span></div>
+        <p className="gtext">
+          流程都一樣：<b>這裡匯出名單 → 平台外撥 → 結果回到這裡</b>。差別只在「結果怎麼回來」。
+          想<b>自動記錄進度與對話</b>，就在平台設定通話結束的 webhook 指向下列網址；把 <code>brand_id</code>、<code>outcome</code>
+          放進該平台的 <b>metadata / dynamic variables / structured data</b>，回寫時就會自動對上品牌並更新拒撥名單。
+        </p>
+        <div className="hookbox">
+          <span className="hooklabel">Webhook 網址</span>
+          <code className="hook">{base || 'https://你的網域'}/api/voice/webhook?provider=<b>平台代號</b></code>
+          <button className="copy" onClick={() => navigator.clipboard.writeText(`${base}/api/voice/webhook`)}>複製</button>
+        </div>
+        <p className="gtext small">安全性：可在「設定」新增 <code>VOICE_WEBHOOK_TOKEN</code>，並在網址加 <code>&amp;token=你的密鑰</code>，未帶對就拒收。</p>
+
+        <details className="pf"><summary>🟦 Bland AI（<code>?provider=bland</code>）</summary>
+          <ol>
+            <li>撥號時帶 <code>metadata</code>：<code>{'{ brand_id, brand_name, campaign }'}</code>（從匯出的 CSV 取 brand_id）。</li>
+            <li>設定 <b>Webhook</b> 指向上方網址（provider=bland）。通話結束會送 <code>call_id / to / call_length / concatenated_transcript / recording_url</code>。</li>
+            <li>想標成「有興趣/拒撥」→ 在 Pathway 用 <code>metadata.outcome</code> 或 disposition 帶回。</li>
+          </ol>
+        </details>
+        <details className="pf"><summary>🟩 Retell AI（<code>?provider=retell</code>）</summary>
+          <ol>
+            <li>建立 outbound call 時帶 <code>metadata.brand_id</code>。</li>
+            <li>Agent 設 <b>Webhook</b>（事件 <code>call_analyzed</code>）→ 上方網址（provider=retell）。會送 <code>call.transcript / recording_url / duration_ms / call_analysis</code>。</li>
+            <li>成效自動對應：<code>user_sentiment</code>／<code>call_successful</code> → 有興趣/沒興趣；或用 <code>call_analysis.custom_analysis_data.outcome</code> 精準指定。</li>
+          </ol>
+        </details>
+        <details className="pf"><summary>🟪 Vapi（<code>?provider=vapi</code>）</summary>
+          <ol>
+            <li>建立 call 時帶 <code>metadata.brand_id</code>（在 assistant 或 call 層）。</li>
+            <li>Server URL 設為上方網址（provider=vapi）；系統收 <code>end-of-call-report</code>：<code>transcript / recordingUrl / durationSeconds / analysis</code>。</li>
+            <li>用 <code>analysis.structuredData.outcome</code> 讓 AI 自己判斷並回傳成效。</li>
+          </ol>
+        </details>
+        <details className="pf"><summary>🟧 ElevenLabs Conversational AI（<code>?provider=elevenlabs</code>）</summary>
+          <ol>
+            <li>用其 <b>聲音克隆</b>建 agent（clone 你自己的聲音），電話走 Twilio。</li>
+            <li>設 <b>Post-call webhook</b> → 上方網址（provider=elevenlabs）：送 <code>conversation_id / transcript / audio / metadata</code>。</li>
+            <li>把 <code>brand_id / phone / outcome</code> 放進 <b>dynamic variables</b>，回寫時自動對上品牌。</li>
+          </ol>
+        </details>
+        <p className="gtext small">
+          註：各平台 payload 欄位偶有版本差異，系統取多個候選路徑對應；若有平台回寫沒對上，把該平台的範例 payload 給我，我再補對應。
+        </p>
+      </section>
+
+      <section className="panel">
         <div className="phead"><strong>③ 通話紀錄</strong><span className="hint">{calls.length} 筆</span></div>
         {calls.length === 0 ? (
           <div className="empty">尚無通話紀錄。先匯出名單、用語音平台撥打，再把結果 CSV 匯入這裡。</div>
@@ -225,6 +275,17 @@ export default function VoicePage() {
         .dmeta { font-size: 12px; color: #8a8472; margin-bottom: 8px; }
         .tr { white-space: pre-wrap; word-break: break-word; background: #f6f4ec; border-radius: 10px; padding: 12px; font-size: 13px; line-height: 1.7; font-family: inherit; margin-top: 8px; }
         .dbtns { display: flex; justify-content: flex-end; margin-top: 14px; }
+        .gtext { font-size: 12.5px; color: #6e7a6d; line-height: 1.75; margin: 0 0 10px; }
+        .gtext.small { font-size: 11.5px; color: #9a9384; }
+        .gtext code, .pf code, .hooklabel + .hook { background: #eef0e6; color: #4a6b3f; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+        .hookbox { display: flex; align-items: center; gap: 8px; background: #f6f4ec; border: 1px solid #e3ded3; border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; flex-wrap: wrap; }
+        .hooklabel { font-size: 11px; color: #8a8472; font-weight: 700; }
+        .hook { flex: 1; min-width: 220px; font-size: 12px; color: #4a6b3f; word-break: break-all; background: none; padding: 0; }
+        .copy { border: 1px solid #cdd6bf; background: #fff; color: #4a6b3f; border-radius: 7px; padding: 4px 10px; font-size: 12px; cursor: pointer; font-family: inherit; }
+        .pf { border: 1px solid #e3ded3; border-radius: 10px; padding: 8px 12px; margin-bottom: 8px; background: #fcfbf5; }
+        .pf summary { cursor: pointer; font-size: 13px; font-weight: 600; color: #4a6b3f; }
+        .pf ol { margin: 8px 0 4px; padding-left: 20px; }
+        .pf li { font-size: 12.5px; color: #5a6b4f; line-height: 1.8; }
       `}</style>
     </div>
   );
