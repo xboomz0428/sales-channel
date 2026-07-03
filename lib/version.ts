@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.9.3";
+export const APP_VERSION = "2.9.4";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.9.4",
+    date: "2026-07-03",
+    title: "Email 網域推測 + 低價值名單遮蔽（省讀取/採集速度）",
+    items: [
+      "Email 提升：有官網網域卻爬不到 email 時，用 Hunter.io 式做法推測 info@/contact@ 等通用信箱，只有網域『有 MX 記錄（能收信）』才寫入並標記為推測；實測 春不荖→info@youngsong.com.tw",
+      "低價值遮蔽(migration 0028 enrich_state)：採集後仍無『電話+Email』者自動標為 exhausted；『更多工具』可手動遮蔽此範圍缺電話+Email 的名單，或還原",
+      "遮蔽效果：批次採集直接跳過已遮蔽品牌、比對中心清單預設隱藏(可切『顯示已遮蔽』)，加快讀取與採集速度",
+      "手動遮蔽安全機制：預設只遮『無電話且無 Email』者(有聯絡方式的自動排除)；未選產業時只作用於目前載入清單，避免誤遮全庫",
+    ],
+  },
   {
     version: "2.9.3",
     date: "2026-07-03",

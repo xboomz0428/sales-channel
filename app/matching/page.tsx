@@ -2103,6 +2103,8 @@ export default function MatchingPage() {
   const [filterChannel, setFilterChannel] = useState<string | null>(null);
   const [filterCity, setFilterCity] = useState<string | null>(null);
   const [filterDistrict, setFilterDistrict] = useState<string | null>(null);
+  const [showMasked, setShowMasked] = useState(false); // 是否顯示已遮蔽(低價值)名單
+  const [maskBusy, setMaskBusy] = useState(false);
 
   // 載入產業群組（採集篩選用，與電子報共用同一份群組）
   useEffect(() => {
@@ -2122,6 +2124,7 @@ export default function MatchingPage() {
     const p = new URLSearchParams({ view: "match", country, limit: "3000" });
     if (filterIndustry) p.set("industry", filterIndustry);
     if (debouncedSearch) p.set("search", debouncedSearch);
+    if (showMasked) p.set("includeMasked", "1");
     fetch(`/api/brands?${p.toString()}`)
       .then((r) => r.json())
       .then((result) => {
@@ -2140,7 +2143,28 @@ export default function MatchingPage() {
       })
       .catch((e) => setLoadError(e instanceof Error ? e.message : "網路錯誤，請重試"))
       .finally(() => setLoadingBrands(false));
-  }, [country, filterIndustry, debouncedSearch]);
+  }, [country, filterIndustry, debouncedSearch, showMasked]);
+
+  // 遮蔽/還原：把目前產業(或目前清單)缺電話+Email 的低價值名單標為遮蔽（批次採集跳過、清單隱藏）
+  const maskContactless = async (action: "mask" | "unmask") => {
+    if (maskBusy) return;
+    const scope = filterIndustry ? `「${filterIndustry}」` : "目前清單";
+    const msg = action === "mask"
+      ? `將${scope}中「無電話且無 Email」的名單遮蔽？\n遮蔽後：批次採集會跳過、清單預設隱藏，加快讀取與採集。（可隨時還原）`
+      : `還原${scope}的所有遮蔽名單（含自動遮蔽的）？`;
+    if (!window.confirm(msg)) return;
+    setMaskBusy(true);
+    try {
+      const body: Record<string, unknown> = { action, country };
+      // 有選產業 → 整個產業；否則用目前載入清單的 id（避免誤遮全庫）
+      if (filterIndustry) body.industry = filterIndustry;
+      else body.ids = visibleBrands.map((b) => String(b.id));
+      const r = await fetch("/api/brands/mask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((x) => x.json());
+      if (r.success) { setBulkMsg({ ok: true, text: `${action === "mask" ? "已遮蔽" : "已還原"} ${r.affected} 筆${action === "mask" ? "（缺電話+Email）" : ""}` }); loadBrands(); reloadGaps(); }
+      else setBulkMsg({ ok: false, text: r.error || "操作失敗" });
+    } catch { setBulkMsg({ ok: false, text: "連線失敗" }); }
+    finally { setMaskBusy(false); }
+  };
 
   // 首次載入顯示整頁 spinner（loadingBrands 初值 true）；之後切換國家/產業/搜尋為靜默背景更新
   useEffect(() => { loadBrands(); }, [loadBrands]);
@@ -2546,6 +2570,23 @@ export default function MatchingPage() {
             style={{ padding: "6px 13px", borderRadius: 9, border: `1px solid #7B6E9960`, background: "#EAE5F0", color: "#7B6E99", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
             🏛 只比對工商統編
           </button>
+          <button onClick={() => maskContactless("mask")} disabled={maskBusy} className="pressable"
+            title="把此範圍缺電話+Email 的低價值名單遮蔽：批次採集會跳過、清單隱藏，加快讀取"
+            style={{ padding: "6px 13px", borderRadius: 9, border: `1px solid #99999960`, background: "#F1EFE8", color: "#5F5E5A", fontSize: 12, fontWeight: 700, cursor: maskBusy ? "default" : "pointer" }}>
+            {maskBusy ? <span className="spin">↻</span> : "🚫"} 遮蔽缺電話+Email{filterIndustry ? `（${filterIndustry}）` : ""}
+          </button>
+          <button onClick={() => setShowMasked((v) => !v)} className="pressable"
+            title="顯示/隱藏已遮蔽的低價值名單"
+            style={{ padding: "6px 13px", borderRadius: 9, border: `1px solid ${showMasked ? "#5B7C99" : C.border}`, background: showMasked ? "#EDF2F6" : C.surface, color: showMasked ? "#41637F" : C.muted, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+            {showMasked ? "👁 顯示已遮蔽中" : "👁 顯示已遮蔽"}
+          </button>
+          {showMasked && (
+            <button onClick={() => maskContactless("unmask")} disabled={maskBusy} className="pressable"
+              title="把此範圍的遮蔽全部還原為正常"
+              style={{ padding: "6px 13px", borderRadius: 9, border: `1px solid #2D7D4660`, background: "#E3F5EB", color: "#2D7D46", fontSize: 12, fontWeight: 700, cursor: maskBusy ? "default" : "pointer" }}>
+              ↩ 還原遮蔽{filterIndustry ? `（${filterIndustry}）` : ""}
+            </button>
+          )}
           <button onClick={exportCSV} className="pressable"
             style={{ padding: "6px 12px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surface, color: C.muted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
             ↓ 匯出採集狀態 CSV

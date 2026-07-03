@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 import { logApiUsage } from "@/lib/api-usage";
 import { getCfg } from "@/lib/settings";
+import { partitionSendable } from "@/lib/outreach/validateEmail";
 
 /**
  * POST /api/enrich/channels
@@ -172,6 +173,22 @@ async function fetchContactPages(baseUrl: string): Promise<Record<string, string
     }
   }
   return found;
+}
+
+// 網域推測 Email（免費，Hunter.io 式做法）：有官網網域但爬不到 email 時，
+// 試通用信箱 info@ / contact@ / service@，只有網域「有 MX 記錄（能收信）」才採用。
+// 排除自由信箱/社群/部落格網域（那些不是自有企業網域，猜了沒意義）。
+const NON_BIZ_DOMAIN = /gmail|yahoo|hotmail|outlook|qq\.com|163\.com|facebook|instagram|blogspot|wordpress|wixsite|pixnet|痞客邦|weebly|godaddysites|business\.site|google|line\.me|youtube|shopee|1688|blogger/i;
+
+async function guessEmailByDomain(website: string): Promise<string | null> {
+  let domain = "";
+  try { domain = new URL(website).hostname.replace(/^www\./i, "").toLowerCase(); } catch { return null; }
+  if (!domain || domain.split(".").length < 2 || NON_BIZ_DOMAIN.test(domain)) return null;
+  // 依常見商用信箱優先序試；partitionSendable 會做語法 + 網域 MX 驗證
+  const candidates = ["info", "contact", "service", "sales", "cs"].map((u) => `${u}@${domain}`);
+  const { ok } = await partitionSendable(candidates);
+  for (const c of candidates) if (ok.has(c)) return c; // 回傳最優先且網域可收信者
+  return null;
 }
 
 async function upsertChannel(
@@ -685,6 +702,21 @@ async function enrichBrand(
     }
   }
 
+  // ── 5. 網域推測 Email（免費，最後手段）───────────────────────────────────
+  // 有官網網域卻爬不到 email → 試 info@/contact@ 等通用信箱，網域有 MX 才寫入（標記為推測）。
+  if (!have.has("email")) {
+    const { data: webCh } = await supabase.from("brand_channels").select("value").eq("brand_id", brandId).eq("channel", "website").maybeSingle();
+    const siteForGuess = webCh?.value || website || null;
+    if (siteForGuess) {
+      const guessed = await guessEmailByDomain(siteForGuess);
+      if (guessed) {
+        await upsertChannel(supabase, brandId, "email", guessed, "guessed");
+        added.push("email"); have.add("email");
+        await emit({ type: "step", text: `${prefix}以官網網域推測 Email：${guessed}（網域可收信）` });
+      }
+    }
+  }
+
   // 回傳本次新增的管道（排除原本就有的）
   const existSet = new Set((existingChannels || []).map((c) => c.channel));
   return [...new Set(added)].filter((ch) => !existSet.has(ch));
@@ -736,12 +768,12 @@ export async function POST(request: NextRequest) {
       } else if (Array.isArray(body.brand_ids) && body.brand_ids.length > 0) {
         isBatch = true;
         const ids = (body.brand_ids as string[]).slice(0, 500);
-        const { data } = await supabase.from("brands").select("id, name, registered_name, last_enriched_at, brand_channels(channel)").in("id", ids);
+        const { data } = await supabase.from("brands").select("id, name, registered_name, last_enriched_at, enrich_state, brand_channels(channel)").in("id", ids);
         brands = data || [];
       } else if (body.all) {
         isBatch = true;
         const industry = body.industry ? String(body.industry) : null;
-        let q = supabase.from("brands").select("id, name, registered_name, last_enriched_at, brand_channels(channel)").limit(100000);
+        let q = supabase.from("brands").select("id, name, registered_name, last_enriched_at, enrich_state, brand_channels(channel)").limit(100000);
         if (industry) q = q.ilike("industry", `%${industry}%`);
         const { data } = await q;
         brands = data || [];
@@ -750,12 +782,16 @@ export async function POST(request: NextRequest) {
         return;
       }
 
-      // 批次：剃除已採集完整的品牌
+      // 批次：剃除已採集完整的品牌 + 已遮蔽的品牌（exhausted/masked，不浪費採集速度）
       let skipped = 0;
+      let skippedMasked = 0;
       if (isBatch) {
         const before = brands.length;
         brands = brands.filter((b) => !isComplete(b.brand_channels));
         skipped = before - brands.length;
+        const beforeMask = brands.length;
+        brands = brands.filter((b) => ((b as { enrich_state?: string }).enrich_state || "active") === "active");
+        skippedMasked = beforeMask - brands.length;
       }
 
       // 批次冷卻：預設跳過 7 天內已採集過(但仍不完整)的品牌，避免對查無結果的名單反覆空轉。
@@ -781,12 +817,15 @@ export async function POST(request: NextRequest) {
       const CONCURRENCY = Math.min(30, Math.max(1, Math.floor(Number(body.concurrency) || 30)));
       // usePlaces：是否使用 Google 付費 API（Places 找店家 + CSE 搜尋）。預設開啟；前端可取消勾選以省費用。
       const usePlaces = body.usePlaces === undefined ? true : Boolean(body.usePlaces);
-      await emit({ type: "init", total: brands.length, skipped, skippedRecent });
-      const skipNote = [skipped > 0 ? `剃除 ${skipped} 個完整品牌` : "", skippedRecent > 0 ? `跳過 ${skippedRecent} 個 7 天內已試過` : ""].filter(Boolean).join("、");
+      await emit({ type: "init", total: brands.length, skipped, skippedRecent, skippedMasked });
+      const skipNote = [skipped > 0 ? `剃除 ${skipped} 個完整品牌` : "", skippedMasked > 0 ? `跳過 ${skippedMasked} 個已遮蔽` : "", skippedRecent > 0 ? `跳過 ${skippedRecent} 個 7 天內已試過` : ""].filter(Boolean).join("、");
       await emit({ type: "step", text: `開始採集 ${brands.length} 個品牌（${CONCURRENCY} 並行，免費方法優先${usePlaces ? "、付費 API 備援" : ""}）${skipNote ? `，${skipNote}` : ""}…` });
 
+      // autoMask：採過仍無電話+Email 的品牌自動標記為 exhausted（下次批次跳過）。預設開啟。
+      const autoMask = body.autoMask === undefined ? true : Boolean(body.autoMask);
       let enriched = 0;
       let doneCount = 0;
+      let autoMasked = 0;
 
       // 平行處理：分批並行，每批 CONCURRENCY 個同時跑
       const processBrand = async (idx: number) => {
@@ -794,14 +833,19 @@ export async function POST(request: NextRequest) {
         const prefix = `[${idx + 1}/${brands.length}] `;
         try {
           const channels = await enrichBrand(supabase, id, name, emit, prefix, (brands[idx] as any).registered_name, usePlaces);
-          // 記錄採集時間（成功與否都記，供批次冷卻跳過用；必須 await，serverless 不保證未等待的寫入）
-          await supabase.from("brands").update({ last_enriched_at: new Date().toISOString() }).eq("id", id);
+          // 採後判斷：是否已取得「電話或 Email」任一（使用者主要目標）
+          const { data: after } = await supabase.from("brand_channels").select("channel").eq("brand_id", id).in("channel", ["phone", "email"]);
+          const hasContact = (after || []).length > 0;
+          const patch: Record<string, unknown> = { last_enriched_at: new Date().toISOString() };
+          if (autoMask && !hasContact) { patch.enrich_state = "exhausted"; autoMasked++; }
+          // 記錄採集時間（+ 自動遮蔽）；必須 await，serverless 不保證未等待的寫入
+          await supabase.from("brands").update(patch).eq("id", id);
           doneCount++;
           if (channels.length > 0) {
             enriched++;
             await emit({ type: "store", ok: true, text: `${prefix}✓ ${name}：取得 ${channels.join("、")}` });
           } else {
-            await emit({ type: "store", ok: false, text: `${prefix}— ${name}：無可新增的管道資料` });
+            await emit({ type: "store", ok: false, text: `${prefix}— ${name}：無可新增的管道資料${autoMask && !hasContact ? "（無電話/Email → 已自動遮蔽）" : ""}` });
           }
           await emit({ type: "progress", done: doneCount, total: brands.length });
         } catch (e) {
@@ -830,7 +874,7 @@ export async function POST(request: NextRequest) {
         else tryNext();
       });
 
-      await emit({ type: "done", data: { total: brands.length, enriched, skipped } });
+      await emit({ type: "done", data: { total: brands.length, enriched, skipped, autoMasked } });
     } catch (e) {
       await emit({ type: "error", text: e instanceof Error ? e.message : "採集失敗" });
     } finally {

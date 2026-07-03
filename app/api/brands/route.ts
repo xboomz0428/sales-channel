@@ -179,6 +179,8 @@ export async function GET(request: NextRequest) {
         brand_channels(channel, value), stores(city, address),
         gov_records(id, tax_id, name, owner_name, match_confidence)`;
       const limit = Math.min(Math.max(parseInt(searchParams.get("limit") || "1000", 10) || 1000, 1), 5000);
+      // 預設隱藏已遮蔽(exhausted/masked)的低價值品牌，加快讀取；?includeMasked=1 可顯示
+      const includeMasked = searchParams.get("includeMasked") === "1";
 
       // PostgREST 單次回應上限 1000 筆 → limit>1000 時並行分頁抓（與 view=ids 同法）
       const PAGE = 1000;
@@ -187,6 +189,7 @@ export async function GET(request: NextRequest) {
         if (industry) mq = mq.eq("industry", industry);
         if (status) mq = mq.eq("status", status);
         if (search) mq = mq.ilike("name", `%${search}%`);
+        if (!includeMasked) mq = mq.eq("enrich_state", "active");
         return mq.eq("country", country || "TW").order("created_at", { ascending: false }).range(from, to);
       };
 
@@ -194,6 +197,7 @@ export async function GET(request: NextRequest) {
       if (industry) cQ2 = cQ2.eq("industry", industry);
       if (status) cQ2 = cQ2.eq("status", status);
       if (search) cQ2 = cQ2.ilike("name", `%${search}%`);
+      if (!includeMasked) cQ2 = cQ2.eq("enrich_state", "active");
       cQ2 = cQ2.eq("country", country || "TW");
 
       const pages = Array.from({ length: Math.ceil(limit / PAGE) }, (_, i) =>
