@@ -290,51 +290,63 @@ async function scrapeFacebookPage(fbUrl: string): Promise<Record<string, string>
 
 // 免 API 找官網：直接爬搜尋引擎結果頁（Bing 優先、DuckDuckGo HTML 備援）。
 // Google 會擋伺服器端爬取（CAPTCHA/同意頁），故不用 Google。過濾掉社群/名錄/政府等非官網。
-const SEARCH_JUNK = /facebook\.com|instagram\.com|youtube\.com|line\.me|google\.|bing\.com|duckduckgo|wikipedia|\.gov\.tw|gov\.tw|104\.com|1111\.com|518\.com|yes123|yellowpages|iyp\.|twincn|mygov|find\.taipei|maps\.|foursquare|yelp|tripadvisor|dcard|ptt\.cc|shopee|momo|pchome|books\.com|ubereats|foodpanda|web66\.com|pixnet|blogspot|wordpress\.com|wixsite|痞客邦|blogger|matteroftaste|conception-tech|i-formosa|nearbynirvana/i;
+const SEARCH_JUNK = /facebook\.com|instagram\.com|youtube\.com|line\.me|google\.|bing\.com|duckduckgo|wikipedia|\.gov\.tw|gov\.tw|104\.com|1111\.com|518\.com|yes123|yellowpages|iyp\.|twincn|mygov|find\.taipei|maps\.|foursquare|yelp|tripadvisor|dcard|ptt\.cc|shopee|momo|pchome|books\.com|ubereats|foodpanda|web66\.com|pixnet|blogspot|wordpress\.com|wixsite|痞客邦|blogger|matteroftaste|conception-tech|i-formosa|nearbynirvana|findhealthclinics|vymaps|cybo\.com|worldorgs|yellow\.place|tuugo|infobel|find-us-here|wikimapia|opengov\.tw|taiwanhot|walkerland|hotfrog|zeczec|twinc\.tw|zhupiter|twypage|bizpo|localprayers|placedigger|top10place|streetdirectory/i;
 
 const stripTags = (s: string) => s.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").trim();
 
-// 免 API 找官網：爬 DuckDuckGo / Bing 結果頁，只接受「標題含公司名」的結果，避免撿到不相干網站。
-async function searchWebsiteNoApi(name: string): Promise<string | null> {
+interface NoApiHit { website?: string; fb?: string; ig?: string; line?: string }
+
+// 免 API 搜尋（免費）：DuckDuckGo 與 Bing「並行」爬結果頁，只接受「標題含公司名」的結果。
+// 除了官網，也順手收下搜尋結果裡的 FB / IG / LINE（很多小店只有粉專沒官網）。
+// Google 會擋伺服器端爬取（CAPTCHA/同意頁），故不用 Google。
+async function searchNoApi(name: string): Promise<NoApiHit | null> {
   const clean = name.replace(/[（(【][^）)】]*[）)】]/g, "").replace(/\s+/g, "").trim();
   if (clean.length < 2) return null;
   const nameKey = clean.replace(/(股份|有限|公司|企業社|工作室|商行)/g, "").slice(0, 4) || clean.slice(0, 3);
   const q = encodeURIComponent(`${clean.slice(0, 20)} 官網 聯絡`);
   const ua = { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36" };
-  // 只接受：真實網址、非社群/名錄、且標題含公司名關鍵字
-  const pick = (rows: { url: string; title: string }[]): string | null => {
-    for (const r of rows) {
-      const u = r.url.split("#")[0];
-      if (/^https?:\/\//i.test(u) && !SEARCH_JUNK.test(u) && r.title.includes(nameKey)) return u;
-    }
-    return null;
-  };
-  // 1) DuckDuckGo HTML（穩定、對伺服器友善）
-  try {
+
+  const fetchDdg = async (): Promise<{ url: string; title: string }[]> => {
     const res = await fetch(`https://html.duckduckgo.com/html/?q=${q}`, { headers: ua, signal: AbortSignal.timeout(6000) });
-    if (res.ok) {
-      const html = await res.text();
-      const rows = [...html.matchAll(/class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)].map((m) => {
-        const ud = m[1].match(/uddg=([^&]+)/);
-        return { url: ud ? decodeURIComponent(ud[1]) : m[1], title: stripTags(m[2]) };
-      });
-      const hit = pick(rows);
-      if (hit) return hit;
-    }
-  } catch { /* 換 Bing */ }
-  // 2) Bing 備援
-  try {
+    if (!res.ok) return [];
+    const html = await res.text();
+    return [...html.matchAll(/class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)].map((m) => {
+      const ud = m[1].match(/uddg=([^&]+)/);
+      return { url: ud ? decodeURIComponent(ud[1]) : m[1], title: stripTags(m[2]) };
+    });
+  };
+  const fetchBing = async (): Promise<{ url: string; title: string }[]> => {
     const res = await fetch(`https://www.bing.com/search?q=${q}&setlang=zh-tw&cc=tw`, { headers: ua, signal: AbortSignal.timeout(6000) });
-    if (res.ok) {
-      const html = await res.text();
-      const rows = [...html.matchAll(/<a[^>]+href="(https?:\/\/[^"]+)"[^>]*>((?:(?!<\/a>)[\s\S])*?)<\/a>/gi)]
-        .map((m) => ({ url: m[1], title: stripTags(m[2]) }))
-        .filter((r) => r.title.length > 1);
-      const hit = pick(rows);
-      if (hit) return hit;
+    if (!res.ok) return [];
+    const html = await res.text();
+    return [...html.matchAll(/<a[^>]+href="(https?:\/\/[^"]+)"[^>]*>((?:(?!<\/a>)[\s\S])*?)<\/a>/gi)]
+      .map((m) => ({ url: m[1], title: stripTags(m[2]) }))
+      .filter((r) => r.title.length > 1);
+  };
+
+  // 兩引擎並行（原本逐一等候最慢 12 秒 → 最慢 6 秒），任一成功即可
+  const settled = await Promise.allSettled([fetchDdg(), fetchBing()]);
+  const rowSets = settled.map((s) => (s.status === "fulfilled" ? s.value : []));
+
+  const hit: NoApiHit = {};
+  const SOCIAL_PATTERNS: [keyof NoApiHit, RegExp][] = [
+    ["fb", /^https?:\/\/(www\.)?facebook\.com\/(?!sharer|share|groups|events|hashtag|watch|login)[^/?#]+/i],
+    ["ig", /^https?:\/\/(www\.)?instagram\.com\/(?!p\/|reel|explore)[^/?#]+/i],
+    ["line", /^https?:\/\/(line\.me\/R\/ti\/p\/|lin\.ee\/)[^\s"'<>]+/i],
+  ];
+  for (const rows of rowSets) {
+    for (const r of rows) {
+      if (!r.title.includes(nameKey)) continue; // 標題必須含公司名，避免亂配
+      const u = r.url.split("#")[0];
+      if (!/^https?:\/\//i.test(u)) continue;
+      if (!hit.website && !SEARCH_JUNK.test(u)) { hit.website = u; continue; }
+      for (const [ch, re] of SOCIAL_PATTERNS) {
+        if (!hit[ch] && re.test(u)) hit[ch] = u;
+      }
     }
-  } catch { /* 略過 */ }
-  return null;
+    if (hit.website && hit.fb && hit.ig && hit.line) break;
+  }
+  return hit.website || hit.fb || hit.ig || hit.line ? hit : null;
 }
 
 // 用 Google Places 依「名稱＋縣市」找店家 → 取官網/電話/地圖/place_id。
@@ -409,36 +421,8 @@ async function enrichBrand(
     added.push("map"); have.add("map");
   }
 
-  // ── 1.5 Google Places 找店家（無官網但有地址 → 中醫/月子等幾乎都在 Google 地圖）──
-  // usePlaces=false 時完全跳過（Places API 要收費），改靠下方免 API 搜尋引擎找官網。
-  if (usePlaces && !website && address && anyMissing) {
-    const placesKey = await getCfg("GOOGLE_PLACES_API_KEY");
-    if (placesKey) {
-      await emit({ type: "step", text: `${prefix}Google 地圖找店家「${storeName}」…` });
-      const place = await findPlaceForBrand(storeName, address, placesKey);
-      if (place) {
-        if (storeId) {
-          const patch: Record<string, unknown> = {};
-          if (place.website) patch.website = place.website;
-          if (place.placeId) patch.place_id = place.placeId;
-          if (place.phone) patch.phone = place.phone;
-          if (place.gmaps) patch.gmaps_url = place.gmaps;
-          if (Object.keys(patch).length) await supabase.from("stores").update(patch).eq("id", storeId);
-        }
-        if (place.phone && isMissing("phone")) { await upsertChannel(supabase, brandId, "phone", place.phone, place.gmaps); added.push("phone"); have.add("phone"); }
-        if (place.gmaps && isMissing("map")) { await upsertChannel(supabase, brandId, "map", place.gmaps); added.push("map"); have.add("map"); }
-        if (place.website) {
-          website = place.website;
-          if (isMissing("website")) { await upsertChannel(supabase, brandId, "website", place.website, place.gmaps); added.push("website"); have.add("website"); }
-          await emit({ type: "step", text: `${prefix}Google 地圖找到官網，接著爬取…` });
-        } else {
-          await emit({ type: "step", text: `${prefix}Google 地圖有店家但無官網（已補地圖/電話）` });
-        }
-      } else {
-        await emit({ type: "step", text: `${prefix}Google 地圖找不到相符店家` });
-      }
-    }
-  }
+  // 免費優先原則：先把所有免費方法（官網爬取→交叉搜尋→免 API 搜尋引擎→FB 頁面）跑完，
+  // 付費 API（Google Places / CSE）只在勾選 usePlaces 且免費方法補不到時才當最後備援。
 
   // ── 2. 官網爬取（有缺失管道時一律重爬）──────────────────────────────────
   if (website && anyMissing) {
@@ -519,27 +503,73 @@ async function enrichBrand(
     }
   }
 
-  // ── 2.6 免 API 找官網（爬 Bing / DuckDuckGo）→ 再爬官網補管道 ─────────
-  // 政府匯入、無官網的品牌靠這步：用公司名在搜尋引擎找官網，找到就寫入並爬取。
+  // ── 2.6 免 API 搜尋引擎（免費）：DDG+Bing 並行找官網＋FB/IG/LINE ─────────
+  // 政府匯入、無官網的品牌靠這步；小店常只有粉專沒官網，搜尋結果的社群連結也一併收下。
   if (!have.has("website") && TARGET_CHANNELS.some((ch) => !have.has(ch))) {
-    let site: string | null = null;
+    let noApi: NoApiHit | null = null;
     for (const sn of searchNames) {
-      await emit({ type: "step", text: `${prefix}搜尋引擎找官網「${sn}」…` });
-      site = await searchWebsiteNoApi(sn);
-      if (site) break;
+      await emit({ type: "step", text: `${prefix}搜尋引擎找官網/社群「${sn}」…` });
+      noApi = await searchNoApi(sn);
+      if (noApi) break;
     }
-    if (site) {
-      const domain = (() => { try { return new URL(site).hostname; } catch { return site!.slice(0, 40); } })();
-      await emit({ type: "step", text: `${prefix}找到官網 ${domain}，爬取聯絡資訊…` });
-      await upsertChannel(supabase, brandId, "website", site, "search");
-      added.push("website"); have.add("website");
-      let links: Record<string, string> = {};
-      try { links = { ...(await fetchSiteLinks(site)), ...(await fetchContactPages(site)) }; } catch { /* 爬取失敗略過 */ }
-      const newFound = Object.entries(links).filter(([ch]) => !have.has(ch));
-      for (const [ch, value] of newFound) { await upsertChannel(supabase, brandId, ch, value, site); added.push(ch); have.add(ch); }
-      await emit({ type: "step", text: newFound.length ? `${prefix}官網補到 ${newFound.map(([c]) => c).join("、")}` : `${prefix}官網未找到社群/聯絡` });
+    if (noApi) {
+      const socialGot: string[] = [];
+      for (const ch of ["fb", "ig", "line"] as const) {
+        if (noApi[ch] && !have.has(ch)) {
+          await upsertChannel(supabase, brandId, ch, noApi[ch]!, "search");
+          added.push(ch); have.add(ch); socialGot.push(ch);
+        }
+      }
+      if (socialGot.length) await emit({ type: "step", text: `${prefix}搜尋結果直接收到 ${socialGot.join("、")}` });
+      const site = noApi.website || null;
+      if (site) {
+        const domain = (() => { try { return new URL(site).hostname; } catch { return site.slice(0, 40); } })();
+        await emit({ type: "step", text: `${prefix}找到官網 ${domain}，爬取聯絡資訊…` });
+        await upsertChannel(supabase, brandId, "website", site, "search");
+        added.push("website"); have.add("website");
+        let links: Record<string, string> = {};
+        try { links = { ...(await fetchSiteLinks(site)), ...(await fetchContactPages(site)) }; } catch { /* 爬取失敗略過 */ }
+        const newFound = Object.entries(links).filter(([ch]) => !have.has(ch));
+        for (const [ch, value] of newFound) { await upsertChannel(supabase, brandId, ch, value, site); added.push(ch); have.add(ch); }
+        await emit({ type: "step", text: newFound.length ? `${prefix}官網補到 ${newFound.map(([c]) => c).join("、")}` : `${prefix}官網未找到社群/聯絡` });
+      }
     } else {
-      await emit({ type: "step", text: `${prefix}搜尋引擎找不到官網` });
+      await emit({ type: "step", text: `${prefix}搜尋引擎找不到官網/社群` });
+    }
+  }
+
+  // ── 2.8 免費方法都補完後才輪到付費：Google Places（勾選才用）──────────────
+  // 有地址但免費方法沒補齊時，用 Places 找店家（電話/地圖/官網），找到官網就接著爬。
+  if (usePlaces && address && TARGET_CHANNELS.some((ch) => !have.has(ch))) {
+    const placesKey = await getCfg("GOOGLE_PLACES_API_KEY");
+    if (placesKey) {
+      await emit({ type: "step", text: `${prefix}免費方法未補齊 → Google 地圖找店家「${storeName}」…` });
+      const place = await findPlaceForBrand(storeName, address, placesKey);
+      if (place) {
+        if (storeId) {
+          const patch: Record<string, unknown> = {};
+          if (place.website) patch.website = place.website;
+          if (place.placeId) patch.place_id = place.placeId;
+          if (place.phone) patch.phone = place.phone;
+          if (place.gmaps) patch.gmaps_url = place.gmaps;
+          if (Object.keys(patch).length) await supabase.from("stores").update(patch).eq("id", storeId);
+        }
+        if (place.phone && isMissing("phone")) { await upsertChannel(supabase, brandId, "phone", place.phone, place.gmaps); added.push("phone"); have.add("phone"); }
+        if (place.gmaps && isMissing("map")) { await upsertChannel(supabase, brandId, "map", place.gmaps); added.push("map"); have.add("map"); }
+        if (place.website && !have.has("website")) {
+          website = place.website;
+          await upsertChannel(supabase, brandId, "website", place.website, place.gmaps);
+          added.push("website"); have.add("website");
+          await emit({ type: "step", text: `${prefix}Google 地圖找到官網，接著爬取…` });
+          let links: Record<string, string> = {};
+          try { links = { ...(await fetchSiteLinks(place.website)), ...(await fetchContactPages(place.website)) }; } catch { /* 爬取失敗略過 */ }
+          for (const [ch, value] of Object.entries(links)) {
+            if (!have.has(ch)) { await upsertChannel(supabase, brandId, ch, value, place.website); added.push(ch); have.add(ch); }
+          }
+        }
+      } else {
+        await emit({ type: "step", text: `${prefix}Google 地圖找不到相符店家` });
+      }
     }
   }
 
@@ -603,12 +633,14 @@ async function enrichBrand(
     }
   }
 
-  // ── 4. Facebook 粉專搜尋 + 頁面抓取 ─────────────────────────────────────
+  // ── 4. Facebook 頁面抓取（爬粉專本身免費；用 CSE「搜」粉專是付費，勾選才用）──
   const stillMissing2 = TARGET_CHANNELS.filter((ch) => !have.has(ch));
   if (stillMissing2.length > 0) {
-    let fbUrl: string | null = (existingChannels || []).find((c) => c.channel === "fb")?.value || null;
+    // FB 來源優先序：既有管道 → 本次免 API 搜尋收到的 → （付費）CSE 搜尋
+    const { data: fbNow } = await supabase.from("brand_channels").select("value").eq("brand_id", brandId).eq("channel", "fb").maybeSingle();
+    let fbUrl: string | null = fbNow?.value || (existingChannels || []).find((c) => c.channel === "fb")?.value || null;
 
-    if (!fbUrl) {
+    if (!fbUrl && usePlaces && stillMissing2.length > 0) {
       const apiKey = await getCfg("GOOGLE_PLACES_API_KEY");
       const cseId = await getCfg("GOOGLE_CSE_ID");
       if (apiKey && cseId) {
@@ -704,12 +736,12 @@ export async function POST(request: NextRequest) {
       } else if (Array.isArray(body.brand_ids) && body.brand_ids.length > 0) {
         isBatch = true;
         const ids = (body.brand_ids as string[]).slice(0, 500);
-        const { data } = await supabase.from("brands").select("id, name, registered_name, brand_channels(channel)").in("id", ids);
+        const { data } = await supabase.from("brands").select("id, name, registered_name, last_enriched_at, brand_channels(channel)").in("id", ids);
         brands = data || [];
       } else if (body.all) {
         isBatch = true;
         const industry = body.industry ? String(body.industry) : null;
-        let q = supabase.from("brands").select("id, name, registered_name, brand_channels(channel)").limit(100000);
+        let q = supabase.from("brands").select("id, name, registered_name, last_enriched_at, brand_channels(channel)").limit(100000);
         if (industry) q = q.ilike("industry", `%${industry}%`);
         const { data } = await q;
         brands = data || [];
@@ -726,6 +758,20 @@ export async function POST(request: NextRequest) {
         skipped = before - brands.length;
       }
 
+      // 批次冷卻：預設跳過 7 天內已採集過(但仍不完整)的品牌，避免對查無結果的名單反覆空轉。
+      // body.skipRecent=false 可強制全部重採。
+      let skippedRecent = 0;
+      const skipRecent = body.skipRecent === undefined ? true : Boolean(body.skipRecent);
+      if (isBatch && skipRecent) {
+        const cutoff = Date.now() - 7 * 86400_000;
+        const before = brands.length;
+        brands = brands.filter((b) => {
+          const t = (b as { last_enriched_at?: string | null }).last_enriched_at;
+          return !t || new Date(t).getTime() < cutoff;
+        });
+        skippedRecent = before - brands.length;
+      }
+
       if (brands.length === 0) {
         await emit({ type: "error", text: skipped > 0 ? `所選品牌皆已採集完整（剃除 ${skipped} 個）` : "找不到可採集的品牌" });
         return;
@@ -735,8 +781,9 @@ export async function POST(request: NextRequest) {
       const CONCURRENCY = Math.min(30, Math.max(1, Math.floor(Number(body.concurrency) || 30)));
       // usePlaces：是否使用 Google 付費 API（Places 找店家 + CSE 搜尋）。預設開啟；前端可取消勾選以省費用。
       const usePlaces = body.usePlaces === undefined ? true : Boolean(body.usePlaces);
-      await emit({ type: "init", total: brands.length, skipped });
-      await emit({ type: "step", text: `開始採集 ${brands.length} 個品牌（${CONCURRENCY} 並行）${skipped > 0 ? `，已剃除 ${skipped} 個完整品牌` : ""}…` });
+      await emit({ type: "init", total: brands.length, skipped, skippedRecent });
+      const skipNote = [skipped > 0 ? `剃除 ${skipped} 個完整品牌` : "", skippedRecent > 0 ? `跳過 ${skippedRecent} 個 7 天內已試過` : ""].filter(Boolean).join("、");
+      await emit({ type: "step", text: `開始採集 ${brands.length} 個品牌（${CONCURRENCY} 並行，免費方法優先${usePlaces ? "、付費 API 備援" : ""}）${skipNote ? `，${skipNote}` : ""}…` });
 
       let enriched = 0;
       let doneCount = 0;
@@ -747,6 +794,8 @@ export async function POST(request: NextRequest) {
         const prefix = `[${idx + 1}/${brands.length}] `;
         try {
           const channels = await enrichBrand(supabase, id, name, emit, prefix, (brands[idx] as any).registered_name, usePlaces);
+          // 記錄採集時間（成功與否都記，供批次冷卻跳過用；必須 await，serverless 不保證未等待的寫入）
+          await supabase.from("brands").update({ last_enriched_at: new Date().toISOString() }).eq("id", id);
           doneCount++;
           if (channels.length > 0) {
             enriched++;

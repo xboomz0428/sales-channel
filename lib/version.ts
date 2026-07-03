@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "2.9.2";
+export const APP_VERSION = "2.9.3";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "2.9.3",
+    date: "2026-07-03",
+    title: "採集優化：免費方法一律優先、搜尋收社群、7 天冷卻、進度預估",
+    items: [
+      "免費優先：管道補齊順序重排——官網爬蟲→交叉搜尋→免 API 搜尋引擎→FB 頁面全部免費方法跑完，付費 Google(Places/CSE)只在勾選且仍缺時才當最後備援；原本漏網的『CSE 搜 FB 粉專』付費呼叫也一併關進開關",
+      "搜尋更強更快：DDG+Bing 改並行(原逐一等候最慢 12 秒→6 秒)；搜尋結果裡的 FB/IG/LINE 連結直接收為管道(小店常只有粉專沒官網，實測直接收到 FB+LINE)",
+      "名錄站過濾擴充：zhupiter/findhealthclinics/vymaps 等聚合目錄不再被誤認官網，並清除歷史誤存",
+      "7 天冷卻(migration 0027)：批次預設跳過 7 天內已試過但仍不完整的品牌，不再對查無結果的名單反覆空轉；可取消勾選強制全採",
+      "等待體驗：進度條加『每分鐘 X 筆・預估還需 X 分』，批次開始即顯示跳過統計",
+    ],
+  },
   {
     version: "2.9.2",
     date: "2026-07-02",

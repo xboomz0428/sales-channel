@@ -1825,8 +1825,11 @@ function GovBatchPanel({ industry, brandIds, onClose, onDone, concurrency, title
   const [doChannels, setDoChannels] = useState(!!thenChannels || !!channelsMode);
   // 是否使用 Google 付費 API（Places 找店家 + CSE 搜尋）。預設關閉以省費用，需要時再勾。
   const [usePlaces, setUsePlaces] = useState(false);
+  // 跳過 7 天內已採集過(但仍不完整)的品牌，避免對查無結果的名單反覆空轉。預設開啟。
+  const [skipRecent, setSkipRecent] = useState(true);
   // 進度：phase 名稱 + 全域完成數/總數（跨批次累計）
   const [prog, setProg] = useState<{ phase: string; done: number; total: number } | null>(null);
+  const startRef = useRef<number>(0);
   const [history, setHistory] = useState<RunRecord[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -1871,6 +1874,7 @@ function GovBatchPanel({ industry, brandIds, onClose, onDone, concurrency, title
     setResult(null);
     setSteps([]);
     setProg(null);
+    startRef.current = Date.now();
     const conc = concurrency || 30;
     let runId: string | null = null;
     try {
@@ -1919,7 +1923,7 @@ function GovBatchPanel({ industry, brandIds, onClose, onDone, concurrency, title
           const batch = ids.slice(i * BATCH, (i + 1) * BATCH);
           const base = i * BATCH;
           setSteps((prev) => [...prev, { type: "phase", text: `🔗 管道補齊 批次 ${i + 1}/${batches}（${batch.length} 筆）…` }].slice(-200));
-          const d = await streamNdjson("/api/enrich/channels", { brand_ids: batch, concurrency: conc, usePlaces },
+          const d = await streamNdjson("/api/enrich/channels", { brand_ids: batch, concurrency: conc, usePlaces, skipRecent },
             (done) => setProg({ phase: `${doGov ? "② " : ""}管道補齊${doGov ? "（2/2）" : ""}`, done: base + done, total: ids.length }));
           chEnriched += d?.enriched || 0;
         }
@@ -1976,37 +1980,60 @@ function GovBatchPanel({ industry, brandIds, onClose, onDone, concurrency, title
               </button>
             ))}
           </div>
-          {/* Places 付費 API 開關：只有做管道補齊時才有意義 */}
+          {/* 管道補齊選項：付費 API 備援開關 + 冷卻跳過 */}
           {doChannels && (
-            <button disabled={running} onClick={() => setUsePlaces(!usePlaces)}
-              style={{ width: "100%", textAlign: "left", padding: "9px 12px", marginBottom: 12, borderRadius: 10, cursor: running ? "default" : "pointer", border: `1.5px solid ${usePlaces ? "#C08A2D" : C.border}`, background: usePlaces ? "#FBF3E3" : C.surface }}>
-              <div style={{ fontSize: 12.5, fontWeight: 700, color: usePlaces ? "#B37A1E" : C.muted }}>
-                {usePlaces ? "☑" : "☐"} 💰 使用 Google 付費 API（Places 地圖 ＋ CSE 搜尋）
-              </div>
-              <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2, lineHeight: 1.5 }}>
-                {usePlaces
-                  ? "會呼叫 Google Places/CSE 找店家與聯絡資訊（每次呼叫計費，命中率最高）"
-                  : "不花錢：只用免費的搜尋引擎（Bing/DuckDuckGo）找官網＋爬官網補管道；有地址無官網的名單命中率較低"}
-              </div>
-            </button>
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              <button disabled={running} onClick={() => setUsePlaces(!usePlaces)}
+                style={{ flex: 1.4, textAlign: "left", padding: "9px 12px", borderRadius: 10, cursor: running ? "default" : "pointer", border: `1.5px solid ${usePlaces ? "#C08A2D" : C.border}`, background: usePlaces ? "#FBF3E3" : C.surface }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: usePlaces ? "#B37A1E" : C.muted }}>
+                  {usePlaces ? "☑" : "☐"} 💰 Google 付費 API 當備援
+                </div>
+                <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2, lineHeight: 1.5 }}>
+                  {usePlaces
+                    ? "一律先跑完免費方法（搜尋引擎/官網爬蟲/FB），還缺的才呼叫 Places/CSE（計費）"
+                    : "純免費：搜尋引擎(DDG+Bing 並行)找官網與 FB/IG/LINE ＋ 官網/粉專爬蟲"}
+                </div>
+              </button>
+              <button disabled={running} onClick={() => setSkipRecent(!skipRecent)}
+                style={{ flex: 1, textAlign: "left", padding: "9px 12px", borderRadius: 10, cursor: running ? "default" : "pointer", border: `1.5px solid ${skipRecent ? "#5B7C99" : C.border}`, background: skipRecent ? "#EDF2F6" : C.surface }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: skipRecent ? "#41637F" : C.muted }}>
+                  {skipRecent ? "☑" : "☐"} ⏳ 跳過 7 天內已試過
+                </div>
+                <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2, lineHeight: 1.5 }}>
+                  {skipRecent ? "近期查無結果的不重複空轉，批次更快" : "全部重採（含近期已試過的）"}
+                </div>
+              </button>
+            </div>
           )}
           <button onClick={run} disabled={running || (!doGov && !doChannels)} className="pressable"
             style={{ width: "100%", padding: 13, borderRadius: 12, border: "none", background: running || (!doGov && !doChannels) ? C.surf2 : "#7B6E99", color: running || (!doGov && !doChannels) ? C.muted : "white", fontWeight: 700, fontSize: 15, cursor: running ? "default" : "pointer" }}>
             {running ? <span><span className="spin" style={{ marginRight: 6 }}>↻</span>分批處理中，請保持頁面開啟…</span>
               : doGov && doChannels ? "🚀 開始超級比對（統編＋管道）" : doChannels ? "🔗 開始批次管道補齊" : doGov ? "🏛 開始批次工商登記比對" : "請先勾選至少一項"}
           </button>
-          {/* 即時進度條：跨批次累計 */}
-          {prog && (
-            <div style={{ marginTop: 10 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#7B6E99", fontWeight: 700, marginBottom: 4 }}>
-                <span>{prog.phase}</span>
-                <span style={{ fontVariantNumeric: "tabular-nums" }}>{prog.done.toLocaleString()} / {prog.total.toLocaleString()}（{prog.total ? Math.round((prog.done / prog.total) * 100) : 0}%）</span>
+          {/* 即時進度條：跨批次累計 + 速率/預估剩餘（等待不再是黑盒子） */}
+          {prog && (() => {
+            const elapsedSec = Math.max(1, (Date.now() - startRef.current) / 1000);
+            const rate = prog.done / elapsedSec; // 筆/秒
+            const remainSec = rate > 0 ? Math.round((prog.total - prog.done) / rate) : 0;
+            const fmtDur = (s: number) => s >= 3600 ? `${Math.floor(s / 3600)} 時 ${Math.floor((s % 3600) / 60)} 分` : s >= 60 ? `${Math.floor(s / 60)} 分 ${s % 60} 秒` : `${s} 秒`;
+            return (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#7B6E99", fontWeight: 700, marginBottom: 4 }}>
+                  <span>{prog.phase}</span>
+                  <span style={{ fontVariantNumeric: "tabular-nums" }}>{prog.done.toLocaleString()} / {prog.total.toLocaleString()}（{prog.total ? Math.round((prog.done / prog.total) * 100) : 0}%）</span>
+                </div>
+                <div style={{ height: 8, borderRadius: 4, background: "#E4DEF0", overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${prog.total ? Math.round((prog.done / prog.total) * 100) : 0}%`, background: "linear-gradient(90deg,#7B6E99,#5B7C99)", borderRadius: 4, transition: "width 250ms" }} />
+                </div>
+                {prog.done > 0 && prog.done < prog.total && (
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.muted, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>
+                    <span>每分鐘約 {Math.round(rate * 60).toLocaleString()} 筆</span>
+                    <span>預估還需 {fmtDur(remainSec)}</span>
+                  </div>
+                )}
               </div>
-              <div style={{ height: 8, borderRadius: 4, background: "#E4DEF0", overflow: "hidden" }}>
-                <div style={{ height: "100%", width: `${prog.total ? Math.round((prog.done / prog.total) * 100) : 0}%`, background: "linear-gradient(90deg,#7B6E99,#5B7C99)", borderRadius: 4, transition: "width 250ms" }} />
-              </div>
-            </div>
-          )}
+            );
+          })()}
           {steps.length > 0 && (
             <div ref={logRef} style={{ marginTop: 12, maxHeight: 340, overflowY: "auto", background: "#0e1a11", borderRadius: 10, padding: "10px 14px", fontFamily: "monospace", fontSize: 12, lineHeight: 1.75 }}>
               {steps.map((s, i) => (
