@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "3.1.0";
+export const APP_VERSION = "3.1.1";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.1.1",
+    date: "2026-07-03",
+    title: "系統體檢：統計層大幅加速＋安全一致性修正",
+    items: [
+      "效能：brand_channels 加 (channel, brand_id) 複合索引、stores 加 phone/website partial 索引 → 統計層(overview/gaps)、收件名單、語音匯出的 EXISTS/過濾全改走索引；實測 brands_overview 3.0s→1.3s、缺管道統計(gaps) 由逾時邊緣→0.6s (migration 0032)",
+      "清掉失效索引：brand_channels 舊 partial 索引用 channel='EM'(實際值是 'email' 從未命中)已移除；store_reviews 重複索引移除，降低寫入負擔",
+      "安全一致性：7 張未啟用 RLS 的表(voice_calls/phone_dnc/outreach_flows/daily_metrics/product_categories/industry_groups/dashboard_cache)補上 RLS 與全庫一致的政策；2 個統計 RPC 函式鎖定 search_path (migration 0033)",
+      "已檢視：其餘 dev 全開政策與 SECURITY DEFINER view 屬開發期既定狀態，待日後導入使用者驗證(Auth)再一併收斂，本次不動以免影響現有運作",
+      "build 與型別檢查全通過；受影響端點實測皆正常",
+    ],
+  },
   {
     version: "3.1.0",
     date: "2026-07-03",
