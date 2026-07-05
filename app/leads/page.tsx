@@ -813,7 +813,7 @@ function BrandDrawer({
   const pipeline = b.est_annual && b.probability ? Math.round((b.est_annual * b.probability) / 100) : null;
   const [logs, setLogs] = useState<OutreachLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
-  const [enriching, setEnriching] = useState<"channels" | "places" | null>(null);
+  const [enriching, setEnriching] = useState<"channels" | "places" | "gov" | "all" | null>(null);
   const [enrichMsg, setEnrichMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [enrichLines, setEnrichLines] = useState<{ ok?: boolean; text: string }[]>([]);
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -831,53 +831,55 @@ function BrandDrawer({
       .finally(() => setLogsLoading(false));
   }, [b.id]);
 
-  const enrich = async (type: "channels" | "places") => {
+  // 單一來源採集（串流），回傳 done 摘要文字或 null
+  const runOne = async (type: "channels" | "places" | "gov"): Promise<string | null> => {
+    const endpoint = type === "gov" ? "/api/gov/lookup" : type === "channels" ? "/api/enrich/channels" : "/api/enrich/places";
+    const res = await fetch(endpoint, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ brand_id: b.id }),
+    });
+    if (!res.body) throw new Error("不支援串流");
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = ""; let summary: string | null = null; let hadError = false;
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const parts = buf.split("\n"); buf = parts.pop() ?? "";
+      for (const line of parts) {
+        if (!line.trim()) continue;
+        try {
+          const msg = JSON.parse(line) as { type: string; ok?: boolean; text?: string; data?: Record<string, unknown> };
+          if (msg.type === "step") setEnrichLines((p) => [...p, { text: msg.text ?? "" }]);
+          else if (msg.type === "store") setEnrichLines((p) => [...p, { ok: msg.ok, text: msg.text ?? "" }]);
+          else if (msg.type === "done") {
+            const d = msg.data || {};
+            summary = type === "gov" ? `工商比對：統編寫入 ${d.matched ?? 0}${(d.low_confidence as number) ? `、待確認 ${d.low_confidence}` : ""}`
+              : type === "channels" ? `管道補齊：${d.enriched ?? 0}/${d.total ?? 0} 取得管道`
+              : `Google Maps：${d.updated ?? d.enriched ?? 0}/${d.total ?? 0} 門市更新`;
+          } else if (msg.type === "error") { hadError = true; setEnrichLines((p) => [...p, { ok: false, text: msg.text ?? "採集失敗" }]); }
+        } catch { /* 略過非 JSON 行 */ }
+      }
+    }
+    if (hadError && !summary) return null;
+    return summary;
+  };
+
+  const enrich = async (type: "channels" | "places" | "gov" | "all") => {
     setEnriching(type);
     setEnrichMsg(null);
     setEnrichLines([]);
     try {
-      const endpoint = type === "channels" ? "/api/enrich/channels" : "/api/enrich/places";
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brand_id: b.id }),
-      });
-      if (!res.body) throw new Error("不支援串流");
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      let gotDone = false;
-      let hadError = false;
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const parts = buf.split("\n");
-        buf = parts.pop() ?? "";
-        for (const line of parts) {
-          if (!line.trim()) continue;
-          try {
-            const msg = JSON.parse(line) as { type: string; ok?: boolean; text?: string; data?: Record<string, unknown> };
-            if (msg.type === "step") {
-              setEnrichLines((p) => [...p, { text: msg.text ?? "" }]);
-            } else if (msg.type === "store") {
-              setEnrichLines((p) => [...p, { ok: msg.ok, text: msg.text ?? "" }]);
-            } else if (msg.type === "done") {
-              gotDone = true;
-              const d = msg.data || {};
-              const summary = type === "channels"
-                ? `完成：${d.enriched ?? 0}/${d.total ?? 0} 個品牌取得管道資料`
-                : `完成：${d.updated ?? d.enriched ?? 0}/${d.total ?? 0} 間門市已更新`;
-              setEnrichMsg({ ok: true, text: summary });
-              onEnriched?.(b.id);
-            } else if (msg.type === "error") {
-              hadError = true;
-              setEnrichMsg({ ok: false, text: msg.text ?? "採集失敗" });
-            }
-          } catch { /* 略過非 JSON 行 */ }
-        }
+      const seq: ("gov" | "channels" | "places")[] = type === "all" ? ["gov", "channels", "places"] : [type];
+      const results: string[] = [];
+      for (const t of seq) {
+        if (type === "all") setEnrichLines((p) => [...p, { text: `── ${t === "gov" ? "工商比對" : t === "channels" ? "管道補齊" : "Google Maps"} ──` }]);
+        const s = await runOne(t);
+        if (s) results.push(s);
       }
-      if (!gotDone && !hadError) onEnriched?.(b.id);
+      setEnrichMsg(results.length ? { ok: true, text: results.join("；") } : { ok: false, text: "採集未取得新資料" });
+      onEnriched?.(b.id);
     } catch (e) {
       setEnrichMsg({ ok: false, text: e instanceof Error ? e.message : "網路錯誤" });
     } finally {
@@ -1008,6 +1010,14 @@ function BrandDrawer({
           {/* 採集工具 */}
           <DrawerSection label="採集工具">
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: (enrichLines.length > 0 || enrichMsg) ? 10 : 0 }}>
+              <button onClick={() => enrich("all")} disabled={!!enriching} className="pressable"
+                style={{ padding: "7px 14px", borderRadius: 9, border: "none", background: C.primary, color: "white", fontSize: 12, fontWeight: 700, cursor: enriching ? "default" : "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+                {enriching === "all" ? <><span className="spin" style={{ display: "inline-block" }}>↻</span> 全部採集中…</> : "🚀 一鍵全部採集"}
+              </button>
+              <button onClick={() => enrich("gov")} disabled={!!enriching} className="pressable"
+                style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surf2, color: C.muted, fontSize: 12, fontWeight: 600, cursor: enriching ? "default" : "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+                {enriching === "gov" ? <><span className="spin" style={{ display: "inline-block" }}>↻</span> 比對中…</> : "🏛 工商比對（統編）"}
+              </button>
               <button onClick={() => enrich("channels")} disabled={!!enriching} className="pressable"
                 style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid ${C.primary}60`, background: C.p50, color: C.primary, fontSize: 12, fontWeight: 600, cursor: enriching ? "default" : "pointer", display: "flex", alignItems: "center", gap: 5 }}>
                 {enriching === "channels" ? <><span className="spin" style={{ display: "inline-block" }}>↻</span> 採集中…</> : "🔗 採集官網管道"}

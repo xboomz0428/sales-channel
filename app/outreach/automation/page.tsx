@@ -117,6 +117,14 @@ export default function AutomationPage() {
         排定在 8 點之後的時間，會等到<b>隔天早上 8 點</b>才寄出。
       </div>
 
+      <a href="/outreach/flows" className="flowcta">
+        <div>
+          <div className="fctatitle">⇥ 用「自訂自動化流程」更快設計序列</div>
+          <div className="fctasub">一頁把多封 email 內容直接寫好、自動串接寄送，不用先到編輯器建模板再回來設規則。</div>
+        </div>
+        <span className="fctago">前往 →</span>
+      </a>
+
       {/* 自動化流程範本：說明 + 一鍵套用 */}
       <section className="panel">
         <div className="phead"><strong>⚡ 自動化流程範本</strong><span className="count">選流程一鍵啟用</span></div>
@@ -252,6 +260,11 @@ export default function AutomationPage() {
         .muted { color: #9a9384; }
         .small { font-size: 12px; line-height: 1.6; }
         .cronnote { background: #fdf4e3; border: 1px solid #e8dcae; color: #8a6d1f; border-radius: 10px; padding: 10px 14px; font-size: 12.5px; line-height: 1.7; margin-bottom: 14px; }
+        .flowcta { display: flex; align-items: center; gap: 12px; text-decoration: none; background: #eef0e6; border: 1px solid #cdd6bf; border-radius: 12px; padding: 12px 16px; margin-bottom: 16px; }
+        .flowcta:hover { background: #e6ebda; }
+        .fctatitle { font-size: 14px; font-weight: 700; color: #3f6b3f; }
+        .fctasub { font-size: 12px; color: #6e7a6d; margin-top: 3px; line-height: 1.6; }
+        .fctago { margin-left: auto; font-size: 13px; font-weight: 700; color: #4a6b3f; white-space: nowrap; }
         .panel { background: #fffdf8; border: 1px solid #e3ded3; border-radius: 14px; padding: 16px; margin-bottom: 16px; }
         .phead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
         .count { font-size: 12px; background: #eef0e6; color: #4a6b3f; padding: 3px 10px; border-radius: 999px; }

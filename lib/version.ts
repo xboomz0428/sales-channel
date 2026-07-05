@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "3.0.1";
+export const APP_VERSION = "3.1.0";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.1.0",
+    date: "2026-07-03",
+    title: "自訂自動化流程（內嵌模板編輯器）＋單客戶採集工具",
+    items: [
+      "新增「自動化流程」頁：一頁設計多封 email 序列，每『新增一封』就直接顯示內嵌編輯器（主旨＋富文字），不用先到編輯器建模板再回來設規則；動線與視覺更簡單",
+      "存檔即自動建立各封模板並串接成跟進規則（第 1 封寄出→依「N 天後未開信/未回覆」自動接續），沿用既有每天 8AM cron 執行，無需另設 (migration 0031 outreach_flows)",
+      "流程可啟用/停用/刪除（連動其規則）；重新編輯會回填每封的原始內容（存於 blocks_json，寄送版另包 email 外框，避免重複包裝）",
+      "單一客戶詳細頁採集工具補齊：新增『🏛 工商比對（統編）』與『🚀 一鍵全部採集』（工商→管道→地圖依序跑），與比對中心一致",
+      "優化：流程的跟進步驟模板（第 2 封起）自動從手動模板選單隱藏（只留入口信），避免誤手動寄出；自動化總覽頁加入前往自訂流程的引導",
+    ],
+  },
   {
     version: "3.0.1",
     date: "2026-07-03",

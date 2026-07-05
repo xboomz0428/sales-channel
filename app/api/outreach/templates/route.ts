@@ -22,6 +22,9 @@ export async function GET(req: Request) {
     if (channel) q = q.eq('channel', channel);
     if (industry) q = q.eq('industry', industry);
     if (language) q = q.eq('language', language);
+    // 預設隱藏「自訂流程的跟進步驟（第 2 封起）」——它們由流程自動寄送，不該出現在手動模板選單。
+    // 入口信（flow_step=0）與一般模板（flow_step=null）保留；?includeFlowSteps=1 可全顯示。
+    if (url.searchParams.get('includeFlowSteps') !== '1') q = q.or('flow_step.is.null,flow_step.eq.0');
 
     const { data, error } = await q;
     if (error) throw error;
