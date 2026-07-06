@@ -2,16 +2,21 @@ import { createClient } from "@supabase/supabase-js";
 import { cleanEnv } from "@/lib/env";
 
 // 伺服器端客戶端（用於 API Routes）
-// 優先用 Service Role Key（繞過 RLS，供已用登入把關的後端使用）；未設定時退回 anon key。
-// 導入登入 + 收斂 RLS 後，正式環境務必設定 SUPABASE_SERVICE_ROLE_KEY，否則 anon 會被 RLS 擋下。
+// 預設用 anon key（RLS 目前全開，anon 可讀寫，最穩）。
+// 只有「明確設定 USE_SERVICE_ROLE=1 且 service key 存在」時才改用 service_role——
+// 這樣即使 Vercel 誤設了錯的 SUPABASE_SERVICE_ROLE_KEY 也不會悄悄把讀取全擋掉。
+// 未來要收斂 RLS：先設好正確的 service key，再設 USE_SERVICE_ROLE=1，最後才套用 RLS 鎖定 migration。
 export function getSupabaseServerClient() {
   const supabaseUrl =
     cleanEnv("NEXT_PUBLIC_SUPABASE_URL") ||
     cleanEnv("SUPABASE_URL");
-  const key =
-    cleanEnv("SUPABASE_SERVICE_ROLE_KEY") ||
+  const anonKey =
     cleanEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY") ||
     cleanEnv("SUPABASE_ANON_KEY");
+  const serviceKey = cleanEnv("SUPABASE_SERVICE_ROLE_KEY");
+  const preferService = cleanEnv("USE_SERVICE_ROLE") === "1";
+
+  const key = (preferService && serviceKey) ? serviceKey : (anonKey || serviceKey);
 
   if (!supabaseUrl || !key) {
     throw new Error("Supabase 環境變數未設定");

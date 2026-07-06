@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "3.3.0";
+export const APP_VERSION = "3.3.1";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.3.1",
+    date: "2026-07-06",
+    title: "修正正式站讀不到資料（後端連線改回 anon 優先）",
+    items: [
+      "根因：v3.2.0 把後端連線改成『優先 service_role』。若 Vercel 誤設了錯的 SUPABASE_SERVICE_ROLE_KEY，後端就用了壞金鑰 → 查詢全回空 → 儀表板/名單全 0（RLS 其實仍全開、資料都在）",
+      "改為預設用 anon key（RLS 全開下最穩）；只有明確設定環境變數 USE_SERVICE_ROLE=1 且 service key 正確時，才改用 service_role——避免壞金鑰悄悄擋掉全部讀取",
+      "本機實測：overview 回 63,257 筆、儀表板正常；部署後正式站資料即回復",
+      "未來收斂 RLS 的正確順序：①設正確 service key ②設 USE_SERVICE_ROLE=1 ③確認 app 正常 ④才套用 0034 RLS 鎖定",
+    ],
+  },
   {
     version: "3.3.0",
     date: "2026-07-06",
