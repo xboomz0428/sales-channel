@@ -394,6 +394,9 @@ async function findPlaceForBrand(name: string, address: string, apiKey: string):
   } catch { return null; }
 }
 
+// 方法級效率量測：每個方法記 ran(是否執行)、hits(是否補到新管道 0/1)、found(補到幾個)、ms
+type MethodMetric = { method: string; ran: boolean; hits: number; found: number; ms: number };
+
 async function enrichBrand(
   supabase: SupabaseServerClient,
   brandId: string,
@@ -401,8 +404,19 @@ async function enrichBrand(
   emit: (obj: Record<string, unknown>) => Promise<void>,
   prefix: string,
   registeredName?: string | null,
-  usePlaces: boolean = true
+  usePlaces: boolean = true,
+  suppressed?: Set<string>,          // 該產業歷史命中率過低 → 跳過的方法
+  metricsOut?: MethodMetric[]        // 收集本品牌各方法的量測
 ): Promise<string[]> {
+  // 量測小工具：以 added.length 前後差判斷是否命中，記錄耗時。skip() 判斷是否被自動抑制。
+  const _mstart: Record<string, { t: number; b: number }> = {};
+  const mBegin = (m: string) => { _mstart[m] = { t: Date.now(), b: added.length }; };
+  const mEnd = (m: string, ran: boolean) => {
+    const s = _mstart[m];
+    const found = ran && s ? Math.max(0, added.length - s.b) : 0;
+    metricsOut?.push({ method: m, ran, hits: found > 0 ? 1 : 0, found, ms: ran && s ? Date.now() - s.t : 0 });
+  };
+  const skip = (m: string) => suppressed?.has(m) === true;
   // 載入門市資料 + 現有管道（判斷缺失）
   const [{ data: stores }, { data: existingChannels }] = await Promise.all([
     supabase.from("stores").select("id, phone, website, gmaps_url, name, address").eq("brand_id", brandId).limit(5),
@@ -491,7 +505,8 @@ async function enrichBrand(
 
   // ── 2.5 交叉搜尋：用「已登陸的管道」互找「還沒登陸的管道」（先做，能省下 Google API）──
   // 例：已有 FB → 爬 FB 找 IG/電話/Email/LINE/地址；已有 IG/官網 → 互相補齊。
-  {
+  mBegin("cross_search");
+  if (!skip("cross_search")) {
     const knownPages: { label: string; url: string }[] = [];
     const seenUrl = new Set<string>();
     const pushUrl = (label: string, url?: string | null) => {
@@ -519,10 +534,13 @@ async function enrichBrand(
       if (newFound.length) await emit({ type: "step", text: `${prefix}交叉搜尋從 ${pg.label} 補到 ${newFound.map(([c]) => c).join("、")}` });
     }
   }
+  mEnd("cross_search", !skip("cross_search"));
 
   // ── 2.6 免 API 搜尋引擎（免費）：DDG+Bing 並行找官網＋FB/IG/LINE ─────────
   // 政府匯入、無官網的品牌靠這步；小店常只有粉專沒官網，搜尋結果的社群連結也一併收下。
-  if (!have.has("website") && TARGET_CHANNELS.some((ch) => !have.has(ch))) {
+  const _gSearch = !have.has("website") && TARGET_CHANNELS.some((ch) => !have.has(ch)) && !skip("search_engine");
+  mBegin("search_engine");
+  if (_gSearch) {
     let noApi: NoApiHit | null = null;
     for (const sn of searchNames) {
       await emit({ type: "step", text: `${prefix}搜尋引擎找官網/社群「${sn}」…` });
@@ -554,6 +572,7 @@ async function enrichBrand(
       await emit({ type: "step", text: `${prefix}搜尋引擎找不到官網/社群` });
     }
   }
+  mEnd("search_engine", _gSearch);
 
   // ── 2.8 免費方法都補完後才輪到付費：Google Places（勾選才用）──────────────
   // 有地址但免費方法沒補齊時，用 Places 找店家（電話/地圖/官網），找到官網就接著爬。
@@ -652,7 +671,9 @@ async function enrichBrand(
 
   // ── 4. Facebook 頁面抓取（爬粉專本身免費；用 CSE「搜」粉專是付費，勾選才用）──
   const stillMissing2 = TARGET_CHANNELS.filter((ch) => !have.has(ch));
-  if (stillMissing2.length > 0) {
+  const _gFb = stillMissing2.length > 0 && !skip("fb");
+  mBegin("fb");
+  if (_gFb) {
     // FB 來源優先序：既有管道 → 本次免 API 搜尋收到的 → （付費）CSE 搜尋
     const { data: fbNow } = await supabase.from("brand_channels").select("value").eq("brand_id", brandId).eq("channel", "fb").maybeSingle();
     let fbUrl: string | null = fbNow?.value || (existingChannels || []).find((c) => c.channel === "fb")?.value || null;
@@ -701,10 +722,13 @@ async function enrichBrand(
       }
     }
   }
+  mEnd("fb", _gFb);
 
   // ── 5. 網域推測 Email（免費，最後手段）───────────────────────────────────
   // 有官網網域卻爬不到 email → 試 info@/contact@ 等通用信箱，網域有 MX 才寫入（標記為推測）。
-  if (!have.has("email")) {
+  const _gEmailGuess = !have.has("email") && !skip("email_guess");
+  mBegin("email_guess");
+  if (_gEmailGuess) {
     const { data: webCh } = await supabase.from("brand_channels").select("value").eq("brand_id", brandId).eq("channel", "website").maybeSingle();
     const siteForGuess = webCh?.value || website || null;
     if (siteForGuess) {
@@ -716,6 +740,7 @@ async function enrichBrand(
       }
     }
   }
+  mEnd("email_guess", _gEmailGuess);
 
   // 回傳本次新增的管道（排除原本就有的）
   const existSet = new Set((existingChannels || []).map((c) => c.channel));
@@ -768,12 +793,12 @@ export async function POST(request: NextRequest) {
       } else if (Array.isArray(body.brand_ids) && body.brand_ids.length > 0) {
         isBatch = true;
         const ids = (body.brand_ids as string[]).slice(0, 500);
-        const { data } = await supabase.from("brands").select("id, name, registered_name, last_enriched_at, enrich_state, brand_channels(channel)").in("id", ids);
+        const { data } = await supabase.from("brands").select("id, name, registered_name, industry, country, last_enriched_at, enrich_state, brand_channels(channel)").in("id", ids);
         brands = data || [];
       } else if (body.all) {
         isBatch = true;
         const industry = body.industry ? String(body.industry) : null;
-        let q = supabase.from("brands").select("id, name, registered_name, last_enriched_at, enrich_state, brand_channels(channel)").limit(100000);
+        let q = supabase.from("brands").select("id, name, registered_name, industry, country, last_enriched_at, enrich_state, brand_channels(channel)").limit(100000);
         if (industry) q = q.ilike("industry", `%${industry}%`);
         const { data } = await q;
         brands = data || [];
@@ -827,12 +852,46 @@ export async function POST(request: NextRequest) {
       let doneCount = 0;
       let autoMasked = 0;
 
+      // ── 自動成長：依歷史效率抑制「該產業命中率過低」的方法（門檻：嘗試≥30 且命中率<2%）──
+      const SUPPRESSIBLE = ["cross_search", "search_engine", "fb", "email_guess"];
+      const suppressedByIndustry = new Map<string, Set<string>>();
+      try {
+        const inds = [...new Set(brands.map((b) => (b as any).industry).filter(Boolean))] as string[];
+        if (inds.length) {
+          const { data: st } = await supabase.from("collection_method_stats")
+            .select("method, industry, attempts, hits").in("industry", inds).in("method", SUPPRESSIBLE);
+          for (const r of st || []) {
+            if ((r.attempts || 0) >= 30 && (r.hits || 0) / (r.attempts || 1) < 0.02) {
+              const s = suppressedByIndustry.get(r.industry) || new Set<string>();
+              s.add(r.method); suppressedByIndustry.set(r.industry, s);
+            }
+          }
+        }
+      } catch { /* 效率表讀取失敗 → 不抑制，照跑 */ }
+      // 本批各方法效率累計（(method|industry|country) → 嘗試/命中/補到數/耗時）
+      const statAcc = new Map<string, { attempts: number; hits: number; channels: number; ms: number }>();
+      let suppressedRuns = 0;
+
       // 平行處理：分批並行，每批 CONCURRENCY 個同時跑
       const processBrand = async (idx: number) => {
+        const b = brands[idx] as any;
         const { id, name } = brands[idx];
         const prefix = `[${idx + 1}/${brands.length}] `;
         try {
-          const channels = await enrichBrand(supabase, id, name, emit, prefix, (brands[idx] as any).registered_name, usePlaces);
+          const bIndustry = b.industry || "未分類";
+          const bCountry = b.country || "TW";
+          const suppressed = suppressedByIndustry.get(b.industry);
+          const metrics: MethodMetric[] = [];
+          const channels = await enrichBrand(supabase, id, name, emit, prefix, b.registered_name, usePlaces, suppressed, metrics);
+          // 累計方法效率（供自動成長與儀表板）
+          for (const m of metrics) {
+            if (suppressed?.has(m.method)) suppressedRuns++;
+            if (!m.ran) continue;
+            const key = `${m.method}|${bIndustry}|${bCountry}`;
+            const a = statAcc.get(key) || { attempts: 0, hits: 0, channels: 0, ms: 0 };
+            a.attempts++; a.hits += m.hits; a.channels += m.found; a.ms += m.ms;
+            statAcc.set(key, a);
+          }
           // 採後判斷：是否已取得「電話或 Email」任一（使用者主要目標）
           const { data: after } = await supabase.from("brand_channels").select("channel").eq("brand_id", id).in("channel", ["phone", "email"]);
           const hasContact = (after || []).length > 0;
@@ -874,7 +933,15 @@ export async function POST(request: NextRequest) {
         else tryNext();
       });
 
-      await emit({ type: "done", data: { total: brands.length, enriched, skipped, autoMasked } });
+      // 寫回方法級效率（原子增量 RPC），供下次自動抑制與儀表板
+      for (const [key, a] of statAcc) {
+        const [method, industry, country] = key.split("|");
+        await supabase.rpc("bump_method_stats", {
+          p_method: method, p_industry: industry, p_country: country,
+          p_attempts: a.attempts, p_hits: a.hits, p_channels: a.channels, p_ms: a.ms,
+        }).then(() => {}, () => {});
+      }
+      await emit({ type: "done", data: { total: brands.length, enriched, skipped, autoMasked, suppressedRuns } });
     } catch (e) {
       await emit({ type: "error", text: e instanceof Error ? e.message : "採集失敗" });
     } finally {

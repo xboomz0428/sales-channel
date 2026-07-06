@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "3.2.1";
+export const APP_VERSION = "3.3.0";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.3.0",
+    date: "2026-07-06",
+    title: "採集自動成長 P1：方法級效率記錄＋自動抑制無效方法",
+    items: [
+      "新增方法級效率記錄(migration 0035 collection_method_stats)：每個『方法×產業×國家』累積嘗試/命中/命中率/耗時，原子增量 RPC 寫入",
+      "採集引擎埋點：交叉搜尋、免API搜尋、FB、Email 網域推測四個免費方法逐一量測；每次批次採集自動累積",
+      "自動成長：某產業某方法『嘗試≥30 且命中率<2%』→ 之後批次自動跳過該方法，不再空轉(實測：交叉搜尋達門檻後 3 個品牌全數跳過)",
+      "比對中心批次面板新增『📈 方法效率』：各方法命中率長條排行＋平均耗時＋已自動抑制清單；可依產業聚焦",
+      "新增 GET /api/collection-stats；此為採集自動成長路線圖 P1，後續 P2/P3 依此數據做動態方法重排",
+    ],
+  },
   {
     version: "3.2.1",
     date: "2026-07-03",

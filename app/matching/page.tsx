@@ -1849,12 +1849,20 @@ function GovBatchPanel({ industry, brandIds, onClose, onDone, concurrency, title
   const [prog, setProg] = useState<{ phase: string; done: number; total: number } | null>(null);
   const startRef = useRef<number>(0);
   const [history, setHistory] = useState<RunRecord[]>([]);
+  const [methodStats, setMethodStats] = useState<{ method: string; label: string; attempts: number; hits: number; hitRate: number; avgMs: number }[]>([]);
+  const [suppressed, setSuppressed] = useState<{ industry: string; method: string; attempts: number }[]>([]);
+  const [statsOpen, setStatsOpen] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
 
   const loadHistory = () => {
     fetch("/api/collection-runs").then((r) => r.json()).then((d) => { if (d.success) setHistory(d.data || []); }).catch(() => {});
   };
+  const loadMethodStats = () => {
+    const q = industry ? `?industry=${encodeURIComponent(industry)}` : "";
+    fetch(`/api/collection-stats${q}`).then((r) => r.json()).then((d) => { if (d.success) { setMethodStats(d.methods || []); setSuppressed(d.suppressed || []); } }).catch(() => {});
+  };
   useEffect(loadHistory, []);
+  useEffect(loadMethodStats, [industry]);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -1950,6 +1958,7 @@ function GovBatchPanel({ industry, brandIds, onClose, onDone, concurrency, title
       if (doGov) parts.push(`統編寫入 ${govMatched} 筆（${govLow} 待確認、${Math.max(ids.length - govMatched - govLow, 0)} 查無）`);
       if (doChannels) parts.push(`補到管道 ${chEnriched} 個品牌`);
       setResult({ ok: true, text: `完成 ${ids.length.toLocaleString()} 筆　·　${parts.join("　·　")}` });
+      if (doChannels) loadMethodStats(); // 採集後刷新方法效率
       // 更新採集紀錄
       if (runId) {
         await fetch("/api/collection-runs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: runId, status: "done", succeeded: doChannels && !doGov ? chEnriched : govMatched, pending: govLow, failed: doGov ? Math.max(ids.length - govMatched - govLow, 0) : Math.max(ids.length - chEnriched, 0), detail: { govMatched, govLow, chEnriched } }) }).catch(() => {});
@@ -2092,6 +2101,35 @@ function GovBatchPanel({ industry, brandIds, onClose, onDone, concurrency, title
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {/* 方法效率（自動成長）：各採集方法命中率排行 + 自動抑制清單 */}
+          {methodStats.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <button onClick={() => setStatsOpen((v) => !v)} style={{ border: "none", background: "none", cursor: "pointer", padding: 0, fontSize: 12, fontWeight: 700, color: C.muted }}>
+                📈 方法效率{industry ? `·${industry}` : "（全部）"} {statsOpen ? "▲" : "▼"}
+              </button>
+              {statsOpen && (
+                <div style={{ marginTop: 8, background: C.surf2, borderRadius: 10, padding: "10px 12px" }}>
+                  <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 8, lineHeight: 1.5 }}>命中率＝有補到管道的比例。系統會自動跳過「該產業嘗試≥30 次、命中率&lt;2%」的方法，越跑越省。</div>
+                  {methodStats.map((m) => (
+                    <div key={m.method} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, padding: "3px 0" }}>
+                      <span style={{ width: 88, flexShrink: 0, color: C.text }}>{m.label}</span>
+                      <div style={{ flex: 1, height: 7, borderRadius: 4, background: "#E4DEF0", overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${Math.min(100, m.hitRate)}%`, background: m.hitRate >= 20 ? "#2D7D46" : m.hitRate >= 5 ? "#A6824A" : "#A66A4F", borderRadius: 4 }} />
+                      </div>
+                      <span style={{ width: 42, textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums", color: C.text, fontWeight: 700 }}>{m.hitRate}%</span>
+                      <span style={{ width: 78, textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums", color: C.muted, fontSize: 11 }}>{m.hits}/{m.attempts}·{(m.avgMs / 1000).toFixed(1)}s</span>
+                    </div>
+                  ))}
+                  {suppressed.length > 0 && (
+                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${C.border}`, fontSize: 11, color: C.muted, lineHeight: 1.6 }}>
+                      🚫 已自動抑制：{suppressed.map((s) => `${s.industry}·${s.method}`).join("、")}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
