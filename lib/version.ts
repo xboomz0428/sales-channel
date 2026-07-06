@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "3.1.1";
+export const APP_VERSION = "3.2.0";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.2.0",
+    date: "2026-07-03",
+    title: "使用者登入驗證 ＋ RLS 收斂（分段安全上線）",
+    items: [
+      "新增共用密碼登入：proxy(前 middleware) 擋所有頁面與 API，未登入導去 /login；session 為 HMAC 簽章的 httpOnly cookie（Edge 相容、7 天效期）",
+      "公開端點正確排除不擋：郵件開信/點擊追蹤、Vercel cron、語音 webhook、登入 API、靜態資源",
+      "未設定 APP_PASSWORD 時登入自動停用（開發期不受影響）；設定後即啟用。側欄新增『登出』",
+      "後端 Supabase 連線改『優先 service_role』（未設定時仍退回 anon，不影響現況），為收斂 RLS 鋪路",
+      "RLS 收斂 migration 已備妥為手動檔 0034_rls_lockdown_MANUAL.sql（含前置條件與回復語法）：待 Vercel 設好 SUPABASE_SERVICE_ROLE_KEY 並確認 app 正常後再套用，把全開政策改為僅 service_role，讓 anon key 無法直接讀取 CRM",
+    ],
+  },
   {
     version: "3.1.1",
     date: "2026-07-03",

@@ -113,10 +113,17 @@ export default function Sidebar() {
           >
             <span style={{ color: "white", fontSize: 13, fontWeight: 700 }}>W</span>
           </div>
-          <div>
+          <div style={{ flex: 1 }}>
             <div style={{ color: "rgba(255,255,255,.88)", fontSize: 13, fontWeight: 500 }}>Wei</div>
             <div style={{ color: "rgba(255,255,255,.62)", fontSize: 11 }}>創辦人</div>
           </div>
+          <button
+            onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); window.location.href = "/login"; }}
+            title="登出"
+            style={{ border: "none", background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.7)", fontSize: 11, cursor: "pointer", padding: "5px 10px", borderRadius: 8, flexShrink: 0 }}
+          >
+            登出
+          </button>
         </div>
         <button
           onClick={() => setShowLog(true)}
