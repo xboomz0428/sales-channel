@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "3.2.0";
+export const APP_VERSION = "3.2.1";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.2.1",
+    date: "2026-07-03",
+    title: "新增 5 個官方採集來源（藥局／幼兒園／托嬰／美妝／食品業者）",
+    items: [
+      "藥局（健保特約）：單一全國檔、一鍵匯入，實測解析 8,436 家含電話/地址——賣草本/保健品的首要 B2B 通路",
+      "幼兒園 / 教保機構、托嬰中心：各縣市各自公布，來源指向 data.gov.tw 搜尋頁，取縣市 CSV 貼上或填網址匯入（欄位自動對應）",
+      "化粧品業者、食品業者登錄（非登不可）：食藥署開放資料平台(data.fda.gov.tw)，含統編/地址，B2B 對口買家",
+      "皆走既有匯入引擎（去重、統編等工商欄位寫入、可貼上 CSV 備援）；新產業自動出現在名單/比對中心篩選",
+      "自動成長效率規畫：下一階段 P1 建『方法級效率記錄(collection_method_stats)』——記每方法×產業×國家的命中率/耗時/成本，讓引擎依歷史動態重排採集順序、越跑越省",
+    ],
+  },
   {
     version: "3.2.0",
     date: "2026-07-03",
