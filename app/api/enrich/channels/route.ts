@@ -841,7 +841,8 @@ export async function POST(request: NextRequest) {
       // 預設 30 線並行；可由 body.concurrency 指定，上限 30
       const CONCURRENCY = Math.min(30, Math.max(1, Math.floor(Number(body.concurrency) || 30)));
       // usePlaces：是否使用 Google 付費 API（Places 找店家 + CSE 搜尋）。預設開啟；前端可取消勾選以省費用。
-      const usePlaces = body.usePlaces === undefined ? true : Boolean(body.usePlaces);
+      // 嚴格 opt-in：Google Places/CSE(付費) 預設「關閉」，只有前端明確勾選才用，避免帳單爆掉。
+      const usePlaces = body.usePlaces === true;
       await emit({ type: "init", total: brands.length, skipped, skippedRecent, skippedMasked });
       const skipNote = [skipped > 0 ? `剃除 ${skipped} 個完整品牌` : "", skippedMasked > 0 ? `跳過 ${skippedMasked} 個已遮蔽` : "", skippedRecent > 0 ? `跳過 ${skippedRecent} 個 7 天內已試過` : ""].filter(Boolean).join("、");
       await emit({ type: "step", text: `開始採集 ${brands.length} 個品牌（${CONCURRENCY} 並行，免費方法優先${usePlaces ? "、付費 API 備援" : ""}）${skipNote ? `，${skipNote}` : ""}…` });

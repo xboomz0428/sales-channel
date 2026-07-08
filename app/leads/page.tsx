@@ -871,7 +871,8 @@ function BrandDrawer({
     setEnrichMsg(null);
     setEnrichLines([]);
     try {
-      const seq: ("gov" | "channels" | "places")[] = type === "all" ? ["gov", "channels", "places"] : [type];
+      // 「全部採集」只跑免費的工商比對＋管道補齊；Google Maps(付費) 需另按 🗺 按鈕，避免帳單暴衝
+      const seq: ("gov" | "channels" | "places")[] = type === "all" ? ["gov", "channels"] : [type];
       const results: string[] = [];
       for (const t of seq) {
         if (type === "all") setEnrichLines((p) => [...p, { text: `── ${t === "gov" ? "工商比對" : t === "channels" ? "管道補齊" : "Google Maps"} ──` }]);
@@ -1022,9 +1023,10 @@ function BrandDrawer({
                 style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid ${C.primary}60`, background: C.p50, color: C.primary, fontSize: 12, fontWeight: 600, cursor: enriching ? "default" : "pointer", display: "flex", alignItems: "center", gap: 5 }}>
                 {enriching === "channels" ? <><span className="spin" style={{ display: "inline-block" }}>↻</span> 採集中…</> : "🔗 採集官網管道"}
               </button>
-              <button onClick={() => enrich("places")} disabled={!!enriching} className="pressable"
-                style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.surf2, color: C.muted, fontSize: 12, fontWeight: 600, cursor: enriching ? "default" : "pointer", display: "flex", alignItems: "center", gap: 5 }}>
-                {enriching === "places" ? <><span className="spin" style={{ display: "inline-block" }}>↻</span> 更新中…</> : "🗺 更新 Google Maps"}
+              <button onClick={() => { if (window.confirm("更新 Google Maps 會呼叫付費 Places API（計費）。確定要用嗎？")) enrich("places"); }} disabled={!!enriching} className="pressable"
+                title="呼叫 Google Places 付費 API"
+                style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid #C08A2D`, background: "#FBF3E3", color: "#B37A1E", fontSize: 12, fontWeight: 600, cursor: enriching ? "default" : "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+                {enriching === "places" ? <><span className="spin" style={{ display: "inline-block" }}>↻</span> 更新中…</> : "🗺 更新 Google Maps 💰"}
               </button>
             </div>
 

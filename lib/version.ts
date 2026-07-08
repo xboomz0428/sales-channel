@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "3.3.1";
+export const APP_VERSION = "3.3.2";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.3.2",
+    date: "2026-07-06",
+    title: "止血：Google Places(付費) 全面改嚴格勾選才用，預設不用",
+    items: [
+      "根因：後端 enrich/channels 的 usePlaces 預設是 true → 任何『沒帶參數』的採集(單一客戶採集、詳情頁採集)都自動呼叫 Google Places 付費 API，帳單暴衝",
+      "後端改嚴格 opt-in：usePlaces 只有前端『明確勾選』才為 true，其餘一律不呼叫 Places/CSE",
+      "名單詳情『🚀 一鍵全部採集』改為只跑免費的工商比對＋管道補齊，不再自動叫 Google Maps",
+      "『🗺 更新 Google Maps 💰』改為付費警示樣式＋按下前二次確認，避免誤觸計費",
+      "批次/超級採集面板的『💰 Google 付費 API 當備援（Places 地圖＋CSE）』本就預設不勾——現在整條路徑都需明確勾選才會花錢",
+    ],
+  },
   {
     version: "3.3.1",
     date: "2026-07-06",
