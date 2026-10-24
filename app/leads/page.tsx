@@ -1575,9 +1575,12 @@ function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
       const json = await res.json();
       if (json.success) {
         const d = json.data;
+        const extra = d.mode === "member"
+          ? `（檔案內重複 ${d.dedupInFile ?? 0}、已存在 ${d.dedupExisting ?? 0}、無聯絡方式 ${d.skippedNoContact ?? 0}）`
+          : "（已存在或空白）";
         setResult({
           ok: true,
-          text: `匯入完成：新增 ${d.imported} 筆，略過 ${d.skipped} 筆（已存在或空白），${d.errors > 0 ? `失敗 ${d.errors} 筆` : "無失敗"}`,
+          text: `${d.mode === "member" ? "官網會員匯入" : "匯入"}完成：新增 ${d.imported} 筆，略過 ${d.skipped} 筆${extra}${d.errors > 0 ? `，失敗 ${d.errors} 筆` : ""}`,
           details: d.errorDetails,
         });
         onDone();
@@ -1608,6 +1611,12 @@ function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
           ↓ 下載匯入樣板 (.xlsx)
           <span style={{ marginLeft: "auto", fontSize: 11, color: C.muted, fontWeight: 400 }}>含欄位說明工作表</span>
         </a>
+
+        <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6, marginBottom: 14, background: C.surf2, border: `1px solid ${C.border}`, borderRadius: 9, padding: "9px 11px" }}>
+          支援兩種格式，系統自動辨識：<br />
+          ・<b style={{ color: C.text }}>通路樣板</b>（上方下載）— B2B 品牌名單<br />
+          ・<b style={{ color: C.text }}>好漢草官網會員匯出</b> — 直接上傳原檔，依 <b style={{ color: C.text }}>Email／電話／LINE</b> 自動去除重複（檔案內 + 比對既有名單），歸類為「官網會員」
+        </div>
 
         {/* 上傳區 */}
         <div

@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "3.3.4";
+export const APP_VERSION = "3.3.5";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.3.5",
+    date: "2026-10-24",
+    title: "名單總覽：可匯入好漢草官網會員名單，自動去重",
+    items: [
+      "匯入端點自動辨識格式：偵測到官網會員匯出（email + 姓名/會員ID 欄）即走會員匯入，否則維持 B2B 通路樣板匯入",
+      "去重：以 Email／電話／LINE 為識別，先去除檔案內重複，再比對既有名單（brands + brand_channels）略過已存在者",
+      "會員歸類為 industry『官網會員』、industry_sub 帶會員群組、data_source=website_member；寫入 email/phone/line 管道與縣市門市，讓完整統計正確點亮",
+      "pitch 自動彙整：累積消費／次數／加入日期／備註；有消費者 priority_score 設 70",
+      "匯入對話框顯示去重明細（檔內重複 / 已存在 / 無聯絡方式），並說明支援兩種格式",
+    ],
+  },
   {
     version: "3.3.4",
     date: "2026-10-24",
