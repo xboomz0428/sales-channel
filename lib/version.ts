@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "3.3.2";
+export const APP_VERSION = "3.3.3";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.3.3",
+    date: "2026-10-24",
+    title: "電子報編輯器新增「HTML 原始碼」切換",
+    items: [
+      "單一欄位模式新增『</> HTML 原始碼』切換鈕：可直接檢視/編輯這封信的 HTML，或貼入外部製作好的 HTML",
+      "即時預覽照常同步；寄出時仍會自動清理 <script> 等危險標籤並替換 {{變數}}",
+      "切回『視覺編輯』會把 HTML 重新載入所見即所得編輯區（換新區塊 id 確保同步）",
+      "進『進階區塊模式』時自動關閉 HTML 模式，避免狀態衝突",
+    ],
+  },
   {
     version: "3.3.2",
     date: "2026-07-06",

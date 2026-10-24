@@ -249,6 +249,21 @@ function plainToHtml(s = ''): string {
     .replace(/\n/g, '<br/>');
 }
 
+// HTML 原始碼 → 純文字（供儲存 body 用）：標籤轉換行、解 entity、去標籤
+function htmlToText(h = ''): string {
+  return h
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|h[1-6]|li|tr)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 // 選取文字格式化（粗體 / 顏色 / 連結）— 作用於目前聚焦的富文字區塊
 function applySelFormat(cmd: string, value?: string) {
   try { document.execCommand('styleWithCSS', false, 'true'); } catch { /* 部分瀏覽器不支援 */ }
@@ -307,12 +322,21 @@ export default function EmailEditorPage() {
   // 預設「單一大欄位」：整封信一個編輯區，不分段（可切「進階區塊模式」做拖拉排版）
   const [blocks, setBlocks] = useState<Block[]>(() => toSingleField(STARTER));
   const [blogMode, setBlogMode] = useState(true);
+  const [htmlMode, setHtmlMode] = useState(false); // 直接檢視/編輯 HTML 原始碼
   const [saving, setSaving] = useState(false);
 
   // 進階區塊模式 → 單一大欄位：把目前區塊併成一個富文字欄位
   const toBlogMode = () => {
     setBlocks((b) => toSingleField(b));
     setBlogMode(true);
+  };
+
+  // 切換 HTML 原始碼模式；關閉時換新 id，讓富文字區塊重新載入剛編輯的 HTML
+  const toggleHtmlMode = () => {
+    setHtmlMode((on) => {
+      if (on) setBlocks((b) => b.map((x, i) => (i === 0 ? { ...x, id: uid() } : x)));
+      return !on;
+    });
   };
   const [msg, setMsg] = useState('');
   const [templates, setTemplates] = useState<SavedTemplate[]>([]);
@@ -651,10 +675,16 @@ export default function EmailEditorPage() {
 
           <div className="adders">
             <button className="chip" style={{ fontWeight: 700, background: blogMode ? '#e7efe3' : '#4a6b3f', color: blogMode ? '#3a5c2f' : '#fff' }}
-              onClick={() => (blogMode ? setBlogMode(false) : toBlogMode())}
+              onClick={() => { if (blogMode) { setHtmlMode(false); setBlogMode(false); } else toBlogMode(); }}
               title={blogMode ? '需要拖拉排版時再切換（會拆回區塊）' : '把區塊併回單一欄位'}>
               {blogMode ? '🧱 進階區塊模式' : '📝 回到單一欄位（預設）'}
             </button>
+            {blogMode && (
+              <button className="chip" style={{ fontWeight: 700, background: htmlMode ? '#2f3d2f' : '#e7efe3', color: htmlMode ? '#fff' : '#3a5c2f' }}
+                onClick={toggleHtmlMode} title="直接檢視/編輯這封信的 HTML 原始碼（可貼入外部 HTML）">
+                {htmlMode ? '📝 回視覺編輯' : '</> HTML 原始碼'}
+              </button>
+            )}
             {!blogMode && (Object.keys(BLOCK_LABEL) as BlockType[]).map((t) => (
               <button key={t} className="chip" onClick={() => add(t)}>
                 ＋{BLOCK_LABEL[t]}
@@ -663,7 +693,21 @@ export default function EmailEditorPage() {
           </div>
 
           <div className="blocks">
-            {blogMode && blocks[0] ? (
+            {blogMode && blocks[0] && htmlMode ? (
+              <div className="block">
+                <div className="htmlhint">
+                  直接編輯 HTML 原始碼，可貼入外部製作的 HTML。支援 <code>{'{{變數}}'}</code>；
+                  寄出時會自動清理 <code>&lt;script&gt;</code> 等危險標籤。切「📝 回視覺編輯」即可回到所見即所得。
+                </div>
+                <textarea
+                  className="in ta htmlsrc"
+                  spellCheck={false}
+                  value={blocks[0].html ?? plainToHtml(blocks[0].text || '')}
+                  onChange={(e) => update(blocks[0].id, { html: e.target.value, text: htmlToText(e.target.value) })}
+                  placeholder="<p>在這裡貼上或編輯 HTML…</p>"
+                />
+              </div>
+            ) : blogMode && blocks[0] ? (
               <div className="block">
                 <div className="fmt">
                   <button className="fmtbtn" onMouseDown={(e) => e.preventDefault()} onClick={() => applySelFormat('formatBlock', 'H2')} title="標題">H</button>
@@ -1010,6 +1054,28 @@ export default function EmailEditorPage() {
         .ta {
           resize: vertical;
           margin-bottom: 6px;
+        }
+        .htmlsrc {
+          min-height: 440px;
+          font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+          font-size: 13px;
+          line-height: 1.6;
+          white-space: pre;
+          overflow-wrap: normal;
+          color: #2d3b2d;
+          background: #fbfaf5;
+          tab-size: 2;
+        }
+        .htmlhint {
+          font-size: 11px;
+          color: #8a8574;
+          line-height: 1.6;
+          margin-bottom: 8px;
+        }
+        .htmlhint code {
+          background: #eef0e6;
+          padding: 1px 5px;
+          border-radius: 4px;
         }
         .fmt {
           display: flex;
