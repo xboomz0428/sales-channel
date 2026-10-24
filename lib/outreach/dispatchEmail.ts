@@ -85,8 +85,9 @@ export async function dispatchEmail(messageId: string): Promise<DispatchResult> 
     公司統編: company.taxId || "",
     unsubscribe,
   };
+  // 只替換雙括號 {{變數}}；保留 Resend 原生三括號標記（如 {{{RESEND_UNSUBSCRIBE_URL}}}）不動
   const replaceVars = (text: string) =>
-    text.replace(/\{\{([^}]+)\}\}/g, (_, key) => vars[key.trim()] ?? "");
+    text.replace(/(?<!\{)\{\{([^{}]+)\}\}(?!\})/g, (_, key) => vars[key.trim()] ?? "");
 
   // 產生追蹤 ID + 注入開信追蹤像素
   const trackingId = crypto.randomUUID();

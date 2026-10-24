@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "3.3.3";
+export const APP_VERSION = "3.3.4";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.3.4",
+    date: "2026-10-24",
+    title: "修正：HTML 模式貼入完整 email 時預覽垮版",
+    items: [
+      "根因：貼入的完整 email（含自己的 <style>/<body>/600px 外框）被當內文片段——<style> 被 sanitize 刪掉、又被 renderEmailHtml 再包一層系統外框與頁尾，導致預覽只剩系統頁尾",
+      "改為自動辨識完整 email HTML（含 style/head/body/html/doctype）→ 原樣輸出，保留 <style> 與 RWD media query，不再外包、不加系統頁尾",
+      "HTML 模式偵測到完整文件時顯示綠色提示；片段內容仍沿用原本的系統外框版型",
+      "寄送變數替換改為三括號安全：保留 Resend 原生標記 {{{RESEND_UNSUBSCRIBE_URL}}} 不被誤傷",
+    ],
+  },
   {
     version: "3.3.3",
     date: "2026-10-24",

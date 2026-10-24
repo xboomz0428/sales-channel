@@ -228,6 +228,39 @@ ${rows}
 </td></tr></table></body></html>`;
 }
 
+// 判斷貼入的是否為「完整 email HTML 文件」（含 style/head/body/html 或 doctype）
+// 是的話就原樣當整封信輸出，不再套系統外框，也保留 <style>（RWD media query 需要）
+function isFullHtml(s = ''): boolean {
+  return /<\s*(!doctype|html|head|body)[\s>]/i.test(s) || /<style[\s>]/i.test(s);
+}
+
+// 完整 HTML 的安全清理：移除 script/iframe/object/embed 與事件屬性、javascript:，但保留 <style>
+function sanitizeFullHtml(raw = ''): string {
+  return raw
+    .replace(/<\s*(script|iframe|object|embed)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+    .replace(/<\s*(script|iframe|object|embed)[^>]*\/?>/gi, '')
+    .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
+    .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
+    .replace(/javascript:/gi, '');
+}
+
+// 把使用者貼入的完整/半完整 HTML 補成可預覽的文件（保留其 <style>/<head>/<body>）
+function rawEmailDoc(raw = ''): string {
+  const s = sanitizeFullHtml(raw);
+  // 已含 <html>…<body> → 視為完整文件，只補 doctype
+  if (/<html[\s>]/i.test(s) && /<body[\s>]/i.test(s)) {
+    return /<!doctype/i.test(s) ? s : `<!doctype html>${s}`;
+  }
+  const head = `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width"/>`;
+  // 片段已自帶 </head> 或 <body>（像從 head 的 <style> 一路貼下來）→ 直接接在 head 後
+  if (/<\/head>/i.test(s) || /<body[\s>]/i.test(s)) {
+    const body = /<\/body>/i.test(s) ? s : `${s}</body>`;
+    return `${head}${body}</html>`;
+  }
+  // 純內容片段 → 包進標準 body
+  return `${head}</head><body style="margin:0;">${s}</body></html>`;
+}
+
 const BLOCK_LABEL: Record<BlockType, string> = {
   heading: '標題',
   text: '內文',
@@ -360,7 +393,16 @@ export default function EmailEditorPage() {
     }
   };
 
-  const html = useMemo(() => renderEmailHtml(blocks, subject), [blocks, subject]);
+  // 單一欄位若貼入完整 email HTML（含 <style>/<body> 等）→ 原樣輸出（保留 RWD、不外包、不加系統頁尾）
+  const html = useMemo(() => {
+    const content = blogMode && blocks[0] ? (blocks[0].html ?? '') : '';
+    if (content && isFullHtml(content)) return rawEmailDoc(content);
+    return renderEmailHtml(blocks, subject);
+  }, [blocks, subject, blogMode]);
+  const rawHtmlActive = useMemo(
+    () => !!(blogMode && blocks[0] && isFullHtml(blocks[0].html ?? '')),
+    [blogMode, blocks],
+  );
   // 內容變動後重新量測（含圖片載入延遲）
   useEffect(() => {
     const t1 = setTimeout(measureFrame, 60);
@@ -699,6 +741,11 @@ export default function EmailEditorPage() {
                   直接編輯 HTML 原始碼，可貼入外部製作的 HTML。支援 <code>{'{{變數}}'}</code>；
                   寄出時會自動清理 <code>&lt;script&gt;</code> 等危險標籤。切「📝 回視覺編輯」即可回到所見即所得。
                 </div>
+                {rawHtmlActive && (
+                  <div className="htmlbadge">
+                    ✅ 已辨識為完整 email HTML：原樣輸出（保留你的 <code>&lt;style&gt;</code> 與 RWD），不再套系統外框與頁尾。
+                  </div>
+                )}
                 <textarea
                   className="in ta htmlsrc"
                   spellCheck={false}
@@ -1074,6 +1121,21 @@ export default function EmailEditorPage() {
         }
         .htmlhint code {
           background: #eef0e6;
+          padding: 1px 5px;
+          border-radius: 4px;
+        }
+        .htmlbadge {
+          font-size: 12px;
+          color: #2f4a3a;
+          background: #e8f1e6;
+          border: 1px solid #cfe2cc;
+          border-radius: 8px;
+          padding: 7px 10px;
+          line-height: 1.6;
+          margin-bottom: 8px;
+        }
+        .htmlbadge code {
+          background: #d6e7d2;
           padding: 1px 5px;
           border-radius: 4px;
         }
