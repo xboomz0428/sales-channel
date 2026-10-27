@@ -35,6 +35,7 @@ interface SendResult {
   queued: number;
   skipped: number;
   cleaned: number;
+  unprocessed: number; // 逾時／連線中斷而尚未處理（不是失敗，重寄同群組可補上）
 }
 
 const STAGE_LABEL: Record<string, string> = {
@@ -208,7 +209,8 @@ export default function NewsletterPage() {
   };
 
   // 每批最多 30 封（後端單次上限 PER_CALL=30），前端自動分批送完
-  const BATCH_SIZE = 30;
+  // 每批 10 封：SMTP 逐封約 10 秒，10 封 ≈ 100 秒，遠低於 API 300 秒上限，不會被中斷
+  const BATCH_SIZE = 10;
   function chunk<T>(arr: T[], size: number): T[][] {
     const out: T[][] = [];
     for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
@@ -218,7 +220,7 @@ export default function NewsletterPage() {
   async function doSend() {
     setSending(true);
     setConfirm(false);
-    let sent = 0, failed = 0, queued = 0, skipped = 0, cleaned = 0;
+    let sent = 0, failed = 0, queued = 0, skipped = 0, cleaned = 0, unprocessed = 0;
     try {
       // 品牌 ID 和手動收件人分開處理
       const brandIds = [...selected].filter((id) => !id.startsWith('manual_'));
@@ -231,35 +233,41 @@ export default function NewsletterPage() {
       setProgress({ done: 0, total });
       let done = 0;
 
-      // 名單品牌：自動分批，每批 ≤ 30
+      // 單批送出；逾時／連線中斷 → 記「未處理」（不是失敗），且不中斷後續批次
+      const sendBatch = async (payload: Record<string, unknown>, size: number, withQueued: boolean) => {
+        try {
+          const res = await fetch('/api/outreach/newsletter/send', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ templateId: tplId, skipDuplicates: skipDup, ...payload }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok) {
+            sent += data.sent || 0; failed += data.failed || 0; skipped += data.skipped || 0; cleaned += data.cleaned || 0;
+            if (withQueued) queued += data.queued || 0;
+          } else {
+            unprocessed += size;
+          }
+        } catch {
+          unprocessed += size;
+        }
+      };
+
+      // 名單品牌：自動分批
       for (const batch of chunk(brandIds, BATCH_SIZE)) {
-        const res = await fetch('/api/outreach/newsletter/send', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ templateId: tplId, brandIds: batch, skipDuplicates: skipDup }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok) { sent += data.sent || 0; failed += data.failed || 0; queued += data.queued || 0; skipped += data.skipped || 0; cleaned += data.cleaned || 0; }
-        else { failed += batch.length; }
+        await sendBatch({ brandIds: batch }, batch.length, true);
         done += batch.length;
         setProgress({ done, total });
       }
 
       // 手動收件人：同樣分批
       for (const batch of chunk(manualRecips, BATCH_SIZE)) {
-        const res = await fetch('/api/outreach/newsletter/send', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ templateId: tplId, manualEmails: batch.map((r) => ({ name: r.name, email: r.email! })), skipDuplicates: skipDup }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok) { sent += data.sent || 0; failed += data.failed || 0; skipped += data.skipped || 0; cleaned += data.cleaned || 0; }
-        else { failed += batch.length; }
+        await sendBatch({ manualEmails: batch.map((r) => ({ name: r.name, email: r.email! })) }, batch.length, false);
         done += batch.length;
         setProgress({ done, total });
       }
 
-      setResult({ total, sent, failed, queued, skipped, cleaned });
+      setResult({ total, sent, failed, queued, skipped, cleaned, unprocessed });
       setSelected(new Set());
       loadHistory();
     } catch {
@@ -759,7 +767,14 @@ export default function NewsletterPage() {
               <div><b style={{ color: result.failed > 0 ? '#a4452f' : undefined }}>{result.failed}</b><span>失敗</span></div>
               <div><b style={{ color: '#8a6d1f' }}>{result.skipped}</b><span>排除重複</span></div>
               {result.cleaned > 0 && <div><b>{result.cleaned}</b><span>清洗無效</span></div>}
+              {result.unprocessed > 0 && <div><b style={{ color: '#a4452f' }}>{result.unprocessed}</b><span>未處理</span></div>}
             </div>
+            {result.unprocessed > 0 && (
+              <p className="small" style={{ textAlign: 'center', lineHeight: 1.6, color: '#a4452f' }}>
+                ⚠ {result.unprocessed} 位因逾時／連線中斷<strong>尚未處理</strong>（不是失敗）。
+                重新對同一群組按「寄送」即可補上——已寄過或已排隊的會自動略過。
+              </p>
+            )}
             <p className="muted small" style={{ textAlign: 'center', lineHeight: 1.6 }}>
               「排除重複」= 這 {result.skipped} 位先前已收過<strong>此模板</strong>，本次未重寄
               {skipDup ? '' : '（本次已關閉略過重複）'}。

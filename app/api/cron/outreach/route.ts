@@ -123,6 +123,20 @@ export async function GET(req: Request) {
       if (ruleSent > 0) notes.push(`🔁 跟進「${rule.name}」寄出 ${ruleSent} 封`);
     }
 
+    // ── 自癒：卡在「寄送中」超過 15 分鐘（執行被平台中斷）→ 重設回佇列，讓下方補寄 ──
+    try {
+      const staleCut = new Date(Date.now() - 15 * 60_000).toISOString();
+      const { data: stale } = await supabaseAdmin
+        .from("outreach_messages")
+        .update({ status: "queued" })
+        .eq("channel", "EM")
+        .eq("status", "sending")
+        .is("sent_at", null)
+        .lt("created_at", staleCut)
+        .select("id");
+      if (stale && stale.length > 0) notes.push(`♻️ 重設 ${stale.length} 封中斷的寄送回佇列`);
+    } catch { /* 自癒失敗不影響其他工作 */ }
+
     // ── 排空既有 queued（手動超量、排程剩餘等）────────
     let drained = 0;
     if (budget > 0) {

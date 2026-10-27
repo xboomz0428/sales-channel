@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "3.3.9";
+export const APP_VERSION = "3.4.0";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,19 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.4.0",
+    date: "2026-10-27",
+    title: "Phase 0 止血：修正群發被 60 秒上限中途砍掉、收件人憑空消失",
+    items: [
+      "根因：寄送 API maxDuration=60，而每批 30 封用 SMTP 逐封同步寄（一封約 10 秒）→ 每批只寄到 5～6 封就被平台終止，其餘連資料列都沒建立（實測 800 人只處理 154 筆、每批剛好 60 秒）",
+      "runSend 改為『先把整批 bulk 建成排隊列、再在額度內逐封寄』：即使被中斷，剩餘仍在佇列由排程補寄，不再遺失",
+      "寄送 API maxDuration 60→300；前端每批 30→10 封（≈100 秒，遠低於上限）",
+      "前端逾時／連線中斷改計『未處理』（非失敗）並提示重寄同群組即可補上；單批失敗不再中斷後續批次",
+      "重複判斷納入『已在排隊/寄送中』：重寄同群組不會雙重排隊",
+      "排程器自癒：卡在『寄送中』>15 分鐘的（被中斷）自動重設回佇列補寄；本次已手動重設卡住的訊息",
+    ],
+  },
   {
     version: "3.3.9",
     date: "2026-10-27",

@@ -6,7 +6,8 @@ import { runSendBatch } from '@/lib/outreach/runSend';
 import { remainingDailyBudget } from '@/lib/outreach/throttle';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+// 每批同步寄送（SMTP 逐封約 10 秒），60 秒上限會把一批砍到只剩 5～6 封 → 放寬到平台上限 300 秒
+export const maxDuration = 300;
 
 export async function POST(req: Request) {
   try {

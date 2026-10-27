@@ -14,10 +14,16 @@ export interface RunSendResult {
 }
 
 const SENT_STATUS = ["sent", "delivered", "read", "replied"];
+// 「不需再寄」：已成功寄出，或已在佇列/寄送中（避免重寄時雙重排隊）
+const DONE_OR_PENDING = [...SENT_STATUS, "queued", "sending"];
 
 /**
  * 共用寄送：建立訊息 → 在預算內逐封寄出，超出預算留 queued。
  * 排程寄送、手動寄送、跟進序列都走這支，統一套用節流與重複判斷。
+ *
+ * 可靠性設計：先把本批「全部」建成 queued（只寫 DB、不等 SMTP，瞬間完成），
+ * 再在額度內逐封寄出。即使執行中途被平台終止（maxDuration），尚未寄的仍留在佇列，
+ * 由排程器補寄——不會像逐封「建立→寄出」那樣讓後段收件人憑空消失。
  */
 export async function runSendBatch(opts: {
   templateId: string;
@@ -43,14 +49,14 @@ export async function runSendBatch(opts: {
     .single();
   if (!tpl || !tpl.body_html) return empty;
 
-  // 重複判斷：此模板已成功寄出的對象
+  // 重複判斷：此模板已寄出、或已在排隊/寄送中的對象，都不再建立
   let skipped = 0;
   if (skipDuplicates) {
     const { data: prev } = await supabaseAdmin
       .from("outreach_messages")
       .select("brand_id, to_email")
       .eq("template_id", templateId)
-      .in("status", SENT_STATUS);
+      .in("status", DONE_OR_PENDING);
     const sentBrand = new Set((prev || []).map((m: any) => m.brand_id).filter(Boolean));
     const sentMail = new Set((prev || []).map((m: any) => (m.to_email || "").toLowerCase()).filter(Boolean));
     const b0 = brandIds.length, m0 = manualEmails.length;
@@ -70,44 +76,52 @@ export async function runSendBatch(opts: {
 
   let sent = 0, failed = 0, queued = 0, cleaned = 0, dispatched = 0;
 
-  const handleOne = async (brandId: string | null, to: string) => {
-    const { data: msg } = await supabaseAdmin
-      .from("outreach_messages")
-      .insert({
-        brand_id: brandId,
-        channel: "EM",
-        direction: "out",
-        status: "queued",
-        subject: tpl.subject,
-        body: tpl.body || "",
-        body_html: tpl.body_html,
-        template_id: templateId,
-        batch_id: opts.batchId || null,
-        to_email: to,
-      })
-      .select("id")
-      .single();
-    if (!msg) { failed++; return; }
-    if (budget > 0) {
-      const r = await dispatchEmail(msg.id);
-      r.ok ? sent++ : failed++;
-      dispatched++;
-      budget--;
-    } else {
-      queued++;
-    }
-  };
-
+  // 1) 整理本批實際要寄的對象
+  const targets: Array<{ brand_id: string | null; to_email: string }> = [];
   for (const brandId of brandIds) {
     const to = emailMap.get(brandId);
     if (!to) { failed++; continue; }
     if (invalidSet.has(to.trim())) { cleaned++; continue; } // 無效信箱：清洗剔除
-    await handleOne(brandId, to);
+    targets.push({ brand_id: brandId, to_email: to });
   }
   for (const m of manualEmails) {
     if (!isValidEmail(m.email) || invalidSet.has((m.email || "").trim())) { cleaned++; continue; }
-    await handleOne(null, m.email);
+    targets.push({ brand_id: null, to_email: m.email });
+  }
+  const total = brandIds.length + manualEmails.length;
+  if (targets.length === 0) return { sent, failed, queued, skipped, cleaned, dispatched, total };
+
+  // 2) 先全部建成 queued（一次 bulk insert，不等 SMTP）
+  const now = new Date().toISOString();
+  const { data: created, error: insErr } = await supabaseAdmin
+    .from("outreach_messages")
+    .insert(targets.map((t) => ({
+      brand_id: t.brand_id,
+      channel: "EM",
+      direction: "out",
+      status: "queued",
+      subject: tpl.subject,
+      body: tpl.body || "",
+      body_html: tpl.body_html,
+      template_id: templateId,
+      batch_id: opts.batchId || null,
+      to_email: t.to_email,
+      created_at: now,
+    })))
+    .select("id");
+  if (insErr || !created) {
+    failed += targets.length;
+    return { sent, failed, queued, skipped, cleaned, dispatched, total };
   }
 
-  return { sent, failed, queued, skipped, cleaned, dispatched, total: brandIds.length + manualEmails.length };
+  // 3) 在額度內逐封寄出；額度用完或執行被中斷的，都安全留在佇列
+  for (const row of created) {
+    if (budget <= 0) { queued++; continue; }
+    const r = await dispatchEmail(row.id);
+    r.ok ? sent++ : failed++;
+    dispatched++;
+    budget--;
+  }
+
+  return { sent, failed, queued, skipped, cleaned, dispatched, total };
 }
