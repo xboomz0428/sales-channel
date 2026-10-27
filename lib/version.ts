@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "3.3.7";
+export const APP_VERSION = "3.3.8";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.3.8",
+    date: "2026-10-27",
+    title: "發送紀錄分頁 + 寄送結果明細（成功/失敗/排除重複）",
+    items: [
+      "發送紀錄超過 100 筆自動顯示分頁，每頁可選 100/200/400/1000 筆，含頁碼與筆數區間、上下頁導覽（頂部吸頂＋底部各一組）",
+      "根因修正：email-dashboard API 之前把明細硬截成 100 筆，發送紀錄最多只看得到 100 筆 → 新增 ?light=1 回傳不含 body 的輕量明細、上限提高到 2000，供分頁使用（儀表板內容預覽維持原樣）",
+      "寄送完成結果強化：清楚顯示本次選取數、成功、失敗、排除重複、清洗無效，並加說明『排除重複＝這些收件人先前已收過此模板、本次未重寄』",
+    ],
+  },
   {
     version: "3.3.7",
     date: "2026-10-27",

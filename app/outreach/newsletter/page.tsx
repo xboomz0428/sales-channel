@@ -82,6 +82,8 @@ export default function NewsletterPage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<{ id: string; to_email: string; subject: string | null; status: string; sent_at: string | null; open_count: number; click_count: number; error_detail?: string | null; brands?: { name?: string } | null }[]>([]);
   const [resendingId, setResendingId] = useState<string | null>(null);
+  const [histPage, setHistPage] = useState(1);        // 發送紀錄分頁
+  const [histPageSize, setHistPageSize] = useState(100); // 每頁筆數
 
   // 寄信設定狀態（真實 / 模擬）
   useEffect(() => {
@@ -110,9 +112,9 @@ export default function NewsletterPage() {
 
   // 載入發送紀錄
   const loadHistory = () => {
-    fetch('/api/outreach/email-dashboard')
+    fetch('/api/outreach/email-dashboard?light=1')
       .then((r) => r.json())
-      .then((d) => setHistory(d.messages || []))
+      .then((d) => { setHistory(d.messages || []); setHistPage(1); })
       .catch(() => {});
   };
   useEffect(loadHistory, []);
@@ -572,12 +574,34 @@ export default function NewsletterPage() {
       </div>
 
       {/* 發送紀錄 */}
-      {historyOpen && (
+      {historyOpen && (() => {
+        const totalPages = Math.max(1, Math.ceil(history.length / histPageSize));
+        const page = Math.min(histPage, totalPages);
+        const start = (page - 1) * histPageSize;
+        const pageRows = history.slice(start, start + histPageSize);
+        const showPager = history.length > 100;
+        return (
         <div className="histpanel">
           <div className="phead">
             <strong>發送紀錄</strong>
             <span className="count">{history.length} 筆</span>
           </div>
+          {showPager && (
+            <div className="histpager">
+              <div className="pgsize">
+                每頁
+                <select className="pgsel" value={histPageSize} onChange={(e) => { setHistPageSize(Number(e.target.value)); setHistPage(1); }}>
+                  {[100, 200, 400, 1000].map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+                筆
+              </div>
+              <div className="pgnav">
+                <button className="pgbtn" disabled={page <= 1} onClick={() => setHistPage(page - 1)}>← 上一頁</button>
+                <span className="pginfo">第 {page}/{totalPages} 頁（第 {start + 1}–{Math.min(start + histPageSize, history.length)} 筆）</span>
+                <button className="pgbtn" disabled={page >= totalPages} onClick={() => setHistPage(page + 1)}>下一頁 →</button>
+              </div>
+            </div>
+          )}
           {history.length === 0 ? (
             <div className="muted" style={{ textAlign: 'center', padding: 20 }}>尚無發送紀錄</div>
           ) : (
@@ -586,7 +610,7 @@ export default function NewsletterPage() {
                 <tr><th>收件人</th><th>主旨</th><th>狀態</th><th>開信</th><th>點擊</th><th>時間</th></tr>
               </thead>
               <tbody>
-                {history.slice(0, 50).map((m) => {
+                {pageRows.map((m) => {
                   const st = { sent: '已寄出', delivered: '已送達', read: '已開信', replied: '已回覆', failed: '失敗', bounced: '退信', queued: '排隊', draft: '草稿', sending: '寄送中' }[m.status] || m.status;
                   const isFail = ['failed', 'bounced'].includes(m.status);
                   const stColor = isFail ? '#a4452f' : ['read', 'replied'].includes(m.status) ? '#2f7d6b' : '#4a6b3f';
@@ -614,8 +638,16 @@ export default function NewsletterPage() {
               </tbody>
             </table>
           )}
+          {showPager && (
+            <div className="pgnav pgbottom">
+              <button className="pgbtn" disabled={page <= 1} onClick={() => { setHistPage(page - 1); }}>← 上一頁</button>
+              <span className="pginfo">第 {page}/{totalPages} 頁</span>
+              <button className="pgbtn" disabled={page >= totalPages} onClick={() => { setHistPage(page + 1); }}>下一頁 →</button>
+            </div>
+          )}
         </div>
-      )}
+        );
+      })()}
 
       {/* 寄送列 */}
       <div className="sendbar">
@@ -721,13 +753,18 @@ export default function NewsletterPage() {
         <div className="overlay" onClick={() => setResult(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
             <h3>寄送完成</h3>
+            <p className="muted small" style={{ textAlign: 'center', marginTop: -2 }}>本次選取 {result.total} 位</p>
             <div className="rstat">
-              <div><b>{result.sent}</b><span>成功</span></div>
-              <div><b>{result.failed}</b><span>失敗</span></div>
-              <div><b>{result.skipped}</b><span>略過重複</span></div>
+              <div><b style={{ color: '#2f7d4a' }}>{result.sent}</b><span>成功</span></div>
+              <div><b style={{ color: result.failed > 0 ? '#a4452f' : undefined }}>{result.failed}</b><span>失敗</span></div>
+              <div><b style={{ color: '#8a6d1f' }}>{result.skipped}</b><span>排除重複</span></div>
               {result.cleaned > 0 && <div><b>{result.cleaned}</b><span>清洗無效</span></div>}
             </div>
-            {result.queued > 0 && <p className="muted small" style={{ textAlign: 'center' }}>另有 {result.queued} 封排隊中</p>}
+            <p className="muted small" style={{ textAlign: 'center', lineHeight: 1.6 }}>
+              「排除重複」= 這 {result.skipped} 位先前已收過<strong>此模板</strong>，本次未重寄
+              {skipDup ? '' : '（本次已關閉略過重複）'}。
+            </p>
+            {result.queued > 0 && <p className="muted small" style={{ textAlign: 'center' }}>另有 {result.queued} 封排隊中（當日上限分流）</p>}
             {result.cleaned > 0 && <p className="muted small" style={{ textAlign: 'center' }}>已自動剔除 {result.cleaned} 個無效信箱（語法錯誤或網域查無 MX），不計入失敗</p>}
             <div className="dbtns">
               <a className="btn ghost" href="/outreach/email-dashboard">看儀表板</a>
@@ -778,7 +815,15 @@ export default function NewsletterPage() {
         .manualadd .in { min-width: 100px; }
         .btn.small { padding: 7px 14px; font-size: 12px; }
         .rsrc.manual { background: #faf3df; color: #8a6d1f; }
-        .histpanel { background: #fffdf8; border: 1px solid #e3ded3; border-radius: 14px; padding: 16px; margin-top: 16px; max-height: 400px; overflow-y: auto; }
+        .histpanel { background: #fffdf8; border: 1px solid #e3ded3; border-radius: 14px; padding: 16px; margin-top: 16px; max-height: 72vh; overflow-y: auto; }
+        .histpager { position: sticky; top: -16px; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; background: #fffdf8; padding: 8px 0; border-bottom: 1px solid #eee6d6; margin: 0 0 4px; }
+        .pgsize { font-size: 12px; color: #6b6b60; display: flex; align-items: center; gap: 6px; }
+        .pgsel { border: 1px solid #d9d3c4; border-radius: 7px; padding: 5px 8px; font-size: 13px; font-family: inherit; background: #fff; cursor: pointer; }
+        .pgnav { display: flex; align-items: center; gap: 8px; }
+        .pgnav.pgbottom { justify-content: center; margin-top: 12px; }
+        .pgbtn { border: 1px solid #d9d3c4; background: #fffdf8; color: #4a6b3f; border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
+        .pgbtn:disabled { opacity: 0.4; cursor: default; }
+        .pginfo { font-size: 12px; color: #8a8472; white-space: nowrap; }
         .histtable { width: 100%; border-collapse: collapse; margin-top: 8px; }
         .histtable th { text-align: left; font-size: 11px; color: #8a8472; font-weight: 500; padding: 6px 6px; border-bottom: 1px solid #e3ded3; }
         .histtable td { font-size: 12px; padding: 8px 6px; border-bottom: 1px solid #f0ece1; }

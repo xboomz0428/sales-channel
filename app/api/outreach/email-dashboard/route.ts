@@ -5,9 +5,11 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 export const runtime = 'nodejs';
 
 // GET /api/outreach/email-dashboard
-export async function GET() {
+// ?light=1：回傳不含 body/body_html 的輕量明細、上限提高(供發送紀錄分頁用)
+export async function GET(req: Request) {
   try {
     await requireUser();
+    const light = new URL(req.url).searchParams.get('light') === '1';
 
     // 近 14 日每日成效(來自視圖)
     const { data: daily } = await supabaseAdmin
@@ -85,7 +87,16 @@ export async function GET() {
       replied: totals.replied,
     };
 
-    return NextResponse.json({ totals, daily, messages: (messages || []).slice(0, 100), byIndustry, byTemplate, funnel });
+    // 明細：預設回 100 筆(含 body 供內容預覽)；light=1 回不含 body 的輕量清單、上限 2000(供發送紀錄分頁)
+    const msgList = light
+      ? (messages || []).slice(0, 2000).map((m: any) => ({
+          id: m.id, to_email: m.to_email, subject: m.subject, status: m.status,
+          open_count: m.open_count, click_count: m.click_count, sent_at: m.sent_at,
+          error_detail: m.error_detail, template_id: m.template_id, brands: m.brands,
+        }))
+      : (messages || []).slice(0, 100);
+
+    return NextResponse.json({ totals, daily, messages: msgList, byIndustry, byTemplate, funnel });
   } catch (err) {
     return errorResponse(err);
   }
