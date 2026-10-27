@@ -64,6 +64,7 @@ export default function NewsletterPage() {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [skipDup, setSkipDup] = useState(true); // 略過已寄送過相同模板的收件人
   const [removing, setRemoving] = useState(false);
+  const [previewFull, setPreviewFull] = useState(false); // 全視窗預覽模板
   // ① 排程寄送
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleAt, setScheduleAt] = useState('');
@@ -550,7 +551,16 @@ export default function NewsletterPage() {
               ))}
             </div>
           )}
-          {tpl && <div className="subj">主旨:{tpl.subject || '(無主旨)'}</div>}
+          {tpl && (
+            <div className="subj-row">
+              <div className="subj">主旨:{tpl.subject || '(無主旨)'}</div>
+              {tpl.body_html && (
+                <button className="btn ghost small" onClick={() => setPreviewFull(true)} title="跳出全視窗預覽完整模板">
+                  ⛶ 放大預覽
+                </button>
+              )}
+            </div>
+          )}
           <div className="previewbox">
             {tpl?.body_html ? (
               <iframe title="preview" srcDoc={tpl.body_html} className="frame" />
@@ -642,6 +652,22 @@ export default function NewsletterPage() {
       </div>
 
       {/* 排程對話框 */}
+      {/* 全視窗模板預覽 */}
+      {previewFull && tpl?.body_html && (
+        <div className="overlay" onClick={() => setPreviewFull(false)}>
+          <div className="previewmodal" onClick={(e) => e.stopPropagation()}>
+            <div className="pmhead">
+              <div className="pmtitle">
+                <strong>{tpl.name}</strong>
+                <span className="muted small">主旨：{tpl.subject || '(無主旨)'}</span>
+              </div>
+              <button className="pmclose" onClick={() => setPreviewFull(false)} title="關閉預覽">✕</button>
+            </div>
+            <iframe title="full-preview" srcDoc={tpl.body_html} className="pmframe" />
+          </div>
+        </div>
+      )}
+
       {scheduleOpen && (
         <div className="overlay" onClick={() => setScheduleOpen(false)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
@@ -783,6 +809,16 @@ export default function NewsletterPage() {
         .btn.ghost { background: #fffdf8; border: 1px solid #d9d3c4; color: #4a6b3f; }
         .overlay { position: fixed; inset: 0; background: rgba(40, 44, 36, 0.45); display: grid; place-items: center; padding: 20px; }
         .dialog { background: #fffdf8; border-radius: 16px; padding: 24px; max-width: 380px; width: 100%; }
+        /* 主旨列 + 放大預覽按鈕 */
+        .subj-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+        .subj-row .subj { margin: 0; flex: 1; min-width: 0; }
+        /* 全視窗模板預覽 */
+        .previewmodal { background: #fffdf8; border-radius: 14px; width: 100%; max-width: 720px; height: 90vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 24px 70px rgba(0,0,0,.3); }
+        .pmhead { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid #e3ded3; flex-shrink: 0; }
+        .pmtitle { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+        .pmtitle strong { font-family: 'Noto Serif TC', serif; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .pmclose { border: 1px solid #d9d3c4; background: #fffdf8; color: #6b6b60; width: 34px; height: 34px; border-radius: 9px; cursor: pointer; font-size: 16px; flex-shrink: 0; }
+        .pmframe { flex: 1; width: 100%; border: none; background: #f3f0e7; }
         .dialog h3 { font-family: 'Noto Serif TC', serif; margin: 0 0 10px; }
         .dialog p { font-size: 14px; line-height: 1.6; margin: 0 0 8px; }
         .dbtns { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }

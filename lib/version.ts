@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "3.3.6";
+export const APP_VERSION = "3.3.7";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.3.7",
+    date: "2026-10-27",
+    title: "電子報發送：模板預覽新增「放大預覽」全視窗",
+    items: [
+      "模板主旨列新增『⛶ 放大預覽』按鈕，點擊跳出全視窗(90vh)預覽完整模板，方便寄送前完整檢視版面",
+      "全視窗顯示模板名稱＋主旨，可捲動看完整長度；點背景或 ✕ 關閉",
+    ],
+  },
   {
     version: "3.3.6",
     date: "2026-10-27",
