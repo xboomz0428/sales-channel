@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
+import { randomUUID } from "node:crypto";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
+
+const cryptoRandom = () => randomUUID().slice(0, 8);
 
 /**
  * POST /api/brands/import
@@ -87,7 +90,7 @@ async function importMembers(
   rows: Row[],
 ) {
   interface Cand {
-    name: string; email: string; phoneRaw: string; phone: string; line: string;
+    name: string; memberId: string; email: string; phoneRaw: string; phone: string; line: string;
     city: string; address: string; country: string; group: string;
     spend: number; times: number; joined: string; note: string;
   }
@@ -119,7 +122,7 @@ async function importMembers(
     const note = cleanStr(row["備註"]);
 
     cands.push({
-      name, email, phoneRaw, phone, line,
+      name, memberId, email, phoneRaw, phone, line,
       city: cleanStr(row["居住縣市"]),
       address: cleanStr(row["居住地址"]),
       country: cleanStr(row["國家"]) || "TW",
@@ -169,44 +172,59 @@ async function importMembers(
   let imported = 0, errors = 0;
   const errorDetails: string[] = [];
 
-  // 分批 bulk insert brands → 取回 id（PostgREST 依插入順序回傳）→ 建 channels / stores
-  for (const part of chunk(toInsert, 300)) {
-    const payload = part.map((c) => ({
-      name: c.name,
-      brand_key: c.name.slice(0, 20),
-      industry: "官網會員",
-      industry_sub: c.group,
-      status: "new",
-      country: c.country,
-      email: c.email || null,
-      phone: c.phoneRaw || null,
-      company_address: c.address || null,
-      data_source: "website_member",
-      priority_score: c.spend > 0 ? 70 : 50,
-      pitch: `官網會員（${c.group}）｜累積消費 NT$${c.spend.toLocaleString()}／${c.times} 次${c.joined ? `｜加入 ${c.joined}` : ""}${c.note ? `｜備註：${c.note}` : ""}`.slice(0, 500),
-    }));
+  // brand_key 有 UNIQUE 限制 → 用唯一命名空間 wm:<會員ID|email|電話>，避免同名消費者相撞
+  const brandKeyOf = (c: Cand) => `wm:${c.memberId || c.email || c.phone || cryptoRandom()}`.slice(0, 60);
+  const rowOf = (c: Cand) => ({
+    name: c.name,
+    brand_key: brandKeyOf(c),
+    industry: "官網會員",
+    industry_sub: c.group,
+    status: "new",
+    country: c.country,
+    email: c.email || null,
+    phone: c.phoneRaw || null,
+    company_address: c.address || null,
+    data_source: "website_member",
+    priority_score: c.spend > 0 ? 70 : 50,
+    pitch: `官網會員（${c.group}）｜累積消費 NT$${c.spend.toLocaleString()}／${c.times} 次${c.joined ? `｜加入 ${c.joined}` : ""}${c.note ? `｜備註：${c.note}` : ""}`.slice(0, 500),
+  });
 
-    const { data: inserted, error } = await supabase.from("brands").insert(payload).select("id");
-    if (error || !inserted) {
-      errors += part.length;
-      if (errorDetails.length < 5) errorDetails.push(error?.message ?? "批次寫入失敗");
-      continue;
-    }
-    imported += inserted.length;
-
-    const now = new Date().toISOString();
+  // 由已配對的 (brand_id, cand) 批次 bulk 寫 channels / stores
+  const now = new Date().toISOString();
+  const flushChildren = async (pairs: Array<{ id: string; c: Cand }>) => {
     const channels: Array<{ brand_id: string; channel: string; value: string; fetched_at: string }> = [];
     const stores: Array<{ brand_id: string; name: string; city: string | null; address: string | null; phone: string | null }> = [];
-    inserted.forEach((b, i) => {
-      const c = part[i];
-      if (!c) return;
-      if (c.email) channels.push({ brand_id: b.id, channel: "email", value: c.email, fetched_at: now });
-      if (c.phoneRaw) channels.push({ brand_id: b.id, channel: "phone", value: c.phoneRaw, fetched_at: now });
-      if (c.line) channels.push({ brand_id: b.id, channel: "line", value: c.line, fetched_at: now });
-      if (c.city || c.address) stores.push({ brand_id: b.id, name: `${c.name}（官網會員）`, city: c.city || null, address: c.address || null, phone: c.phoneRaw || null });
-    });
-    if (channels.length) for (const cp of chunk(channels, 500)) await supabase.from("brand_channels").insert(cp);
-    if (stores.length) for (const sp of chunk(stores, 500)) await supabase.from("stores").insert(sp);
+    for (const { id, c } of pairs) {
+      if (c.email) channels.push({ brand_id: id, channel: "email", value: c.email, fetched_at: now });
+      if (c.phoneRaw) channels.push({ brand_id: id, channel: "phone", value: c.phoneRaw, fetched_at: now });
+      if (c.line) channels.push({ brand_id: id, channel: "line", value: c.line, fetched_at: now });
+      if (c.city || c.address) stores.push({ brand_id: id, name: `${c.name}（官網會員）`, city: c.city || null, address: c.address || null, phone: c.phoneRaw || null });
+    }
+    for (const cp of chunk(channels, 500)) await supabase.from("brand_channels").insert(cp);
+    for (const sp of chunk(stores, 500)) await supabase.from("stores").insert(sp);
+  };
+
+  // 分批 bulk insert brands → 取回 id（PostgREST 依插入順序回傳）；整批失敗則逐列補寫，避免一列相撞拖垮整批
+  for (const part of chunk(toInsert, 200)) {
+    const { data: inserted, error } = await supabase.from("brands").insert(part.map(rowOf)).select("id");
+    if (!error && inserted && inserted.length === part.length) {
+      imported += inserted.length;
+      await flushChildren(inserted.map((b, i) => ({ id: b.id, c: part[i] })));
+      continue;
+    }
+    // 逐列補寫（整批因唯一鍵等原因失敗時）
+    const okPairs: Array<{ id: string; c: Cand }> = [];
+    for (const c of part) {
+      const { data: one, error: e1 } = await supabase.from("brands").insert(rowOf(c)).select("id").single();
+      if (e1 || !one) {
+        errors++;
+        if (errorDetails.length < 5) errorDetails.push(`「${c.name}」：${e1?.message ?? "寫入失敗"}`);
+        continue;
+      }
+      imported++;
+      okPairs.push({ id: one.id, c });
+    }
+    await flushChildren(okPairs);
   }
 
   return NextResponse.json({

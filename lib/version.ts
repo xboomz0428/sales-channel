@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "3.3.5";
+export const APP_VERSION = "3.3.6";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.3.6",
+    date: "2026-10-27",
+    title: "電子報發送：切換群組/篩選時「已選」自動收斂（防誤寄）",
+    items: [
+      "修正安全性問題：切換產業群組/產業/搜尋等篩選後，『已選』清單不會同步，可能殘留上一次『全選』——畫面看似鎖定小群組，實際寄送對象卻是整批名單",
+      "改為每次載入收件人後，把『已選』收斂成只保留目前清單內的對象，避免跨篩選殘留誤寄",
+      "備註：產業群組『好漢草官網』內容為越式洗髮/腳底按摩/泰式按摩/養生館(B2B)，與匯入的官網會員(industry=官網會員)不同，兩者請勿混用",
+    ],
+  },
   {
     version: "3.3.5",
     date: "2026-10-24",

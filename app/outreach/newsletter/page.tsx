@@ -147,7 +147,16 @@ export default function NewsletterPage() {
     fetch(`/api/outreach/recipients?${buildRecipientParams().toString()}`)
       .then((r) => r.json())
       .then((d) => {
-        setRecipients(d.recipients || []);
+        const list = d.recipients || [];
+        setRecipients(list);
+        // 安全性：切換群組/產業/搜尋等篩選後，把「已選」收斂成只保留目前清單內的對象，
+        // 避免上一次「全選」殘留，導致畫面像選了小群組、實際卻寄給整批名單。
+        const ids = new Set(list.map((r: Recipient) => r.id));
+        setSelected((prev) => {
+          const n = new Set<string>();
+          prev.forEach((id) => { if (ids.has(id)) n.add(id); });
+          return n.size === prev.size ? prev : n;
+        });
         if (d.industries?.length) setIndustries(d.industries);
         if (d.stages) setStages(d.stages);
         if (d.sources) setSources(d.sources);
