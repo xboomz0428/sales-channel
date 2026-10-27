@@ -62,6 +62,22 @@ export default function EmailDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [scanMsg, setScanMsg] = useState<string | null>(null);
+  const [dayOpen, setDayOpen] = useState<string | null>(null); // 展開中的日期
+  const [dayMsgs, setDayMsgs] = useState<Msg[]>([]);
+  const [dayLoading, setDayLoading] = useState(false);
+
+  // 點擊每日長條 → 展開/收合當天寄送明細（當天完整名單，含內容）
+  const toggleDay = async (day: string) => {
+    if (dayOpen === day) { setDayOpen(null); return; }
+    setDayOpen(day);
+    setDayLoading(true);
+    setDayMsgs([]);
+    try {
+      const d = await fetch(`/api/outreach/email-dashboard?day=${day.slice(0, 10)}`).then((r) => r.json());
+      setDayMsgs(d.messages || []);
+    } catch { setDayMsgs([]); }
+    setDayLoading(false);
+  };
 
   const loadData = () => {
     fetch('/api/outreach/email-dashboard')
@@ -135,12 +151,54 @@ export default function EmailDashboardPage() {
             <div className="ck">每日寄送量</div>
             <div className="hbars">
               {(data?.daily || []).slice().reverse().map((d) => (
-                <div key={d.day} className="hbarrow" title={`${d.day.slice(5, 10)} 寄${d.sent} 開${d.opened} 點${d.clicked}`}>
-                  <span className="hbarlabel">{parseInt(d.day.slice(5, 7))}/{parseInt(d.day.slice(8, 10))}</span>
-                  <div className="hbartrack">
-                    <div className="hbarfill" style={{ width: `${(d.sent / maxSent) * 100}%` }} />
+                <div key={d.day}>
+                  <div
+                    className={`hbarrow clickable ${dayOpen === d.day ? 'on' : ''}`}
+                    onClick={() => toggleDay(d.day)}
+                    title={`${d.day.slice(5, 10)} 寄${d.sent} 開${d.opened} 點${d.clicked}（點擊看當天明細）`}
+                  >
+                    <span className="hbarlabel">
+                      <span className="caret">{dayOpen === d.day ? '▾' : '▸'}</span>
+                      {parseInt(d.day.slice(5, 7))}/{parseInt(d.day.slice(8, 10))}
+                    </span>
+                    <div className="hbartrack">
+                      <div className="hbarfill" style={{ width: `${(d.sent / maxSent) * 100}%` }} />
+                    </div>
+                    <span className="hbarval">{d.sent}</span>
                   </div>
-                  <span className="hbarval">{d.sent}</span>
+                  {dayOpen === d.day && (
+                    <div className="daydetail">
+                      {dayLoading ? (
+                        <div className="muted" style={{ padding: 14, textAlign: 'center' }}>載入中…</div>
+                      ) : dayMsgs.length === 0 ? (
+                        <div className="muted" style={{ padding: 14, textAlign: 'center' }}>當天無寄送明細</div>
+                      ) : (
+                        <>
+                          <div className="ddhead">{d.day.slice(0, 10)} · 共 {dayMsgs.length} 筆（點任一列看內容）</div>
+                          <table className="ddtable">
+                            <thead>
+                              <tr><th>名單</th><th>主旨</th><th>狀態</th><th>開信</th><th>點擊</th><th>時間</th></tr>
+                            </thead>
+                            <tbody>
+                              {dayMsgs.map((m) => {
+                                const s = STATUS[m.status] || STATUS.draft;
+                                return (
+                                  <tr key={m.id} onClick={() => setOpen(m)}>
+                                    <td>{m.brands?.name || m.to_email || '—'}</td>
+                                    <td className="subj">{m.subject || '(無主旨)'}</td>
+                                    <td><span className="badge" style={{ background: s.color }}>{s.label}</span></td>
+                                    <td>{m.open_count || 0}</td>
+                                    <td>{m.click_count || 0}</td>
+                                    <td className="muted">{m.sent_at ? m.sent_at.slice(5, 16).replace('T', ' ') : '—'}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -318,6 +376,15 @@ export default function EmailDashboardPage() {
         .hbartrack { flex: 1; height: 28px; background: #f0ece1; border-radius: 999px; overflow: hidden; }
         .hbarfill { height: 100%; background: linear-gradient(90deg, #6f8c5f, #4a6b3f); border-radius: 999px; min-width: 4px; transition: width 400ms; }
         .hbarval { font-size: 16px; font-weight: 700; color: #2f3d2f; min-width: 30px; }
+        .hbarrow.clickable { cursor: pointer; padding: 4px 8px; margin: 0 -8px; border-radius: 10px; transition: background 120ms; }
+        .hbarrow.clickable:hover { background: #f4f1e7; }
+        .hbarrow.on { background: #eef3e9; }
+        .hbarlabel .caret { font-size: 14px; color: #8a8472; margin-right: 6px; vertical-align: middle; }
+        .daydetail { margin: 6px 0 10px; border: 1px solid #e3ded3; border-radius: 12px; background: #fcfbf6; overflow: hidden; }
+        .ddhead { font-size: 12px; color: #6b6b60; padding: 10px 14px; border-bottom: 1px solid #efe9db; background: #f6f3ea; }
+        .ddtable { margin: 0; }
+        .ddtable th { font-size: 12px; padding: 7px 12px; border-bottom: 1px solid #e3ded3; }
+        .ddtable td { font-size: 13px; padding: 8px 12px; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         th { text-align: left; font-size: 13px; color: #8a8472; font-weight: 600; padding: 8px 10px; border-bottom: 2px solid #e3ded3; }
         td { font-size: 15px; padding: 11px 10px; border-bottom: 1px solid #f0ece1; }

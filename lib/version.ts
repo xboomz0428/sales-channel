@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "3.3.8";
+export const APP_VERSION = "3.3.9";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.3.9",
+    date: "2026-10-27",
+    title: "郵件儀表板：點擊「每日寄送量」當天長條，展開當天寄送明細",
+    items: [
+      "每日寄送量每根長條可點擊展開（▸/▾），下方列出當天全部寄送明細：名單／主旨／狀態／開信／點擊／時間，再點任一列可看信件內容",
+      "明細含失敗/退信等所有狀態（長條數字為成功寄出數），標題顯示當天總筆數",
+      "後端 email-dashboard API 新增 ?day=YYYY-MM-DD，依 created_at 對齊長條分組回傳當天完整明細（含內容）",
+    ],
+  },
   {
     version: "3.3.8",
     date: "2026-10-27",

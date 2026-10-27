@@ -9,7 +9,24 @@ export const runtime = 'nodejs';
 export async function GET(req: Request) {
   try {
     await requireUser();
-    const light = new URL(req.url).searchParams.get('light') === '1';
+    const sp = new URL(req.url).searchParams;
+    const light = sp.get('light') === '1';
+    const day = sp.get('day'); // YYYY-MM-DD：只回當天寄送明細（含內容），供儀表板展開用
+
+    // 當天明細：依 created_at 落在該日（對齊每日寄送量長條的分組），回完整欄位供內容預覽
+    if (day && /^\d{4}-\d{2}-\d{2}$/.test(day)) {
+      const start = `${day}T00:00:00`;
+      const { data: dayMsgs } = await supabaseAdmin
+        .from('outreach_messages')
+        .select('id, to_email, subject, body, body_html, status, open_count, click_count, sent_at, error_detail, template_id, brands(name, industry)')
+        .eq('channel', 'EM')
+        .eq('direction', 'out')
+        .gte('created_at', start)
+        .lt('created_at', `${day}T23:59:59.999`)
+        .order('created_at', { ascending: false })
+        .limit(3000);
+      return NextResponse.json({ day, messages: dayMsgs || [] });
+    }
 
     // 近 14 日每日成效(來自視圖)
     const { data: daily } = await supabaseAdmin
