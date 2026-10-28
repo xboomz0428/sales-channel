@@ -90,3 +90,12 @@ export const newsletterSendSchema: Schema = {
   manualEmails: { type: "string[]" },
   skipDuplicates: { type: "boolean" },
 };
+
+// 群發活動：建立活動並把全部收件人入佇列
+export const campaignCreateSchema: Schema = {
+  templateId: { type: "string", required: true },
+  brandIds: { type: "string[]" },
+  manualEmails: { type: "string[]" },
+  skipDuplicates: { type: "boolean" },
+  name: { type: "string" },
+};

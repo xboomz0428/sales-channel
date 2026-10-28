@@ -29,13 +29,22 @@ type NewsCountry = 'TW' | 'JP' | 'UK' | 'CA';
 
 const LANG_NAME: Record<string, string> = { zh: '中文', ja: '日文', en: '英文' };
 interface SendResult {
-  total: number;
-  sent: number;
-  failed: number;
-  queued: number;
-  skipped: number;
-  cleaned: number;
-  unprocessed: number; // 逾時／連線中斷而尚未處理（不是失敗，重寄同群組可補上）
+  campaignId?: string;
+  total: number;        // 本次選取
+  sent: number;         // 成功
+  failed: number;       // 失敗
+  queued: number;       // 剩餘排隊（額度用盡或中斷）
+  skipped: number;      // 排除重複
+  cleaned: number;      // 無效信箱
+  noEmail?: number;     // 名單沒有 Email
+  unprocessed: number;  // 分段寄出時中斷的次數（非收件人數）
+  capReached?: boolean; // 今日額度用盡
+}
+// 群發活動（來自 /api/outreach/campaigns，統計即時彙整）
+interface CampaignRow {
+  id: string; name: string; template_name: string | null; created_at: string; status: string | null;
+  requested: number; skipped: number; cleaned: number; total: number;
+  sent: number; failed: number; queued: number; sending: number; opened: number; clicked: number;
 }
 
 const STAGE_LABEL: Record<string, string> = {
@@ -87,9 +96,21 @@ export default function NewsletterPage() {
   const [histPageSize, setHistPageSize] = useState(100); // 每頁筆數
 
   // 寄信設定狀態（真實 / 模擬）
-  useEffect(() => {
-    fetch('/api/outreach/email-config').then((r) => r.json()).then(setCfg).catch(() => {});
-  }, []);
+  const refreshCfg = () => { fetch('/api/outreach/email-config').then((r) => r.json()).then(setCfg).catch(() => {}); };
+  useEffect(refreshCfg, []);
+
+  // 群發活動：進行中的（還有排隊）顯示在頁面上方，可隨時「繼續寄送」；重新整理也不會消失
+  const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
+  const [quota, setQuota] = useState<{ dailyCap: number; usedToday: number; remainingToday: number } | null>(null);
+  const [resuming, setResuming] = useState<string | null>(null);
+  const loadCampaigns = () => {
+    fetch('/api/outreach/campaigns?limit=10')
+      .then((r) => r.json())
+      .then((d) => { setCampaigns(d.campaigns || []); if (d.quota) setQuota(d.quota); })
+      .catch(() => {});
+  };
+  useEffect(loadCampaigns, []);
+  const activeCampaigns = campaigns.filter((c) => (c.queued || 0) + (c.sending || 0) > 0);
 
   // 載入產業群組（供群發鎖定）
   useEffect(() => {
@@ -209,8 +230,58 @@ export default function NewsletterPage() {
   };
 
   // 每批最多 30 封（後端單次上限 PER_CALL=30），前端自動分批送完
-  // 每批 10 封：SMTP 逐封約 10 秒，10 封 ≈ 100 秒，遠低於 API 300 秒上限，不會被中斷
+  // 每段 10 封：SMTP 逐封約 10 秒，10 封 ≈ 100 秒，遠低於 API 300 秒上限，不會被中斷
   const BATCH_SIZE = 10;
+
+  // 分段寄出某個活動的佇列：回傳累計結果。單段逾時/中斷只是略過（未寄的仍在佇列），連續 3 次失敗才停
+  const drainCampaign = async (campaignId: string, totalToSend: number) => {
+    let sent = 0, failed = 0, unprocessed = 0, remaining = totalToSend, capReached = false, errStreak = 0;
+    while (remaining > 0 && !capReached) {
+      try {
+        const res = await fetch(`/api/outreach/campaigns/${campaignId}/drain`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ n: BATCH_SIZE }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { errStreak++; unprocessed++; if (errStreak >= 3) break; continue; }
+        errStreak = 0;
+        sent += data.sent || 0;
+        failed += data.failed || 0;
+        remaining = typeof data.remainingQueued === 'number' ? data.remainingQueued : 0;
+        capReached = !!data.capReached;
+        setProgress({ done: sent + failed, total: totalToSend });
+      } catch {
+        errStreak++; unprocessed++;
+        if (errStreak >= 3) break;
+      }
+    }
+    return { sent, failed, remaining, unprocessed, capReached };
+  };
+
+  // 「繼續寄送」：把進行中活動的佇列在今日額度內寄出
+  const resumeCampaign = async (c: CampaignRow) => {
+    if (sending) return;
+    setResuming(c.id);
+    setSending(true);
+    setProgress({ done: 0, total: c.queued });
+    try {
+      const d = await drainCampaign(c.id, c.queued);
+      setResult({
+        campaignId: c.id, total: c.requested,
+        sent: d.sent, failed: d.failed, queued: d.remaining,
+        skipped: c.skipped, cleaned: c.cleaned,
+        unprocessed: d.unprocessed, capReached: d.capReached,
+      });
+      loadHistory();
+      loadCampaigns();
+      refreshCfg();
+    } finally {
+      setSending(false);
+      setProgress(null);
+      setResuming(null);
+    }
+  };
   function chunk<T>(arr: T[], size: number): T[][] {
     const out: T[][] = [];
     for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
@@ -220,7 +291,6 @@ export default function NewsletterPage() {
   async function doSend() {
     setSending(true);
     setConfirm(false);
-    let sent = 0, failed = 0, queued = 0, skipped = 0, cleaned = 0, unprocessed = 0;
     try {
       // 品牌 ID 和手動收件人分開處理
       const brandIds = [...selected].filter((id) => !id.startsWith('manual_'));
@@ -231,45 +301,36 @@ export default function NewsletterPage() {
 
       const total = brandIds.length + manualRecips.length;
       setProgress({ done: 0, total });
-      let done = 0;
 
-      // 單批送出；逾時／連線中斷 → 記「未處理」（不是失敗），且不中斷後續批次
-      const sendBatch = async (payload: Record<string, unknown>, size: number, withQueued: boolean) => {
-        try {
-          const res = await fetch('/api/outreach/newsletter/send', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ templateId: tplId, skipDuplicates: skipDup, ...payload }),
-          });
-          const data = await res.json().catch(() => ({}));
-          if (res.ok) {
-            sent += data.sent || 0; failed += data.failed || 0; skipped += data.skipped || 0; cleaned += data.cleaned || 0;
-            if (withQueued) queued += data.queued || 0;
-          } else {
-            unprocessed += size;
-          }
-        } catch {
-          unprocessed += size;
-        }
-      };
+      // 1) 建立「群發活動」並把全部收件人一次入佇列（只寫資料庫、瞬間完成；關掉視窗也不遺失）
+      const cRes = await fetch('/api/outreach/campaigns', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          templateId: tplId,
+          brandIds,
+          manualEmails: manualRecips.map((r) => ({ name: r.name, email: r.email! })),
+          skipDuplicates: skipDup,
+        }),
+      });
+      const c = await cRes.json().catch(() => ({}));
+      if (!cRes.ok || !c.campaignId) { alert(c.error || '建立群發活動失敗'); return; }
 
-      // 名單品牌：自動分批
-      for (const batch of chunk(brandIds, BATCH_SIZE)) {
-        await sendBatch({ brandIds: batch }, batch.length, true);
-        done += batch.length;
-        setProgress({ done, total });
-      }
+      // 2) 分段寄出（每段 BATCH_SIZE 封），直到佇列清空或今日額度用完
+      const toSend = c.queued || 0;
+      setProgress({ done: 0, total: toSend });
+      const d = await drainCampaign(c.campaignId, toSend);
 
-      // 手動收件人：同樣分批
-      for (const batch of chunk(manualRecips, BATCH_SIZE)) {
-        await sendBatch({ manualEmails: batch.map((r) => ({ name: r.name, email: r.email! })) }, batch.length, false);
-        done += batch.length;
-        setProgress({ done, total });
-      }
-
-      setResult({ total, sent, failed, queued, skipped, cleaned, unprocessed });
+      setResult({
+        campaignId: c.campaignId, total,
+        sent: d.sent, failed: d.failed, queued: d.remaining,
+        skipped: c.skipped || 0, cleaned: c.cleaned || 0, noEmail: c.noEmail || 0,
+        unprocessed: d.unprocessed, capReached: d.capReached,
+      });
       setSelected(new Set());
       loadHistory();
+      loadCampaigns();
+      refreshCfg();
     } catch {
       alert('連線失敗');
     } finally {
@@ -442,6 +503,41 @@ export default function NewsletterPage() {
             <span>⚠️ <b>模擬寄出模式</b>：目前不會真的寄信。設定 Gmail SMTP、Resend 或 SendGrid 任一即可真實寄出。</span>
           )}
           <a href="/guide">如何設定 →</a>
+        </div>
+      )}
+
+      {/* 進行中的群發活動：還有排隊的，可隨時繼續寄送（重新整理也會顯示） */}
+      {activeCampaigns.length > 0 && (
+        <div className="activecamp">
+          {activeCampaigns.map((c) => {
+            const done = c.sent + c.failed;
+            const pct = c.total ? Math.round((done / c.total) * 100) : 0;
+            const when = new Date(c.created_at).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+            return (
+              <div key={c.id} className="acrow">
+                <div className="acinfo">
+                  <strong>📨 進行中：{c.name}</strong>
+                  <span className="muted small">
+                    {when} 建立 · 已寄 {c.sent}{c.failed ? ` · 失敗 ${c.failed}` : ''} · <b style={{ color: '#8a6d1f' }}>排隊 {c.queued}</b> / 共 {c.total}
+                    {c.skipped ? ` · 排除重複 ${c.skipped}` : ''}{c.cleaned ? ` · 無效 ${c.cleaned}` : ''}
+                  </span>
+                  <div className="actrack"><div className="acfill" style={{ width: `${pct}%` }} /></div>
+                </div>
+                <div className="acact">
+                  {quota && <span className="muted small">今日還可寄 <b>{quota.remainingToday}</b> / {quota.dailyCap}</span>}
+                  <button
+                    className="btn solid small"
+                    disabled={sending || !quota || quota.remainingToday <= 0}
+                    onClick={() => resumeCampaign(c)}
+                    title={quota && quota.remainingToday <= 0 ? '今日額度已用完，明天早上 8 點會自動續寄' : '在今日額度內把排隊的寄出'}
+                  >
+                    {resuming === c.id ? `寄送中… ${progress ? `${progress.done}/${progress.total}` : ''}` : '▶ 繼續寄送'}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+          <div className="muted small achint">超出每日上限的會留在佇列，<b>每天早上 8 點自動續寄</b>；也可隨時按「繼續寄送」。關掉視窗不會遺失。</div>
         </div>
       )}
 
@@ -760,27 +856,36 @@ export default function NewsletterPage() {
       {result && (
         <div className="overlay" onClick={() => setResult(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h3>寄送完成</h3>
-            <p className="muted small" style={{ textAlign: 'center', marginTop: -2 }}>本次選取 {result.total} 位</p>
+            <h3>{result.queued > 0 ? '本次已寄出一部分' : '寄送完成'}</h3>
+            <p className="muted small" style={{ textAlign: 'center', marginTop: -2 }}>
+              本次選取 {result.total} 位{result.campaignId ? '・已記錄為一筆群發活動（可在郵件儀表板查看）' : ''}
+            </p>
             <div className="rstat">
               <div><b style={{ color: '#2f7d4a' }}>{result.sent}</b><span>成功</span></div>
               <div><b style={{ color: result.failed > 0 ? '#a4452f' : undefined }}>{result.failed}</b><span>失敗</span></div>
               <div><b style={{ color: '#8a6d1f' }}>{result.skipped}</b><span>排除重複</span></div>
-              {result.cleaned > 0 && <div><b>{result.cleaned}</b><span>清洗無效</span></div>}
-              {result.unprocessed > 0 && <div><b style={{ color: '#a4452f' }}>{result.unprocessed}</b><span>未處理</span></div>}
+              <div><b style={{ color: result.queued > 0 ? '#b08d3f' : undefined }}>{result.queued}</b><span>排隊中</span></div>
             </div>
-            {result.unprocessed > 0 && (
-              <p className="small" style={{ textAlign: 'center', lineHeight: 1.6, color: '#a4452f' }}>
-                ⚠ {result.unprocessed} 位因逾時／連線中斷<strong>尚未處理</strong>（不是失敗）。
-                重新對同一群組按「寄送」即可補上——已寄過或已排隊的會自動略過。
+            {(result.cleaned > 0 || (result.noEmail || 0) > 0) && (
+              <p className="muted small" style={{ textAlign: 'center' }}>
+                {result.cleaned > 0 ? `已自動剔除 ${result.cleaned} 個無效信箱（語法錯誤或網域查無 MX）` : ''}
+                {result.cleaned > 0 && (result.noEmail || 0) > 0 ? '；' : ''}
+                {(result.noEmail || 0) > 0 ? `${result.noEmail} 位名單沒有 Email` : ''}
+                ，皆不計入失敗。
               </p>
             )}
             <p className="muted small" style={{ textAlign: 'center', lineHeight: 1.6 }}>
-              「排除重複」= 這 {result.skipped} 位先前已收過<strong>此模板</strong>，本次未重寄
-              {skipDup ? '' : '（本次已關閉略過重複）'}。
+              「排除重複」= 這 {result.skipped} 位先前已收過<strong>此模板</strong>或已在佇列，本次未重寄{skipDup ? '' : '（本次已關閉略過重複）'}。
             </p>
-            {result.queued > 0 && <p className="muted small" style={{ textAlign: 'center' }}>另有 {result.queued} 封排隊中（當日上限分流）</p>}
-            {result.cleaned > 0 && <p className="muted small" style={{ textAlign: 'center' }}>已自動剔除 {result.cleaned} 個無效信箱（語法錯誤或網域查無 MX），不計入失敗</p>}
+            {result.queued > 0 && (
+              <p className="small" style={{ textAlign: 'center', lineHeight: 1.6, color: '#8a6d1f', background: '#faf3df', borderRadius: 8, padding: '8px 10px' }}>
+                {result.capReached ? (
+                  <>今日寄送額度已用完（每日上限 {cfg?.dailyCap ?? '—'} 封）。剩餘 <strong>{result.queued}</strong> 封已安全排隊，<strong>每天早上 8 點自動續寄</strong>（約需 {cfg?.dailyCap ? Math.ceil(result.queued / cfg.dailyCap) : '—'} 天）；明天也可回本頁按「▶ 繼續寄送」。</>
+                ) : (
+                  <>剩餘 <strong>{result.queued}</strong> 封仍在佇列（連線中斷或尚未寄完）。可按頁面上方「▶ 繼續寄送」，或等每天早上 8 點自動續寄。關掉視窗不會遺失。</>
+                )}
+              </p>
+            )}
             <div className="dbtns">
               <a className="btn ghost" href="/outreach/email-dashboard">看儀表板</a>
               <button className="btn solid" onClick={() => setResult(null)}>關閉</button>
@@ -857,6 +962,17 @@ export default function NewsletterPage() {
         .rmsel:disabled { opacity: 0.5; cursor: default; }
         .quota { font-size: 12px; color: #5a6b4f; background: #eef0e6; border-radius: 999px; padding: 5px 12px; white-space: nowrap; }
         .quota b { color: #3f6b3f; }
+        /* 進行中的群發活動（還有排隊）*/
+        .activecamp { background: #fffdf8; border: 1px solid #e8dcae; border-left: 4px solid #b08d3f; border-radius: 12px; padding: 12px 16px; margin-bottom: 14px; }
+        .acrow { display: flex; align-items: center; gap: 14px; padding: 6px 0; flex-wrap: wrap; }
+        .acrow + .acrow { border-top: 1px dashed #efe6cf; }
+        .acinfo { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 4px; }
+        .acinfo strong { font-size: 14px; color: #2f3d2f; }
+        .actrack { height: 8px; background: #f0ece1; border-radius: 999px; overflow: hidden; max-width: 420px; }
+        .acfill { height: 100%; background: linear-gradient(90deg, #d9b45a, #b08d3f); border-radius: 999px; transition: width 300ms; }
+        .acact { display: flex; align-items: center; gap: 10px; }
+        .btn.small { padding: 8px 14px; font-size: 13px; }
+        .achint { margin-top: 6px; }
         .dupchk { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #5a6b4f; cursor: pointer; white-space: nowrap; user-select: none; }
         .dupchk input { width: 15px; height: 15px; accent-color: #4a6b3f; cursor: pointer; }
         .autolink { font-size: 13px; color: #4a6b3f; text-decoration: none; white-space: nowrap; padding: 8px 10px; border-radius: 8px; }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 
 interface Msg {
   id: string;
@@ -44,6 +44,18 @@ interface Data {
   funnel?: { sent: number; opened: number; clicked: number; replied: number };
 }
 
+// 群發活動（/api/outreach/campaigns：每次群發一筆，統計即時彙整）
+interface CampaignRow {
+  id: string; name: string; template_name: string | null; created_at: string; status: string | null;
+  requested: number; skipped: number; cleaned: number; total: number;
+  sent: number; failed: number; queued: number; sending: number; opened: number; clicked: number; replied: number;
+}
+interface CampaignDetail {
+  campaign: CampaignRow;
+  messages: Msg[];
+  skipped: { id: string; name: string; industry?: string | null; email?: string | null }[];
+}
+
 const STATUS: Record<string, { label: string; color: string }> = {
   draft: { label: '草稿', color: '#9a9384' },
   queued: { label: '排隊', color: '#b08d3f' },
@@ -65,6 +77,26 @@ export default function EmailDashboardPage() {
   const [dayOpen, setDayOpen] = useState<string | null>(null); // 展開中的日期
   const [dayMsgs, setDayMsgs] = useState<Msg[]>([]);
   const [dayLoading, setDayLoading] = useState(false);
+  // 群發活動清單 + 展開明細
+  const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
+  const [campOpen, setCampOpen] = useState<string | null>(null);
+  const [campDetail, setCampDetail] = useState<CampaignDetail | null>(null);
+  const [campLoading, setCampLoading] = useState(false);
+  const loadCampaigns = () => {
+    fetch('/api/outreach/campaigns?limit=30').then((r) => r.json()).then((d) => setCampaigns(d.campaigns || [])).catch(() => {});
+  };
+  useEffect(() => { loadCampaigns(); }, []);
+  const toggleCampaign = async (id: string) => {
+    if (campOpen === id) { setCampOpen(null); return; }
+    setCampOpen(id);
+    setCampLoading(true);
+    setCampDetail(null);
+    try {
+      const d = await fetch(`/api/outreach/campaigns/${id}`).then((r) => r.json());
+      if (d.campaign) setCampDetail(d);
+    } catch { /* ignore */ }
+    setCampLoading(false);
+  };
 
   // 點擊每日長條 → 展開/收合當天寄送明細（當天完整名單，含內容）
   const toggleDay = async (day: string) => {
@@ -147,6 +179,107 @@ export default function EmailDashboardPage() {
             ))}
           </div>
 
+          {/* 群發活動：每次群發一列，永久保存 選取/排除重複/無效/已寄/排隊/失敗/開信/點擊 */}
+          <div className="card camp">
+            <div className="ck">群發活動 <span className="rkhint">每次群發一列 · 點擊展開當次明細</span></div>
+            {campaigns.length === 0 ? (
+              <div className="muted" style={{ padding: 12 }}>尚無群發活動</div>
+            ) : (
+              <table className="camptable">
+                <thead>
+                  <tr>
+                    <th>活動</th><th>日期</th><th style={{ minWidth: 150 }}>進度</th>
+                    <th>選取</th><th>排除重複</th><th>無效</th><th>已寄</th><th>失敗</th><th>排隊</th>
+                    <th>開信率</th><th>點擊率</th><th>狀態</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {campaigns.map((c) => {
+                    const done = c.sent + c.failed;
+                    const pct = c.total ? Math.round((done / c.total) * 100) : 0;
+                    const openRate = c.sent ? Math.round((c.opened / c.sent) * 1000) / 10 : 0;
+                    const clickRate = c.sent ? Math.round((c.clicked / c.sent) * 1000) / 10 : 0;
+                    const running = (c.queued + c.sending) > 0;
+                    const isOpen = campOpen === c.id;
+                    return (
+                      <Fragment key={c.id}>
+                        <tr className={`camprow ${isOpen ? 'on' : ''}`} onClick={() => toggleCampaign(c.id)}>
+                          <td>
+                            <span className="caret">{isOpen ? '▾' : '▸'}</span><strong>{c.name}</strong>
+                            {c.template_name && c.template_name !== c.name && <div className="muted small">{c.template_name}</div>}
+                          </td>
+                          <td className="muted" style={{ whiteSpace: 'nowrap' }}>{new Date(c.created_at).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}</td>
+                          <td>
+                            <div className="ctrack"><div className="cfill" style={{ width: `${pct}%` }} /></div>
+                            <div className="muted small">{done}/{c.total}（{pct}%）</div>
+                          </td>
+                          <td>{c.requested}</td>
+                          <td>{c.skipped}</td>
+                          <td>{c.cleaned}</td>
+                          <td style={{ color: '#2f7d4a', fontWeight: 700 }}>{c.sent}</td>
+                          <td style={{ color: c.failed ? '#a4452f' : undefined }}>{c.failed}</td>
+                          <td style={{ color: c.queued ? '#8a6d1f' : undefined, fontWeight: c.queued ? 700 : undefined }}>{c.queued}</td>
+                          <td>{openRate}%</td>
+                          <td>{clickRate}%</td>
+                          <td><span className="badge" style={{ background: running ? '#b08d3f' : '#4a6b3f' }}>{running ? '進行中' : '完成'}</span></td>
+                        </tr>
+                        {isOpen && (
+                          <tr className="campdetailrow">
+                            <td colSpan={12}>
+                              {campLoading ? (
+                                <div className="muted" style={{ padding: 12 }}>載入中…</div>
+                              ) : campDetail ? (
+                                <div className="campdetail">
+                                  <div className="dstats">
+                                    {([
+                                      ['選取', campDetail.campaign.requested], ['排除重複', campDetail.campaign.skipped], ['無效信箱', campDetail.campaign.cleaned],
+                                      ['入佇列', campDetail.campaign.total], ['已寄', campDetail.campaign.sent], ['失敗', campDetail.campaign.failed],
+                                      ['排隊', campDetail.campaign.queued], ['開信', campDetail.campaign.opened], ['點擊', campDetail.campaign.clicked],
+                                    ] as const).map(([k, v]) => (
+                                      <div key={k} className="dstat"><b>{v}</b><span>{k}</span></div>
+                                    ))}
+                                  </div>
+                                  {campDetail.skipped.length > 0 && (
+                                    <details className="skiplist">
+                                      <summary>排除重複 {campDetail.skipped.length} 位（先前已收過此模板，或已在佇列）</summary>
+                                      <div className="skipchips">
+                                        {campDetail.skipped.map((s) => (
+                                          <span key={s.id} className="chip">{s.name}{s.email ? ` · ${s.email}` : ''}</span>
+                                        ))}
+                                      </div>
+                                    </details>
+                                  )}
+                                  <table className="ddtable">
+                                    <thead><tr><th>名單</th><th>主旨</th><th>狀態</th><th>開信</th><th>點擊</th><th>時間</th></tr></thead>
+                                    <tbody>
+                                      {campDetail.messages.map((m) => {
+                                        const s = STATUS[m.status] || STATUS.draft;
+                                        return (
+                                          <tr key={m.id} className="static">
+                                            <td>{m.brands?.name || m.to_email || '—'}</td>
+                                            <td className="subj">{m.subject || '(無主旨)'}</td>
+                                            <td><span className="badge" style={{ background: s.color }}>{s.label}</span></td>
+                                            <td>{m.open_count || 0}</td>
+                                            <td>{m.click_count || 0}</td>
+                                            <td className="muted">{m.sent_at ? m.sent_at.slice(5, 16).replace('T', ' ') : '—'}</td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ) : null}
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+
           <div className="chart card">
             <div className="ck">每日寄送量</div>
             <div className="hbars">
@@ -174,7 +307,27 @@ export default function EmailDashboardPage() {
                         <div className="muted" style={{ padding: 14, textAlign: 'center' }}>當天無寄送明細</div>
                       ) : (
                         <>
-                          <div className="ddhead">{d.day.slice(0, 10)} · 共 {dayMsgs.length} 筆（點任一列看內容）</div>
+                          <div className="ddhead">{d.day.slice(0, 10)} 寄送儀表板 · 共 {dayMsgs.length} 筆（點任一列看內容）</div>
+                          {(() => {
+                            const ok = dayMsgs.filter((m) => ['sent', 'delivered', 'read', 'replied'].includes(m.status)).length;
+                            const fl = dayMsgs.filter((m) => m.status === 'failed').length;
+                            const bo = dayMsgs.filter((m) => m.status === 'bounced').length;
+                            const qu = dayMsgs.filter((m) => ['queued', 'sending'].includes(m.status)).length;
+                            const op = dayMsgs.filter((m) => (m.open_count || 0) > 0).length;
+                            const cl = dayMsgs.filter((m) => (m.click_count || 0) > 0).length;
+                            const rate = (n: number) => (ok ? Math.round((n / ok) * 1000) / 10 : 0);
+                            return (
+                              <div className="dstats">
+                                <div className="dstat"><b>{dayMsgs.length}</b><span>總筆數</span></div>
+                                <div className="dstat"><b style={{ color: '#2f7d4a' }}>{ok}</b><span>成功寄出</span></div>
+                                <div className="dstat"><b style={{ color: fl ? '#a4452f' : undefined }}>{fl}</b><span>失敗</span></div>
+                                <div className="dstat"><b style={{ color: bo ? '#a4452f' : undefined }}>{bo}</b><span>退信</span></div>
+                                <div className="dstat"><b style={{ color: qu ? '#8a6d1f' : undefined }}>{qu}</b><span>排隊／寄送中</span></div>
+                                <div className="dstat"><b>{op}</b><span>開信 {rate(op)}%</span></div>
+                                <div className="dstat"><b>{cl}</b><span>點擊 {rate(cl)}%</span></div>
+                              </div>
+                            );
+                          })()}
                           <table className="ddtable">
                             <thead>
                               <tr><th>名單</th><th>主旨</th><th>狀態</th><th>開信</th><th>點擊</th><th>時間</th></tr>
@@ -385,6 +538,27 @@ export default function EmailDashboardPage() {
         .ddtable { margin: 0; }
         .ddtable th { font-size: 12px; padding: 7px 12px; border-bottom: 1px solid #e3ded3; }
         .ddtable td { font-size: 13px; padding: 8px 12px; }
+        /* 當天 / 活動 統計卡 */
+        .dstats { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+        .dstat { flex: 1 1 96px; min-width: 96px; background: #fff; border: 1px solid #eee6d6; border-radius: 10px; padding: 8px 10px; text-align: center; }
+        .dstat b { display: block; font-family: 'Noto Serif TC', serif; font-size: 20px; color: #2f3d2f; }
+        .dstat span { font-size: 11px; color: #8a8472; }
+        /* 群發活動 */
+        .camp { margin-bottom: 18px; }
+        .camptable th { white-space: nowrap; }
+        .camptable td { font-size: 14px; }
+        .camprow .caret { font-size: 12px; color: #8a8472; margin-right: 6px; }
+        .camprow.on { background: #eef3e9; }
+        .ctrack { height: 8px; background: #f0ece1; border-radius: 999px; overflow: hidden; width: 140px; }
+        .cfill { height: 100%; background: linear-gradient(90deg, #6f8c5f, #4a6b3f); border-radius: 999px; }
+        .campdetailrow > td { padding: 0; background: #fcfbf6; }
+        .campdetail { border-top: 1px solid #e3ded3; }
+        .campdetail tbody tr.static { cursor: default; }
+        .campdetail tbody tr.static:hover { background: transparent; }
+        .skiplist { margin: 0 12px 10px; font-size: 13px; }
+        .skiplist summary { cursor: pointer; color: #8a6d1f; font-weight: 600; }
+        .skipchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+        .chip { font-size: 12px; background: #f3eddf; color: #6b5330; border-radius: 999px; padding: 3px 10px; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         th { text-align: left; font-size: 13px; color: #8a8472; font-weight: 600; padding: 8px 10px; border-bottom: 2px solid #e3ded3; }
         td { font-size: 15px; padding: 11px 10px; border-bottom: 1px solid #f0ece1; }

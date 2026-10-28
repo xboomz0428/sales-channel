@@ -11,6 +11,8 @@ export interface RunSendResult {
   cleaned: number; // 寄信前清洗：語法錯誤 / 網域無 MX 而被剔除（未寄出、不算失敗）
   dispatched: number; // 本次實際送出（成功+失敗），用來扣每日額度
   total: number;
+  skippedBrandIds: string[]; // 被排除重複的名單 id（供活動記錄「排除了誰」）
+  skippedEmails: string[];   // 被排除重複的手動信箱
 }
 
 const SENT_STATUS = ["sent", "delivered", "read", "replied"];
@@ -24,6 +26,7 @@ const DONE_OR_PENDING = [...SENT_STATUS, "queued", "sending"];
  * 可靠性設計：先把本批「全部」建成 queued（只寫 DB、不等 SMTP，瞬間完成），
  * 再在額度內逐封寄出。即使執行中途被平台終止（maxDuration），尚未寄的仍留在佇列，
  * 由排程器補寄——不會像逐封「建立→寄出」那樣讓後段收件人憑空消失。
+ * budget=0 時即為「只入佇列、不寄」（群發活動建立時使用，之後由 drain 分段寄出）。
  */
 export async function runSendBatch(opts: {
   templateId: string;
@@ -39,7 +42,9 @@ export async function runSendBatch(opts: {
   const skipDuplicates = opts.skipDuplicates !== false;
   let budget = Math.max(0, opts.budget);
 
-  const empty: RunSendResult = { sent: 0, failed: 0, queued: 0, skipped: 0, cleaned: 0, dispatched: 0, total: 0 };
+  const skippedBrandIds: string[] = [];
+  const skippedEmails: string[] = [];
+  const empty: RunSendResult = { sent: 0, failed: 0, queued: 0, skipped: 0, cleaned: 0, dispatched: 0, total: 0, skippedBrandIds, skippedEmails };
   if (brandIds.length === 0 && manualEmails.length === 0) return empty;
 
   const { data: tpl } = await supabaseAdmin
@@ -59,10 +64,11 @@ export async function runSendBatch(opts: {
       .in("status", DONE_OR_PENDING);
     const sentBrand = new Set((prev || []).map((m: any) => m.brand_id).filter(Boolean));
     const sentMail = new Set((prev || []).map((m: any) => (m.to_email || "").toLowerCase()).filter(Boolean));
-    const b0 = brandIds.length, m0 = manualEmails.length;
+    for (const id of brandIds) if (sentBrand.has(id)) skippedBrandIds.push(id);
+    for (const m of manualEmails) if (sentMail.has((m.email || "").toLowerCase())) skippedEmails.push(m.email);
     brandIds = brandIds.filter((id) => !sentBrand.has(id));
     manualEmails = manualEmails.filter((m) => !sentMail.has((m.email || "").toLowerCase()));
-    skipped = (b0 - brandIds.length) + (m0 - manualEmails.length);
+    skipped = skippedBrandIds.length + skippedEmails.length;
   }
 
   const emailMap = await resolveBrandEmails(brandIds);
@@ -75,6 +81,8 @@ export async function runSendBatch(opts: {
   const { bad: invalidSet } = await partitionSendable(allTargets);
 
   let sent = 0, failed = 0, queued = 0, cleaned = 0, dispatched = 0;
+  const total = brandIds.length + manualEmails.length;
+  const result = () => ({ sent, failed, queued, skipped, cleaned, dispatched, total, skippedBrandIds, skippedEmails });
 
   // 1) 整理本批實際要寄的對象
   const targets: Array<{ brand_id: string | null; to_email: string }> = [];
@@ -88,8 +96,7 @@ export async function runSendBatch(opts: {
     if (!isValidEmail(m.email) || invalidSet.has((m.email || "").trim())) { cleaned++; continue; }
     targets.push({ brand_id: null, to_email: m.email });
   }
-  const total = brandIds.length + manualEmails.length;
-  if (targets.length === 0) return { sent, failed, queued, skipped, cleaned, dispatched, total };
+  if (targets.length === 0) return result();
 
   // 2) 先全部建成 queued（一次 bulk insert，不等 SMTP）
   const now = new Date().toISOString();
@@ -111,7 +118,7 @@ export async function runSendBatch(opts: {
     .select("id");
   if (insErr || !created) {
     failed += targets.length;
-    return { sent, failed, queued, skipped, cleaned, dispatched, total };
+    return result();
   }
 
   // 3) 在額度內逐封寄出；額度用完或執行被中斷的，都安全留在佇列
@@ -123,5 +130,5 @@ export async function runSendBatch(opts: {
     budget--;
   }
 
-  return { sent, failed, queued, skipped, cleaned, dispatched, total };
+  return result();
 }
