@@ -8,6 +8,7 @@ import { addToBlacklist, classifyBounce } from "@/lib/outreach/blacklist";
 interface DispatchResult {
   ok: boolean;
   error?: string;
+  skipped?: boolean; // 已被別的執行者認領（寄送中/已寄出）→ 本次略過，不算失敗、不扣額度
 }
 
 export async function dispatchEmail(messageId: string): Promise<DispatchResult> {
@@ -122,10 +123,17 @@ export async function dispatchEmail(messageId: string): Promise<DispatchResult> 
     .update({ subject })
     .eq("id", messageId);
 
-  await supabaseAdmin
+  // 原子認領：只有「尚未在寄送中／尚未寄出」的訊息才能進入寄送；被別的執行者搶先則略過。
+  // 背景接力、手動繼續寄送、每日排程排空、重寄、單封寄送 全部經過這裡 → 同一封絕不會寄兩次。
+  const { data: claimed } = await supabaseAdmin
     .from("outreach_messages")
-    .update({ tracking_id: trackingId, status: "sending" })
-    .eq("id", messageId);
+    .update({ tracking_id: trackingId, status: "sending", claimed_at: new Date().toISOString() })
+    .eq("id", messageId)
+    .not("status", "in", "(sending,sent,delivered,read,replied)")
+    .select("id");
+  if (!claimed || claimed.length === 0) {
+    return { ok: false, skipped: true, error: "此訊息已在寄送中或已寄出" };
+  }
 
   // 未設定任何寄信供應商 → 模擬寄出（開發/測試）
   if (provider === "none") {

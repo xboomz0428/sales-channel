@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { dispatchEmail } from "@/lib/outreach/dispatchEmail";
 import { runSendBatch } from "@/lib/outreach/runSend";
 import { getSendCaps, sentToday } from "@/lib/outreach/throttle";
-import { claimAndSend } from "@/lib/outreach/drain";
+import { claimAndSend, kickCampaignDrain } from "@/lib/outreach/drain";
 import { notifyLine } from "@/lib/notify/line";
 import { buildDailyReport } from "@/lib/notify/dailyMetrics";
 import { scanBounces } from "@/lib/outreach/scanBounces";
@@ -133,10 +133,26 @@ export async function GET(req: Request) {
         .eq("channel", "EM")
         .eq("status", "sending")
         .is("sent_at", null)
-        .lt("created_at", staleCut)
+        // 以「認領時間」判斷（沒有認領時間的舊資料才退回 created_at）：一封信寄送只需約 10 秒，
+        // 超過 15 分鐘仍 sending 才是真的被中斷；不會誤傷正在被另一棒寄送中的訊息
+        .or("claimed_at.lt." + staleCut + ",and(claimed_at.is.null,created_at.lt." + staleCut + ")")
         .select("id");
       if (stale && stale.length > 0) notes.push(`♻️ 重設 ${stale.length} 封中斷的寄送回佇列`);
     } catch { /* 自癒失敗不影響其他工作 */ }
+
+    // ── 活動續寄：舊路徑碎片併入活動；對還有排隊的活動觸發背景接力（受今日額度約束，額度用完自然停）──
+    try {
+      await supabaseAdmin.rpc("merge_legacy_email_batches");
+      if (budget > 0) {
+        const { data: camps } = await supabaseAdmin.rpc("email_campaigns", { p_limit: 50, p_id: null });
+        const origin = new URL(req.url).origin;
+        let kicked = 0;
+        for (const c of (camps || []) as any[]) {
+          if ((c.queued || 0) > 0 && (await kickCampaignDrain(origin, c.id, 0))) kicked++;
+        }
+        if (kicked > 0) notes.push("🚀 觸發 " + kicked + " 個活動背景續寄");
+      }
+    } catch { /* 續寄觸發失敗不影響下方佇列補寄 */ }
 
     // ── 排空既有 queued（手動超量、排程剩餘等）────────
     let drained = 0;

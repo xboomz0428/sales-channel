@@ -125,6 +125,7 @@ export async function runSendBatch(opts: {
   for (const row of created) {
     if (budget <= 0) { queued++; continue; }
     const r = await dispatchEmail(row.id);
+    if (r.skipped) continue; // 已被背景接力/排程搶先寄出：不算失敗、不扣額度
     r.ok ? sent++ : failed++;
     dispatched++;
     budget--;

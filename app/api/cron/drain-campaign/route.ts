@@ -34,7 +34,7 @@ export async function POST(req: Request) {
       try {
         const r = await drainCampaignOnce(campaignId, 240_000);
         await releaseCampaignLock(campaignId);
-        if (r.remaining > 0 && !r.capReached) {
+        if (r.remaining > 0 && !r.capReached && !r.halted) {
           await kickCampaignDrain(origin, campaignId, hop + 1);
         }
       } catch {

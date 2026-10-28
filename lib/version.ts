@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "3.6.0";
+export const APP_VERSION = "3.6.1";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.6.1",
+    date: "2026-10-28",
+    title: "修正驗證發現的雙寄／額度／文案問題（Phase 0–2 對抗式審查）",
+    items: [
+      "雙寄根除：原子認領移進 dispatchEmail（status 不在 sending/sent/delivered/read/replied 才能寄，並記 claimed_at，migration 0041）——背景接力、手動繼續寄送、每日排程、重寄、單封寄送全走同一關卡；排程自癒改以 claimed_at 判斷卡住，不再誤重設正在寄送中的訊息",
+      "每日上限修正：用量改以『有寄出時間』計，不看 status（Resend webhook 會把 sent 改成 delivered/read，原本會低估用量讓上限失效）；背景寄送每 5 封重讀用量，多活動並行不明顯超發",
+      "每日 08:00 排程：自動把舊路徑碎片併入活動，並對仍有排隊的活動觸發背景接力（每天可寄到上限，不再只補 40 封）；結果視窗『約需 N 天』依此重新計算",
+      "背景寄送連續失敗 5 封即停、佇列計數失敗不誤標完成、建活動入佇列失敗標 error；寄送頁輪詢自適應（寄送中 6 秒／僅排隊 20 秒）；移除過時的「每批/分批」文案",
+    ],
+  },
   {
     version: "3.6.0",
     date: "2026-10-28",

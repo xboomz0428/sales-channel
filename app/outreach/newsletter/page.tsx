@@ -114,12 +114,13 @@ export default function NewsletterPage() {
   const activeCampaigns = campaigns.filter((c) => (c.queued || 0) + (c.sending || 0) > 0);
   // 有進行中活動時每 6 秒輪詢進度（伺服器在背景寄，頁面只負責顯示）
   const activeCount = activeCampaigns.length;
+  // 正在寄（sending>0）每 6 秒；只剩排隊（例如今日額度用完、等明天 8 點）放慢到 20 秒
+  const anySending = activeCampaigns.some((c) => (c.sending || 0) > 0);
   useEffect(() => {
     if (activeCount === 0) return;
-    const t = setInterval(() => { loadCampaigns(); refreshCfg(); }, 6000);
+    const t = setInterval(() => { loadCampaigns(); refreshCfg(); }, anySending ? 6000 : 20000);
     return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeCount]);
+  }, [activeCount, anySending]);
 
   // 載入產業群組（供群發鎖定）
   useEffect(() => {
@@ -238,9 +239,6 @@ export default function NewsletterPage() {
     setSelected((s) => { const n = new Set(s); n.delete(id); return n; });
   };
 
-  // 每批最多 30 封（後端單次上限 PER_CALL=30），前端自動分批送完
-  // 每段 10 封：SMTP 逐封約 10 秒，10 封 ≈ 100 秒，遠低於 API 300 秒上限，不會被中斷
-  const BATCH_SIZE = 10;
 
   // 「繼續寄送」：觸發伺服器背景寄送（自我接力），立即返回；進度由輪詢更新
   const resumeCampaign = async (c: CampaignRow) => {
@@ -260,11 +258,6 @@ export default function NewsletterPage() {
       setTimeout(() => setResuming(null), 8000);
     }
   };
-  function chunk<T>(arr: T[], size: number): T[][] {
-    const out: T[][] = [];
-    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-    return out;
-  }
 
   async function doSend() {
     setSending(true);
@@ -735,7 +728,7 @@ export default function NewsletterPage() {
               <span className="pbar"><span className="pbarfill" style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }} /></span>
             </span>
           ) : canSend ? (
-            <>準備寄送「<strong>{tpl?.name}</strong>」給 <strong>{selected.size}</strong> 位{selected.size > BATCH_SIZE && <span className="muted small">（自動分 {Math.ceil(selected.size / BATCH_SIZE)} 批）</span>}</>
+            <>準備寄送「<strong>{tpl?.name}</strong>」給 <strong>{selected.size}</strong> 位 <span className="muted small">（按下後由伺服器背景寄出，關掉視窗也會繼續）</span></>
           ) : (
             <span className="muted">請選擇至少一位名單與一個模板</span>
           )}
@@ -815,7 +808,7 @@ export default function NewsletterPage() {
               此動作會實際寄出 email,無法收回。
             </p>
             <p className="muted small">
-              系統會自動分批寄送（每批 {BATCH_SIZE} 封{selected.size > BATCH_SIZE ? `，共 ${Math.ceil(selected.size / BATCH_SIZE)} 批` : ''}）。
+              按下後會先把全部收件人入佇列，再由伺服器在背景寄出（今日還可寄 {cfg?.remainingToday ?? '—'} 封，超出的明天早上 8 點自動續寄）。
               {skipDup ? '已開啟略過重複：先前收過此模板者不會重寄。' : '已關閉略過重複：相同模板會再寄一次。'}
             </p>
             <div className="dbtns">
@@ -854,7 +847,11 @@ export default function NewsletterPage() {
             {result.background && (
               <p className="small" style={{ textAlign: 'center', lineHeight: 1.7, color: '#2f4a3a', background: '#e8f1e6', borderRadius: 8, padding: '8px 10px' }}>
                 伺服器正在<strong>背景自動寄出</strong>，<strong>關掉視窗也會繼續</strong>。進度請看頁面上方「📨 進行中」橫幅（每 6 秒更新）或郵件儀表板「群發活動」。
-                {cfg?.dailyCap ? <>每日上限 {cfg.dailyCap} 封，超出的明天早上 8 點自動續寄{result.queued > (cfg.remainingToday ?? 0) ? `（約需 ${Math.ceil(result.queued / cfg.dailyCap)}～${Math.ceil(result.queued / cfg.dailyCap) + 1} 天）` : ''}。</> : null}
+                {cfg?.dailyCap ? (() => {
+                  const today = Math.min(result.queued, cfg.remainingToday ?? 0);
+                  const extraDays = Math.ceil(Math.max(0, result.queued - today) / cfg.dailyCap);
+                  return <>今天最多寄 {today} 封（每日上限 {cfg.dailyCap}）{extraDays > 0 ? <>，其餘 {result.queued - today} 封由每天早上 8 點的排程自動續寄，約再 <strong>{extraDays}</strong> 天寄完</> : null}。</>;
+                })() : null}
               </p>
             )}
             {(result.cleaned > 0 || (result.noEmail || 0) > 0) && (
@@ -871,7 +868,7 @@ export default function NewsletterPage() {
             {!result.background && result.queued > 0 && (
               <p className="small" style={{ textAlign: 'center', lineHeight: 1.6, color: '#8a6d1f', background: '#faf3df', borderRadius: 8, padding: '8px 10px' }}>
                 {result.capReached ? (
-                  <>今日寄送額度已用完（每日上限 {cfg?.dailyCap ?? '—'} 封）。剩餘 <strong>{result.queued}</strong> 封已安全排隊，<strong>每天早上 8 點自動續寄</strong>（約需 {cfg?.dailyCap ? Math.ceil(result.queued / cfg.dailyCap) : '—'} 天）；明天也可回本頁按「▶ 繼續寄送」。</>
+                  <>今日寄送額度已用完（每日上限 {cfg?.dailyCap ?? '—'} 封）。剩餘 <strong>{result.queued}</strong> 封已安全排隊，<strong>每天早上 8 點自動續寄</strong>（每天最多 {cfg?.dailyCap ?? '—'} 封，約再 {cfg?.dailyCap ? Math.ceil(result.queued / cfg.dailyCap) : '—'} 天寄完）；明天也可回本頁按「▶ 繼續寄送」。</>
                 ) : (
                   <>剩餘 <strong>{result.queued}</strong> 封仍在佇列（連線中斷或尚未寄完）。可按頁面上方「▶ 繼續寄送」，或等每天早上 8 點自動續寄。關掉視窗不會遺失。</>
                 )}

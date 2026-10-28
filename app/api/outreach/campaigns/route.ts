@@ -71,8 +71,14 @@ export async function POST(req: Request) {
       .single();
     if (bErr || !batch) throw new HttpError(500, '建立活動失敗');
 
-    // 2) 全部入佇列（budget=0：只建立 queued、不寄）
-    const r = await runSendBatch({ templateId, brandIds, manualEmails, skipDuplicates, budget: 0, batchId: batch.id });
+    // 2) 全部入佇列（budget=0：只建立 queued、不寄）；失敗則把活動標為 error，不留永遠 running 的殭屍
+    let r;
+    try {
+      r = await runSendBatch({ templateId, brandIds, manualEmails, skipDuplicates, budget: 0, batchId: batch.id });
+    } catch (e) {
+      await supabaseAdmin.from('outreach_batches').update({ status: 'error', finished_at: nowIso, note: e instanceof Error ? e.message.slice(0, 200) : '入佇列失敗' }).eq('id', batch.id);
+      throw e;
+    }
 
     // 3) 回寫活動摘要（排除重複／無效／入佇列數）
     await supabaseAdmin

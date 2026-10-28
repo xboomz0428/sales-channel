@@ -20,7 +20,9 @@ export async function sentToday(): Promise<number> {
     .from("outreach_messages")
     .select("id", { count: "exact", head: true })
     .eq("channel", "EM")
-    .eq("status", "sent")
+    // 以「有寄出時間」計，不看 status：Resend webhook 幾秒內就會把 sent 改成 delivered/read/replied，
+    // 若只數 status='sent' 會低估用量、讓每日上限形同虛設
+    .not("sent_at", "is", null)
     .gte("sent_at", startUtc.toISOString());
   return count || 0;
 }
