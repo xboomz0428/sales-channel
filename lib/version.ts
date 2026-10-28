@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "3.6.1";
+export const APP_VERSION = "3.6.2";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,12 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.6.2",
+    date: "2026-10-28",
+    title: "程式碼品質：runSend 移除 any 與未用表達式（eslint）",
+    items: ["重複判斷查詢結果改為明確型別；寄送結果計數改用 if/else，消除 eslint 錯誤與警告"],
+  },
   {
     version: "3.6.1",
     date: "2026-10-28",

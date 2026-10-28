@@ -62,8 +62,9 @@ export async function runSendBatch(opts: {
       .select("brand_id, to_email")
       .eq("template_id", templateId)
       .in("status", DONE_OR_PENDING);
-    const sentBrand = new Set((prev || []).map((m: any) => m.brand_id).filter(Boolean));
-    const sentMail = new Set((prev || []).map((m: any) => (m.to_email || "").toLowerCase()).filter(Boolean));
+    const prevRows = (prev || []) as { brand_id: string | null; to_email: string | null }[];
+    const sentBrand = new Set(prevRows.map((m) => m.brand_id).filter(Boolean));
+    const sentMail = new Set(prevRows.map((m) => (m.to_email || "").toLowerCase()).filter(Boolean));
     for (const id of brandIds) if (sentBrand.has(id)) skippedBrandIds.push(id);
     for (const m of manualEmails) if (sentMail.has((m.email || "").toLowerCase())) skippedEmails.push(m.email);
     brandIds = brandIds.filter((id) => !sentBrand.has(id));
@@ -126,7 +127,7 @@ export async function runSendBatch(opts: {
     if (budget <= 0) { queued++; continue; }
     const r = await dispatchEmail(row.id);
     if (r.skipped) continue; // 已被背景接力/排程搶先寄出：不算失敗、不扣額度
-    r.ok ? sent++ : failed++;
+    if (r.ok) sent++; else failed++;
     dispatched++;
     budget--;
   }
