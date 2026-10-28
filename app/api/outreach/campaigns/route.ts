@@ -1,9 +1,10 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { requireUser, errorResponse, HttpError } from '@/lib/auth';
 import { parseBody, campaignCreateSchema } from '@/lib/validation';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { runSendBatch } from '@/lib/outreach/runSend';
 import { getSendCaps, sentToday } from '@/lib/outreach/throttle';
+import { kickCampaignDrain } from '@/lib/outreach/drain';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -86,6 +87,10 @@ export async function POST(req: Request) {
       })
       .eq('id', batch.id);
 
+    // 4) 觸發背景寄送（伺服器自我接力；回應送出後才執行，不拖慢回應，也不靠瀏覽器）
+    const origin = new URL(req.url).origin;
+    if (r.queued > 0) after(() => kickCampaignDrain(origin, batch.id, 0));
+
     return NextResponse.json({
       campaignId: batch.id,
       name,
@@ -93,7 +98,8 @@ export async function POST(req: Request) {
       skipped: r.skipped,
       cleaned: r.cleaned,
       noEmail: r.failed,     // 名單無 Email、無法建立
-      queued: r.queued,      // 已入佇列、待寄
+      queued: r.queued,      // 已入佇列、由伺服器背景寄出
+      background: r.queued > 0,
     });
   } catch (err) {
     return errorResponse(err);

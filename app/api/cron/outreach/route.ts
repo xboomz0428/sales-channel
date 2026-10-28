@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { dispatchEmail } from "@/lib/outreach/dispatchEmail";
 import { runSendBatch } from "@/lib/outreach/runSend";
 import { getSendCaps, sentToday } from "@/lib/outreach/throttle";
+import { claimAndSend } from "@/lib/outreach/drain";
 import { notifyLine } from "@/lib/notify/line";
 import { buildDailyReport } from "@/lib/notify/dailyMetrics";
 import { scanBounces } from "@/lib/outreach/scanBounces";
@@ -149,9 +150,10 @@ export async function GET(req: Request) {
         .limit(budget);
       for (const m of q || []) {
         if (budget <= 0) break;
-        const r = await dispatchEmail(m.id);
+        const r = await claimAndSend(m.id); // 原子認領：與背景寄送並行也不重複
+        if (r === "skipped") continue;
         budget--; drained++;
-        if (r.ok) totalSent++; else totalFailed++;
+        if (r === "sent") totalSent++; else totalFailed++;
       }
       if (drained > 0) notes.push(`📤 佇列補寄 ${drained} 封`);
     }

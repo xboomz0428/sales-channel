@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireUser, errorResponse, HttpError } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { dispatchEmail } from '@/lib/outreach/dispatchEmail';
+import { claimAndSend } from '@/lib/outreach/drain';
 import { remainingDailyBudget } from '@/lib/outreach/throttle';
 
 export const runtime = 'nodejs';
@@ -52,10 +52,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       .order('created_at', { ascending: true })
       .limit(take);
 
+    // 原子認領後再寄：與背景寄送／每日排程並行也不會重複寄出
     let sent = 0, failed = 0;
     for (const m of q || []) {
-      const r = await dispatchEmail(m.id);
-      if (r.ok) sent++; else failed++;
+      const r = await claimAndSend(m.id);
+      if (r === 'skipped') continue;
+      if (r === 'sent') sent++; else failed++;
     }
 
     const remaining = await countQueued();

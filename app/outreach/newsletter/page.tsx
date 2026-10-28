@@ -39,6 +39,7 @@ interface SendResult {
   noEmail?: number;     // 名單沒有 Email
   unprocessed: number;  // 分段寄出時中斷的次數（非收件人數）
   capReached?: boolean; // 今日額度用盡
+  background?: boolean; // 已交由伺服器背景寄出（Phase 2）
 }
 // 群發活動（來自 /api/outreach/campaigns，統計即時彙整）
 interface CampaignRow {
@@ -111,6 +112,14 @@ export default function NewsletterPage() {
   };
   useEffect(loadCampaigns, []);
   const activeCampaigns = campaigns.filter((c) => (c.queued || 0) + (c.sending || 0) > 0);
+  // 有進行中活動時每 6 秒輪詢進度（伺服器在背景寄，頁面只負責顯示）
+  const activeCount = activeCampaigns.length;
+  useEffect(() => {
+    if (activeCount === 0) return;
+    const t = setInterval(() => { loadCampaigns(); refreshCfg(); }, 6000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCount]);
 
   // 載入產業群組（供群發鎖定）
   useEffect(() => {
@@ -233,53 +242,22 @@ export default function NewsletterPage() {
   // 每段 10 封：SMTP 逐封約 10 秒，10 封 ≈ 100 秒，遠低於 API 300 秒上限，不會被中斷
   const BATCH_SIZE = 10;
 
-  // 分段寄出某個活動的佇列：回傳累計結果。單段逾時/中斷只是略過（未寄的仍在佇列），連續 3 次失敗才停
-  const drainCampaign = async (campaignId: string, totalToSend: number) => {
-    let sent = 0, failed = 0, unprocessed = 0, remaining = totalToSend, capReached = false, errStreak = 0;
-    while (remaining > 0 && !capReached) {
-      try {
-        const res = await fetch(`/api/outreach/campaigns/${campaignId}/drain`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ n: BATCH_SIZE }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) { errStreak++; unprocessed++; if (errStreak >= 3) break; continue; }
-        errStreak = 0;
-        sent += data.sent || 0;
-        failed += data.failed || 0;
-        remaining = typeof data.remainingQueued === 'number' ? data.remainingQueued : 0;
-        capReached = !!data.capReached;
-        setProgress({ done: sent + failed, total: totalToSend });
-      } catch {
-        errStreak++; unprocessed++;
-        if (errStreak >= 3) break;
-      }
-    }
-    return { sent, failed, remaining, unprocessed, capReached };
-  };
-
-  // 「繼續寄送」：把進行中活動的佇列在今日額度內寄出
+  // 「繼續寄送」：觸發伺服器背景寄送（自我接力），立即返回；進度由輪詢更新
   const resumeCampaign = async (c: CampaignRow) => {
-    if (sending) return;
+    if (resuming) return;
     setResuming(c.id);
-    setSending(true);
-    setProgress({ done: 0, total: c.queued });
     try {
-      const d = await drainCampaign(c.id, c.queued);
-      setResult({
-        campaignId: c.id, total: c.requested,
-        sent: d.sent, failed: d.failed, queued: d.remaining,
-        skipped: c.skipped, cleaned: c.cleaned,
-        unprocessed: d.unprocessed, capReached: d.capReached,
-      });
-      loadHistory();
+      const res = await fetch(`/api/outreach/campaigns/${c.id}/kick`, { method: 'POST' });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) alert(d.error || '觸發失敗');
+      else if (d.kicked === false && d.reason === 'cap') alert('今日寄送額度已用完，明天早上 8 點會自動續寄。');
       loadCampaigns();
       refreshCfg();
+    } catch {
+      alert('連線失敗');
     } finally {
-      setSending(false);
-      setProgress(null);
-      setResuming(null);
+      // 保留幾秒「已觸發」狀態，避免連點
+      setTimeout(() => setResuming(null), 8000);
     }
   };
   function chunk<T>(arr: T[], size: number): T[][] {
@@ -316,16 +294,12 @@ export default function NewsletterPage() {
       const c = await cRes.json().catch(() => ({}));
       if (!cRes.ok || !c.campaignId) { alert(c.error || '建立群發活動失敗'); return; }
 
-      // 2) 分段寄出（每段 BATCH_SIZE 封），直到佇列清空或今日額度用完
-      const toSend = c.queued || 0;
-      setProgress({ done: 0, total: toSend });
-      const d = await drainCampaign(c.campaignId, toSend);
-
+      // 2) 伺服器已在背景開始寄出（自我接力，關掉視窗也會繼續）；這裡只呈現入佇列結果，進度由上方橫幅輪詢
       setResult({
         campaignId: c.campaignId, total,
-        sent: d.sent, failed: d.failed, queued: d.remaining,
+        sent: 0, failed: 0, queued: c.queued || 0,
         skipped: c.skipped || 0, cleaned: c.cleaned || 0, noEmail: c.noEmail || 0,
-        unprocessed: d.unprocessed, capReached: d.capReached,
+        unprocessed: 0, background: !!c.background,
       });
       setSelected(new Set());
       loadHistory();
@@ -531,13 +505,13 @@ export default function NewsletterPage() {
                     onClick={() => resumeCampaign(c)}
                     title={quota && quota.remainingToday <= 0 ? '今日額度已用完，明天早上 8 點會自動續寄' : '在今日額度內把排隊的寄出'}
                   >
-                    {resuming === c.id ? `寄送中… ${progress ? `${progress.done}/${progress.total}` : ''}` : '▶ 繼續寄送'}
+                    {resuming === c.id ? '已觸發，背景寄送中…' : c.sending > 0 ? '⏳ 背景寄送中（再觸發）' : '▶ 繼續寄送'}
                   </button>
                 </div>
               </div>
             );
           })}
-          <div className="muted small achint">超出每日上限的會留在佇列，<b>每天早上 8 點自動續寄</b>；也可隨時按「繼續寄送」。關掉視窗不會遺失。</div>
+          <div className="muted small achint">伺服器在背景自動寄出（每 6 秒更新進度），<b>關掉視窗也會繼續</b>；超出每日上限的留在佇列，<b>每天早上 8 點自動續寄</b>。若進度停住可按「繼續寄送」再觸發。</div>
         </div>
       )}
 
@@ -856,16 +830,33 @@ export default function NewsletterPage() {
       {result && (
         <div className="overlay" onClick={() => setResult(null)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <h3>{result.queued > 0 ? '本次已寄出一部分' : '寄送完成'}</h3>
+            <h3>{result.background ? '已開始背景寄送' : result.queued > 0 ? '本次已寄出一部分' : '寄送完成'}</h3>
             <p className="muted small" style={{ textAlign: 'center', marginTop: -2 }}>
               本次選取 {result.total} 位{result.campaignId ? '・已記錄為一筆群發活動（可在郵件儀表板查看）' : ''}
             </p>
             <div className="rstat">
-              <div><b style={{ color: '#2f7d4a' }}>{result.sent}</b><span>成功</span></div>
-              <div><b style={{ color: result.failed > 0 ? '#a4452f' : undefined }}>{result.failed}</b><span>失敗</span></div>
-              <div><b style={{ color: '#8a6d1f' }}>{result.skipped}</b><span>排除重複</span></div>
-              <div><b style={{ color: result.queued > 0 ? '#b08d3f' : undefined }}>{result.queued}</b><span>排隊中</span></div>
+              {result.background ? (
+                <>
+                  <div><b style={{ color: '#2f7d4a' }}>{result.queued}</b><span>已入佇列</span></div>
+                  <div><b style={{ color: '#8a6d1f' }}>{result.skipped}</b><span>排除重複</span></div>
+                  <div><b>{result.cleaned + (result.noEmail || 0)}</b><span>無效／無 Email</span></div>
+                  <div><b>{cfg?.remainingToday ?? '—'}</b><span>今日還可寄</span></div>
+                </>
+              ) : (
+                <>
+                  <div><b style={{ color: '#2f7d4a' }}>{result.sent}</b><span>成功</span></div>
+                  <div><b style={{ color: result.failed > 0 ? '#a4452f' : undefined }}>{result.failed}</b><span>失敗</span></div>
+                  <div><b style={{ color: '#8a6d1f' }}>{result.skipped}</b><span>排除重複</span></div>
+                  <div><b style={{ color: result.queued > 0 ? '#b08d3f' : undefined }}>{result.queued}</b><span>排隊中</span></div>
+                </>
+              )}
             </div>
+            {result.background && (
+              <p className="small" style={{ textAlign: 'center', lineHeight: 1.7, color: '#2f4a3a', background: '#e8f1e6', borderRadius: 8, padding: '8px 10px' }}>
+                伺服器正在<strong>背景自動寄出</strong>，<strong>關掉視窗也會繼續</strong>。進度請看頁面上方「📨 進行中」橫幅（每 6 秒更新）或郵件儀表板「群發活動」。
+                {cfg?.dailyCap ? <>每日上限 {cfg.dailyCap} 封，超出的明天早上 8 點自動續寄{result.queued > (cfg.remainingToday ?? 0) ? `（約需 ${Math.ceil(result.queued / cfg.dailyCap)}～${Math.ceil(result.queued / cfg.dailyCap) + 1} 天）` : ''}。</> : null}
+              </p>
+            )}
             {(result.cleaned > 0 || (result.noEmail || 0) > 0) && (
               <p className="muted small" style={{ textAlign: 'center' }}>
                 {result.cleaned > 0 ? `已自動剔除 ${result.cleaned} 個無效信箱（語法錯誤或網域查無 MX）` : ''}
@@ -877,7 +868,7 @@ export default function NewsletterPage() {
             <p className="muted small" style={{ textAlign: 'center', lineHeight: 1.6 }}>
               「排除重複」= 這 {result.skipped} 位先前已收過<strong>此模板</strong>或已在佇列，本次未重寄{skipDup ? '' : '（本次已關閉略過重複）'}。
             </p>
-            {result.queued > 0 && (
+            {!result.background && result.queued > 0 && (
               <p className="small" style={{ textAlign: 'center', lineHeight: 1.6, color: '#8a6d1f', background: '#faf3df', borderRadius: 8, padding: '8px 10px' }}>
                 {result.capReached ? (
                   <>今日寄送額度已用完（每日上限 {cfg?.dailyCap ?? '—'} 封）。剩餘 <strong>{result.queued}</strong> 封已安全排隊，<strong>每天早上 8 點自動續寄</strong>（約需 {cfg?.dailyCap ? Math.ceil(result.queued / cfg.dailyCap) : '—'} 天）；明天也可回本頁按「▶ 繼續寄送」。</>

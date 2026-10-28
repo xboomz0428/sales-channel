@@ -86,6 +86,17 @@ export default function EmailDashboardPage() {
     fetch('/api/outreach/campaigns?limit=30').then((r) => r.json()).then((d) => setCampaigns(d.campaigns || [])).catch(() => {});
   };
   useEffect(() => { loadCampaigns(); }, []);
+  // 有活動在背景寄送時，每 8 秒刷新清單（與展開中的明細）
+  const runningCount = campaigns.filter((c) => c.queued + c.sending > 0).length;
+  useEffect(() => {
+    if (runningCount === 0) return;
+    const t = setInterval(() => {
+      loadCampaigns();
+      if (campOpen) fetch(`/api/outreach/campaigns/${campOpen}`).then((r) => r.json()).then((d) => { if (d.campaign) setCampDetail(d); }).catch(() => {});
+    }, 8000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runningCount, campOpen]);
   const toggleCampaign = async (id: string) => {
     if (campOpen === id) { setCampOpen(null); return; }
     setCampOpen(id);

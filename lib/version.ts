@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "3.5.0";
+export const APP_VERSION = "3.6.0";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.6.0",
+    date: "2026-10-28",
+    title: "Phase 2 背景寄送：按下寄送後由伺服器自我接力寄出，不靠瀏覽器",
+    items: [
+      "建立活動並入佇列後，伺服器立即回應並在背景開始寄出（Next.js after()）；每棒最多寄 240 秒，接著自動觸發下一棒，直到佇列清空或今日額度用完——關掉視窗、換頁都不影響",
+      "新增 /api/cron/drain-campaign（走 /api/cron/ 前綴、CRON_SECRET 驗證、回 202 後背景工作、自我接力、400 棒保險）與 /api/outreach/campaigns/[id]/kick（「繼續寄送」改為觸發背景寄送）",
+      "防重複寄出：活動加寄送鎖（到期自動失效，migration 0039）＋每封訊息原子認領（queued→sending）；背景寄送、手動繼續寄送、每日排程三路並行也不會寄兩次",
+      "寄送頁：按下寄送立刻顯示『已開始背景寄送』（已入佇列／排除重複／無效／今日還可寄）；『進行中』橫幅每 6 秒輪詢進度；儀表板有活動在跑時每 8 秒自動刷新",
+      "每天早上 8 點排程仍是保底：額度用盡或任何觸發失敗，隔天自動續寄",
+    ],
+  },
   {
     version: "3.5.0",
     date: "2026-10-27",
