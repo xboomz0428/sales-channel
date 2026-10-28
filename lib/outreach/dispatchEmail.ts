@@ -11,7 +11,11 @@ interface DispatchResult {
   skipped?: boolean; // 已被別的執行者認領（寄送中/已寄出）→ 本次略過，不算失敗、不扣額度
 }
 
-export async function dispatchEmail(messageId: string): Promise<DispatchResult> {
+/**
+ * @param opts.allowRetry 允許重寄已失敗/退信的訊息（僅「重寄」路由使用）。
+ *   預設不允許：避免「剛寄出就被 webhook 標為退信」的訊息被另一個拿著過時清單的寄送者再認領一次。
+ */
+export async function dispatchEmail(messageId: string, opts: { allowRetry?: boolean } = {}): Promise<DispatchResult> {
   const { data: msg } = await supabaseAdmin
     .from("outreach_messages")
     .select("id, to_email, subject, body, body_html, brand_id")
@@ -129,7 +133,7 @@ export async function dispatchEmail(messageId: string): Promise<DispatchResult> 
     .from("outreach_messages")
     .update({ tracking_id: trackingId, status: "sending", claimed_at: new Date().toISOString() })
     .eq("id", messageId)
-    .not("status", "in", "(sending,sent,delivered,read,replied)")
+    .not("status", "in", opts.allowRetry ? "(sending,sent,delivered,read,replied)" : "(sending,sent,delivered,read,replied,failed,bounced)")
     .select("id");
   if (!claimed || claimed.length === 0) {
     return { ok: false, skipped: true, error: "此訊息已在寄送中或已寄出" };

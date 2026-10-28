@@ -45,7 +45,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const r = await dispatchEmail(String(messageId));
+    const r = await dispatchEmail(String(messageId), { allowRetry: true }); // 重寄：允許對 failed/bounced 再次認領
     return NextResponse.json({ success: r.ok, error: r.error || null });
   } catch (err) {
     return errorResponse(err);

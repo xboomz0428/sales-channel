@@ -16,7 +16,7 @@ export async function sentToday(): Promise<number> {
   const tw = new Date(now.getTime() + 8 * 3600 * 1000);
   const y = tw.getUTCFullYear(), m = tw.getUTCMonth(), d = tw.getUTCDate();
   const startUtc = new Date(Date.UTC(y, m, d) - 8 * 3600 * 1000); // 台灣當日 00:00 對應的 UTC
-  const { count } = await supabaseAdmin
+  const { count, error } = await supabaseAdmin
     .from("outreach_messages")
     .select("id", { count: "exact", head: true })
     .eq("channel", "EM")
@@ -24,6 +24,8 @@ export async function sentToday(): Promise<number> {
     // 若只數 status='sent' 會低估用量、讓每日上限形同虛設
     .not("sent_at", "is", null)
     .gte("sent_at", startUtc.toISOString());
+  // 查詢失敗 → 視為額度已用盡（寧可少寄，不可因 DB 短暫異常而無限制超發）
+  if (error) return Number.MAX_SAFE_INTEGER;
   return count || 0;
 }
 

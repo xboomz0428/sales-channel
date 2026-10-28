@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "3.6.2";
+export const APP_VERSION = "3.6.3";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.6.3",
+    date: "2026-10-28",
+    title: "複驗補強：認領預設排除 failed/bounced、額度查詢失敗視為用盡",
+    items: [
+      "dispatchEmail 原子認領預設也排除 failed/bounced（僅『重寄』路由以 allowRetry 開啟）：堵住『剛寄出即被 webhook 標退信、又被另一寄送者用過時清單再寄一次』的窄交錯",
+      "sentToday 查詢失敗時視為額度已用盡，避免 DB 短暫異常導致超發",
+      "fresh-context 驗證者複驗結論：CONFIRMED（雙寄交錯消失、額度與文案正確、tsc 通過）",
+    ],
+  },
   {
     version: "3.6.2",
     date: "2026-10-28",
