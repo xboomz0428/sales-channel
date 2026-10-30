@@ -1,7 +1,7 @@
 -- 0042 活動記錄「名單無 Email」人數
--- 10/28 的 802 人群發：490 排除重複後，其餘 312 人因 resolveBrandEmails 一次 .in() 312 個 id 超過 URL 長度、
--- 查詢失敗被靜默當成「沒有 Email」，一封都沒入佇列，而儀表板只顯示 0/0 完成、看不出原因。
--- 程式面已改為分塊查詢＋失敗丟錯；這裡把 no_email 納入活動統計，讓「選取 = 排除重複 + 無效 + 無 Email + 入佇列」永遠對得上。
+-- 10/28 的 802 人群發：490 排除重複後，其餘 312 人在「建立寄送訊息」整批失敗（312 列 × ~26KB 內文 ≈ 8.5MB 單一請求），
+-- 錯誤被計成 failed 而非丟錯，活動標成 done 0/0、看不出原因；且舊版把「無 Email」與「建立失敗」混在同一個數字。
+-- 程式面已改為分批建立＋失敗丟錯；這裡把 no_email 納入活動統計，讓「選取 = 排除重複 + 無效 + 無 Email + 入佇列」對得上。
 alter table public.outreach_batches add column if not exists no_email integer not null default 0;
 
 -- 回傳欄位變動必須先 drop（create or replace 不允許改 returns table）
@@ -44,8 +44,8 @@ $$;
 revoke all on function public.email_campaigns(integer, uuid) from public;
 grant execute on function public.email_campaigns(integer, uuid) to anon, authenticated, service_role;
 
--- 回填 10/28 18:36 那筆：802 選取 − 490 排除重複 − 0 無效 − 0 入佇列 = 312 人被誤判無 Email
-update public.outreach_batches b
-   set no_email = b.requested - b.skipped - b.cleaned - (select count(*) from public.outreach_messages m where m.batch_id = b.id),
-       note = '名單 Email 查詢失敗（一次查 312 個 id 超過 URL 長度），312 人未入佇列；已修正，重新對同名單寄送即可補寄'
- where b.id = '5afc51eb-90bd-4c60-bf58-ae595096dedc' and b.no_email = 0;
+-- 10/28 18:36 那筆：312 人不是「無 Email」而是「建立訊息失敗」，no_email 維持 0，以 status=error + 備註呈現原因
+update public.outreach_batches
+   set status = 'error',
+       note = '建立寄送訊息失敗：312 人一次送出（約 8.5MB）未成功，一封都未入佇列；已改為分批建立，重新對同名單寄送即可補寄（已寄過者自動排除）'
+ where id = '5afc51eb-90bd-4c60-bf58-ae595096dedc';

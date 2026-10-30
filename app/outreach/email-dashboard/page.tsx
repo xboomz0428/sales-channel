@@ -218,7 +218,7 @@ export default function EmailDashboardPage() {
                           <td>
                             <span className="caret">{isOpen ? '▾' : '▸'}</span><strong>{c.name}</strong>
                             {c.template_name && c.template_name !== c.name && <div className="muted small">{c.template_name}</div>}
-                            {c.note && <div className={c.total === 0 ? 'small' : 'muted small'} style={c.total === 0 ? { color: '#a4452f' } : undefined}>{c.note}</div>}
+                            {c.note && <div className={c.total === 0 || c.status === 'error' ? 'small' : 'muted small'} style={c.total === 0 || c.status === 'error' ? { color: '#a4452f' } : undefined}>{c.note}</div>}
                           </td>
                           <td className="muted" style={{ whiteSpace: 'nowrap' }}>{new Date(c.created_at).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}</td>
                           <td>
@@ -233,7 +233,7 @@ export default function EmailDashboardPage() {
                           <td style={{ color: c.queued ? '#8a6d1f' : undefined, fontWeight: c.queued ? 700 : undefined }}>{c.queued}</td>
                           <td>{openRate}%</td>
                           <td>{clickRate}%</td>
-                          <td><span className="badge" style={{ background: running ? '#b08d3f' : '#4a6b3f' }}>{running ? '進行中' : '完成'}</span></td>
+                          <td><span className="badge" style={{ background: c.status === 'error' ? '#a4452f' : running ? '#b08d3f' : '#4a6b3f' }}>{c.status === 'error' ? '錯誤' : running ? '進行中' : '完成'}</span></td>
                         </tr>
                         {isOpen && (
                           <tr className="campdetailrow">

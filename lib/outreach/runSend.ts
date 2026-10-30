@@ -19,6 +19,8 @@ export interface RunSendResult {
 const SENT_STATUS = ["sent", "delivered", "read", "replied"];
 // 「不需再寄」：已成功寄出，或已在佇列/寄送中（避免重寄時雙重排隊）
 const DONE_OR_PENDING = [...SENT_STATUS, "queued", "sending"];
+// 建立訊息的每批列數：每列含完整 body_html，50 列 ≈ 1.4MB；一次送 300+ 列（~8.5MB）在正式環境會失敗
+const INSERT_CHUNK = 50;
 
 /**
  * 共用寄送：建立訊息 → 在預算內逐封寄出，超出預算留 queued。
@@ -109,27 +111,38 @@ export async function runSendBatch(opts: {
   }
   if (targets.length === 0) return result();
 
-  // 2) 先全部建成 queued（一次 bulk insert，不等 SMTP）
+  // 2) 先全部建成 queued（bulk insert，不等 SMTP）
+  //    每列都帶完整 body_html（本案模板 ~26KB），312 人一次送出就是 ~8.5MB 的單一請求；
+  //    10/28 的 802 人群發就是在這一步整批失敗、且錯誤被吞成「失敗 312」而無人察覺。
+  //    改為每 INSERT_CHUNK 列一個請求（~1.4MB、DB 端 <1 秒），任一批失敗立刻丟錯：
+  //    呼叫端（群發活動）會把活動標為 error 並顯示原因，已建立的列仍在佇列、重寄會被去重略過。
   const now = new Date().toISOString();
-  const { data: created, error: insErr } = await supabaseAdmin
-    .from("outreach_messages")
-    .insert(targets.map((t) => ({
-      brand_id: t.brand_id,
-      channel: "EM",
-      direction: "out",
-      status: "queued",
-      subject: tpl.subject,
-      body: tpl.body || "",
-      body_html: tpl.body_html,
-      template_id: templateId,
-      batch_id: opts.batchId || null,
-      to_email: t.to_email,
-      created_at: now,
-    })))
-    .select("id");
-  if (insErr || !created) {
-    failed += targets.length;
-    return result();
+  const created: { id: string }[] = [];
+  for (let i = 0; i < targets.length; i += INSERT_CHUNK) {
+    const part = targets.slice(i, i + INSERT_CHUNK);
+    const { data, error: insErr } = await supabaseAdmin
+      .from("outreach_messages")
+      .insert(part.map((t) => ({
+        brand_id: t.brand_id,
+        channel: "EM",
+        direction: "out",
+        status: "queued",
+        subject: tpl.subject,
+        body: tpl.body || "",
+        body_html: tpl.body_html,
+        template_id: templateId,
+        batch_id: opts.batchId || null,
+        to_email: t.to_email,
+        created_at: now,
+      })))
+      .select("id");
+    if (insErr || !data) {
+      throw new Error(
+        "建立寄送訊息失敗（第 " + (i + 1) + "–" + (i + part.length) + " 位，共 " + targets.length + " 位；已建立 " + created.length + " 位）：" +
+        (insErr?.message || "資料庫未回傳結果"),
+      );
+    }
+    created.push(...(data as { id: string }[]));
   }
 
   // 3) 在額度內逐封寄出；額度用完或執行被中斷的，都安全留在佇列
