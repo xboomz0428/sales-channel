@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 interface Template { id: string; name: string }
 interface Schedule {
   id: string; templateName: string; subject: string | null; count: number;
-  scheduledAt: string; status: string; result: { sent?: number; failed?: number; queued?: number } | null; note: string | null;
+  scheduledAt: string; status: string; result: { sent?: number; failed?: number; queued?: number; error?: string } | null; note: string | null;
 }
 interface Rule {
   id: string; name: string; triggerTemplateId: string; followupTemplateId: string;
@@ -13,7 +13,7 @@ interface Rule {
 }
 
 const COND_LABEL: Record<string, string> = { no_open: '未開信', no_reply: '未回覆', always: '一律寄送' };
-const STATUS_LABEL: Record<string, string> = { pending: '待寄送', sending: '寄送中', done: '已完成', canceled: '已取消' };
+const STATUS_LABEL: Record<string, string> = { pending: '待寄送', sending: '寄送中', done: '已完成', canceled: '已取消', failed: '建立失敗' };
 
 export default function AutomationPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -103,7 +103,7 @@ export default function AutomationPage() {
   };
 
   const upcoming = schedules.filter((s) => s.status === 'pending' || s.status === 'sending');
-  const past = schedules.filter((s) => s.status === 'done' || s.status === 'canceled');
+  const past = schedules.filter((s) => s.status === 'done' || s.status === 'canceled' || s.status === 'failed');
 
   return (
     <div className="wrap">
@@ -183,7 +183,7 @@ export default function AutomationPage() {
                     <td>{s.templateName}</td>
                     <td className="muted">{new Date(s.scheduledAt).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
                     <td><span className={`badge ${s.status}`}>{STATUS_LABEL[s.status] || s.status}</span></td>
-                    <td className="muted">{s.result ? `成功 ${s.result.sent || 0}・失敗 ${s.result.failed || 0}` : '—'}</td>
+                    <td className="muted">{s.result?.error ? <span style={{ color: '#a4452f' }} title={s.result.error}>{s.result.error.slice(0, 60)}</span> : s.result ? `成功 ${s.result.sent || 0}・失敗 ${s.result.failed || 0}` : '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -277,6 +277,7 @@ export default function AutomationPage() {
         .badge.sending { background: #fdf4e3; color: #8a6d1f; }
         .badge.done { background: #e8f2e8; color: #3f6b3f; }
         .badge.canceled { background: #f3eded; color: #9a8484; }
+        .badge.failed { background: #f6e4e0; color: #a4452f; }
         .link { border: none; background: none; cursor: pointer; font-size: 12px; font-family: inherit; padding: 0; }
         .link.danger { color: #a4452f; }
         .pastdetails { margin-top: 12px; font-size: 12px; }
