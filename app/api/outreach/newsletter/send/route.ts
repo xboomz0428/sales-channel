@@ -35,14 +35,26 @@ export async function POST(req: Request) {
     // ③ 節流：本次最多寄出「今日剩餘額度」封，超出留 queued 由 cron 補寄
     const budget = await remainingDailyBudget();
 
-    const r = await runSendBatch({
-      templateId,
-      brandIds,
-      manualEmails,
-      skipDuplicates,
-      budget,
-      batchId,
-    });
+    let r: Awaited<ReturnType<typeof runSendBatch>>;
+    try {
+      r = await runSendBatch({
+        templateId,
+        brandIds,
+        manualEmails,
+        skipDuplicates,
+        budget,
+        batchId,
+      });
+    } catch (e) {
+      // 讀名單／去重／建立訊息失敗：批次標 error 留原因，不留永遠 running 的殭屍
+      if (batchId) {
+        await supabaseAdmin.from('outreach_batches').update({
+          status: 'error', finished_at: new Date().toISOString(),
+          note: (e instanceof Error ? e.message : String(e)).slice(0, 200),
+        }).eq('id', batchId);
+      }
+      throw e;
+    }
 
     if (r.total === 0 && r.skipped > 0) {
       // 全部都是重複

@@ -57,13 +57,26 @@ export async function GET(req: Request) {
         .from("scheduled_sends").update({ status: "sending" }).eq("id", s.id).eq("status", "pending").select("id");
       if (!claimed || claimed.length === 0) continue; // 已被別的執行處理
 
-      const r = await runSendBatch({
-        templateId: s.template_id,
-        brandIds: Array.isArray(s.brand_ids) ? s.brand_ids : [],
-        manualEmails: Array.isArray(s.manual_emails) ? s.manual_emails : [],
-        skipDuplicates: s.skip_duplicates !== false,
-        budget,
-      });
+      // runSendBatch 在「讀名單／去重／建立訊息」失敗時會丟錯（v3.6.4 起不再靜默）；
+      // 一筆排程壞掉不能拖垮整天的排程：標 failed 留原因、繼續下一筆與後續的跟進／排空／日報。
+      let r: Awaited<ReturnType<typeof runSendBatch>>;
+      try {
+        r = await runSendBatch({
+          templateId: s.template_id,
+          brandIds: Array.isArray(s.brand_ids) ? s.brand_ids : [],
+          manualEmails: Array.isArray(s.manual_emails) ? s.manual_emails : [],
+          skipDuplicates: s.skip_duplicates !== false,
+          budget,
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await supabaseAdmin.from("scheduled_sends").update({
+          status: "failed",
+          result: { sent: 0, failed: 0, queued: 0, skipped: 0, error: msg.slice(0, 300) },
+        }).eq("id", s.id);
+        notes.push(`⚠️ 排程「${schedNameMap.get(s.template_id) || "電子報"}」建立失敗：${msg.slice(0, 80)}`);
+        continue;
+      }
       budget -= r.dispatched;
       totalSent += r.sent; totalFailed += r.failed;
       const leftover = r.queued;
