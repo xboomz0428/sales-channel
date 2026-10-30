@@ -46,8 +46,8 @@ interface Data {
 
 // 群發活動（/api/outreach/campaigns：每次群發一筆，統計即時彙整）
 interface CampaignRow {
-  id: string; name: string; template_name: string | null; created_at: string; status: string | null;
-  requested: number; skipped: number; cleaned: number; total: number;
+  id: string; name: string; template_name: string | null; created_at: string; status: string | null; note?: string | null;
+  requested: number; skipped: number; cleaned: number; no_email?: number; total: number;
   sent: number; failed: number; queued: number; sending: number; opened: number; clicked: number; replied: number;
 }
 interface CampaignDetail {
@@ -218,6 +218,7 @@ export default function EmailDashboardPage() {
                           <td>
                             <span className="caret">{isOpen ? '▾' : '▸'}</span><strong>{c.name}</strong>
                             {c.template_name && c.template_name !== c.name && <div className="muted small">{c.template_name}</div>}
+                            {c.note && <div className={c.total === 0 ? 'small' : 'muted small'} style={c.total === 0 ? { color: '#a4452f' } : undefined}>{c.note}</div>}
                           </td>
                           <td className="muted" style={{ whiteSpace: 'nowrap' }}>{new Date(c.created_at).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}</td>
                           <td>
@@ -226,7 +227,7 @@ export default function EmailDashboardPage() {
                           </td>
                           <td>{c.requested}</td>
                           <td>{c.skipped}</td>
-                          <td>{c.cleaned}</td>
+                          <td title={'無效信箱 ' + c.cleaned + '／名單無 Email ' + (c.no_email || 0)}>{c.cleaned + (c.no_email || 0)}</td>
                           <td style={{ color: '#2f7d4a', fontWeight: 700 }}>{c.sent}</td>
                           <td style={{ color: c.failed ? '#a4452f' : undefined }}>{c.failed}</td>
                           <td style={{ color: c.queued ? '#8a6d1f' : undefined, fontWeight: c.queued ? 700 : undefined }}>{c.queued}</td>
@@ -243,7 +244,7 @@ export default function EmailDashboardPage() {
                                 <div className="campdetail">
                                   <div className="dstats">
                                     {([
-                                      ['選取', campDetail.campaign.requested], ['排除重複', campDetail.campaign.skipped], ['無效信箱', campDetail.campaign.cleaned],
+                                      ['選取', campDetail.campaign.requested], ['排除重複', campDetail.campaign.skipped], ['無效信箱', campDetail.campaign.cleaned], ['名單無 Email', campDetail.campaign.no_email || 0],
                                       ['入佇列', campDetail.campaign.total], ['已寄', campDetail.campaign.sent], ['失敗', campDetail.campaign.failed],
                                       ['排隊', campDetail.campaign.queued], ['開信', campDetail.campaign.opened], ['點擊', campDetail.campaign.clicked],
                                     ] as const).map(([k, v]) => (

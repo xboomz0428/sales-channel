@@ -44,7 +44,7 @@ interface SendResult {
 // 群發活動（來自 /api/outreach/campaigns，統計即時彙整）
 interface CampaignRow {
   id: string; name: string; template_name: string | null; created_at: string; status: string | null;
-  requested: number; skipped: number; cleaned: number; total: number;
+  requested: number; skipped: number; cleaned: number; no_email?: number; total: number;
   sent: number; failed: number; queued: number; sending: number; opened: number; clicked: number;
 }
 
@@ -486,7 +486,7 @@ export default function NewsletterPage() {
                   <strong>📨 進行中：{c.name}</strong>
                   <span className="muted small">
                     {when} 建立 · 已寄 {c.sent}{c.failed ? ` · 失敗 ${c.failed}` : ''} · <b style={{ color: '#8a6d1f' }}>排隊 {c.queued}</b> / 共 {c.total}
-                    {c.skipped ? ` · 排除重複 ${c.skipped}` : ''}{c.cleaned ? ` · 無效 ${c.cleaned}` : ''}
+                    {c.skipped ? ` · 排除重複 ${c.skipped}` : ''}{c.cleaned ? ` · 無效 ${c.cleaned}` : ''}{c.no_email ? ` · 無 Email ${c.no_email}` : ''}
                   </span>
                   <div className="actrack"><div className="acfill" style={{ width: `${pct}%` }} /></div>
                 </div>

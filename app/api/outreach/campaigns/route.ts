@@ -86,10 +86,17 @@ export async function POST(req: Request) {
       .update({
         skipped: r.skipped,
         cleaned: r.cleaned,
+        no_email: r.noEmail,
         skipped_brand_ids: r.skippedBrandIds,
         total: r.queued,
         status: r.queued > 0 ? 'running' : 'done',
         finished_at: r.queued > 0 ? null : nowIso,
+        // 一封都沒入佇列時把原因寫進備註，清單上一眼看得出「為什麼 0/0」
+        note: r.queued > 0 ? null : [
+          r.skipped > 0 ? '排除重複 ' + r.skipped : '',
+          r.cleaned > 0 ? '無效信箱 ' + r.cleaned : '',
+          r.noEmail > 0 ? '名單無 Email ' + r.noEmail : '',
+        ].filter(Boolean).join('、') + '，無人需寄送',
       })
       .eq('id', batch.id);
 
@@ -103,7 +110,7 @@ export async function POST(req: Request) {
       requested,
       skipped: r.skipped,
       cleaned: r.cleaned,
-      noEmail: r.failed,     // 名單無 Email、無法建立
+      noEmail: r.noEmail,    // 名單無 Email、無法建立
       queued: r.queued,      // 已入佇列、由伺服器背景寄出
       background: r.queued > 0,
     });

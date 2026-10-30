@@ -9,6 +9,7 @@ export interface RunSendResult {
   queued: number;
   skipped: number;
   cleaned: number; // 寄信前清洗：語法錯誤 / 網域無 MX 而被剔除（未寄出、不算失敗）
+  noEmail: number; // 名單查無 Email、無法建立訊息（也計入 failed 以相容舊呼叫端）
   dispatched: number; // 本次實際送出（成功+失敗），用來扣每日額度
   total: number;
   skippedBrandIds: string[]; // 被排除重複的名單 id（供活動記錄「排除了誰」）
@@ -44,7 +45,7 @@ export async function runSendBatch(opts: {
 
   const skippedBrandIds: string[] = [];
   const skippedEmails: string[] = [];
-  const empty: RunSendResult = { sent: 0, failed: 0, queued: 0, skipped: 0, cleaned: 0, dispatched: 0, total: 0, skippedBrandIds, skippedEmails };
+  const empty: RunSendResult = { sent: 0, failed: 0, queued: 0, skipped: 0, cleaned: 0, noEmail: 0, dispatched: 0, total: 0, skippedBrandIds, skippedEmails };
   if (brandIds.length === 0 && manualEmails.length === 0) return empty;
 
   const { data: tpl } = await supabaseAdmin
@@ -57,12 +58,21 @@ export async function runSendBatch(opts: {
   // 重複判斷：此模板已寄出、或已在排隊/寄送中的對象，都不再建立
   let skipped = 0;
   if (skipDuplicates) {
-    const { data: prev } = await supabaseAdmin
-      .from("outreach_messages")
-      .select("brand_id, to_email")
-      .eq("template_id", templateId)
-      .in("status", DONE_OR_PENDING);
-    const prevRows = (prev || []) as { brand_id: string | null; to_email: string | null }[];
+    // 分頁取回全部（PostgREST 單次最多 1000 列；一個模板寄過上千人後若只取前 1000 列，後面的人會被重寄）
+    const prevRows: { brand_id: string | null; to_email: string | null }[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data: prev, error } = await supabaseAdmin
+        .from("outreach_messages")
+        .select("brand_id, to_email")
+        .eq("template_id", templateId)
+        .in("status", DONE_OR_PENDING)
+        .order("id", { ascending: true })
+        .range(from, from + 999);
+      if (error) throw new Error("讀取已寄送紀錄失敗：" + error.message);
+      if (!prev || prev.length === 0) break;
+      prevRows.push(...(prev as typeof prevRows));
+      if (prev.length < 1000) break;
+    }
     const sentBrand = new Set(prevRows.map((m) => m.brand_id).filter(Boolean));
     const sentMail = new Set(prevRows.map((m) => (m.to_email || "").toLowerCase()).filter(Boolean));
     for (const id of brandIds) if (sentBrand.has(id)) skippedBrandIds.push(id);
@@ -81,15 +91,15 @@ export async function runSendBatch(opts: {
   ];
   const { bad: invalidSet } = await partitionSendable(allTargets);
 
-  let sent = 0, failed = 0, queued = 0, cleaned = 0, dispatched = 0;
+  let sent = 0, failed = 0, queued = 0, cleaned = 0, noEmail = 0, dispatched = 0;
   const total = brandIds.length + manualEmails.length;
-  const result = () => ({ sent, failed, queued, skipped, cleaned, dispatched, total, skippedBrandIds, skippedEmails });
+  const result = () => ({ sent, failed, queued, skipped, cleaned, noEmail, dispatched, total, skippedBrandIds, skippedEmails });
 
   // 1) 整理本批實際要寄的對象
   const targets: Array<{ brand_id: string | null; to_email: string }> = [];
   for (const brandId of brandIds) {
     const to = emailMap.get(brandId);
-    if (!to) { failed++; continue; }
+    if (!to) { failed++; noEmail++; continue; }
     if (invalidSet.has(to.trim())) { cleaned++; continue; } // 無效信箱：清洗剔除
     targets.push({ brand_id: brandId, to_email: to });
   }

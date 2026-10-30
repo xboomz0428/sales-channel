@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "3.6.3";
+export const APP_VERSION = "3.6.4";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.6.4",
+    date: "2026-10-30",
+    title: "修正大名單群發 0/0：Email 查詢分塊、去重分頁、活動記錄「名單無 Email」",
+    items: [
+      "根因：10/28 的 802 人群發扣掉 490 排除重複後，剩 312 人一次用 .in() 查 Email 超過 URL 長度而失敗，被靜默當成『沒有 Email』，一封都沒入佇列，儀表板只顯示 0/0 完成",
+      "resolveBrandEmails 改 100 個 id 一塊查詢；查詢失敗改丟錯（活動標為 error 並留訊息），不再靜默吞掉",
+      "去重查詢改分頁取回全部，避免同一模板寄過 1000 人後只比對前 1000 筆而重寄",
+      "活動新增『名單無 Email』統計（outreach_batches.no_email，migration 0042）；儀表板無效欄＝無效信箱＋無 Email，明細卡分開列；0 入佇列時在活動列顯示原因備註",
+      "已回填 10/28 18:36 那筆活動的原因備註；重新對同一名單按寄送即可補寄這 312 人（會自動排除已寄過者）",
+    ],
+  },
   {
     version: "3.6.3",
     date: "2026-10-28",
