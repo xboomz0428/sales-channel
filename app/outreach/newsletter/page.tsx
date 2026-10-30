@@ -177,11 +177,15 @@ export default function NewsletterPage() {
   };
 
   // 載入名單(隨搜尋/篩選)
+  // 以 AbortController 取消前一次請求：群組清單晚一步載入時，第一次「未套群組」的大請求會比第二次
+  // 「已套群組」的小請求更慢回來，若不取消會把畫面蓋回整批名單（選了 909 人的群組卻顯示 3048 人）。
   useEffect(() => {
+    const ac = new AbortController();
     setLoading(true);
-    fetch(`/api/outreach/recipients?${buildRecipientParams().toString()}`)
+    fetch(`/api/outreach/recipients?${buildRecipientParams().toString()}`, { signal: ac.signal })
       .then((r) => r.json())
       .then((d) => {
+        if (ac.signal.aborted) return;
         const list = d.recipients || [];
         setRecipients(list);
         // 安全性：切換群組/產業/搜尋等篩選後，把「已選」收斂成只保留目前清單內的對象，
@@ -197,7 +201,9 @@ export default function NewsletterPage() {
         if (d.sources) setSources(d.sources);
         if (typeof d.totalBrands === 'number') setTotalBrands(d.totalBrands);
       })
-      .finally(() => setLoading(false));
+      .catch(() => { /* 被取消或網路錯誤：保留現況 */ })
+      .finally(() => { if (!ac.signal.aborted) setLoading(false); });
+    return () => ac.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, industry, groupId, stage, source, groups]);
 
