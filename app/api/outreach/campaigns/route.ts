@@ -17,6 +17,33 @@ export const maxDuration = 300;
  *        寄出由 POST /api/outreach/campaigns/[id]/drain 分段進行（瀏覽器關掉也不遺失，排程器會補寄）
  */
 
+const STALL_MS = 3 * 60_000; // 超過 3 分鐘沒有任何認領／寄出 → 視為接力中斷
+
+async function resumeStalledCampaigns(
+  origin: string,
+  list: { id: string; started_at: string | null; created_at: string }[],
+) {
+  for (const c of list) {
+    try {
+      const { data: b } = await supabaseAdmin.from('outreach_batches').select('drain_lock_until').eq('id', c.id).maybeSingle();
+      if (b?.drain_lock_until && new Date(b.drain_lock_until).getTime() > Date.now()) continue; // 有棒在跑
+      const { data: last } = await supabaseAdmin
+        .from('outreach_messages')
+        .select('status, claimed_at')
+        .eq('batch_id', c.id)
+        .not('claimed_at', 'is', null)
+        .order('claimed_at', { ascending: false })
+        .limit(5);
+      const rows = (last || []) as { status: string; claimed_at: string }[];
+      const lastTs = rows[0]?.claimed_at ? Date.parse(rows[0].claimed_at) : Date.parse(c.started_at || c.created_at);
+      if (!Number.isFinite(lastTs) || Date.now() - lastTs < STALL_MS) continue;
+      // 最近 5 封全部失敗 → 是寄信服務故障而非接力中斷，不要一直重踢把名單標成失敗；交給每日排程
+      if (rows.length >= 5 && rows.every((r) => r.status === 'failed' || r.status === 'bounced')) continue;
+      await kickCampaignDrain(origin, c.id, 0);
+    } catch { /* 看門狗失敗不影響回應 */ }
+  }
+}
+
 export async function GET(req: Request) {
   try {
     await requireUser();
@@ -28,6 +55,18 @@ export async function GET(req: Request) {
       sentToday(),
     ]);
     if (error) throw new HttpError(500, error.message);
+
+    // 看門狗：背景自我接力若中斷（例如下一棒的觸發請求失敗——10/30 一筆活動寄到第 65 封後停了 1 小時），
+    // 寄送頁與儀表板每 6～20 秒都會打這支 GET，順手檢查「還有排隊、沒有正在寄、鎖已釋放、3 分鐘無動靜」的活動
+    // 並重新踢一棒。踢完當下就取得活動鎖，所以同一活動不會被連續重複踢；今日額度用完或連續失敗的活動不踢。
+    const remainingToday = Math.max(0, caps.dailyCap - used);
+    const candidates = ((data || []) as { id: string; status: string | null; queued: number; sending: number; started_at: string | null; created_at: string }[])
+      .filter((c) => c.status === 'running' && (c.queued || 0) > 0 && (c.sending || 0) === 0);
+    if (candidates.length > 0 && remainingToday > 0) {
+      const origin = new URL(req.url).origin;
+      after(() => resumeStalledCampaigns(origin, candidates));
+    }
+
     return NextResponse.json({
       campaigns: data || [],
       quota: { dailyCap: caps.dailyCap, usedToday: used, remainingToday: Math.max(0, caps.dailyCap - used) },

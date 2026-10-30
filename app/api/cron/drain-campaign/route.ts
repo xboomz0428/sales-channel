@@ -1,6 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { requireCron, errorResponse } from "@/lib/auth";
 import { acquireCampaignLock, releaseCampaignLock, drainCampaignOnce, kickCampaignDrain } from "@/lib/outreach/drain";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -35,10 +36,21 @@ export async function POST(req: Request) {
         const r = await drainCampaignOnce(campaignId, 240_000);
         await releaseCampaignLock(campaignId);
         if (r.remaining > 0 && !r.capReached && !r.halted) {
-          await kickCampaignDrain(origin, campaignId, hop + 1);
+          // 下一棒觸發失敗（網路抖動、冷啟動逾時）→ 5 秒後再試一次；仍失敗由 campaigns GET 看門狗／每日排程續寄
+          const ok = await kickCampaignDrain(origin, campaignId, hop + 1);
+          if (!ok) {
+            await new Promise((res) => setTimeout(res, 5000));
+            await kickCampaignDrain(origin, campaignId, hop + 1);
+          }
         }
       } catch {
-        await releaseCampaignLock(campaignId);
+        // 一棒在認領任何一封之前就丟錯（例如寄信服務設定讀不到）：不立刻放鎖，改把鎖延到 10 分鐘後。
+        // 否則 claimed_at 不會前進，campaigns GET 的看門狗每次輪詢都會判定「卡住」而無上限地重踢。
+        // 10 分鐘後鎖自然到期，看門狗／每日排程再試一次（退避重試）。
+        await supabaseAdmin
+          .from("outreach_batches")
+          .update({ drain_lock_until: new Date(Date.now() + 10 * 60_000).toISOString() })
+          .eq("id", campaignId);
       }
     });
 

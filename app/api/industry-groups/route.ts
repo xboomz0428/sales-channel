@@ -8,8 +8,16 @@ import { getSupabaseServerClient } from "@/lib/supabase-server";
  * DELETE /api/industry-groups?id=    刪除
  */
 
+// 各產業品牌數：RPC industry_counts（migration 0043）一次 group by；
+// 舊版把 7.8 萬筆品牌每 1000 筆分頁抓回來數（約 80 次請求、實測 13 秒），是寄送頁「讀取名單很慢」的主因。
 async function industryCounts(supabase: ReturnType<typeof getSupabaseServerClient>): Promise<Record<string, number>> {
   const counts: Record<string, number> = {};
+  const { data: rows, error } = await supabase.rpc("industry_counts");
+  if (!error && Array.isArray(rows)) {
+    for (const r of rows as { industry: string; cnt: number | string }[]) if (r.industry) counts[r.industry] = Number(r.cnt) || 0;
+    return counts;
+  }
+  // RPC 不可用時退回逐頁計算（慢但正確）
   const PAGE = 1000;
   let from = 0;
   while (true) {
