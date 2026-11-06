@@ -5,9 +5,10 @@ import { classifyBounce, addToBlacklist } from "@/lib/outreach/blacklist";
 /**
  * 掃 Gmail 信箱裡的退信通知（mailer-daemon / postmaster），
  * 比對近 3 天寄出的收件人，分類硬/軟退信並寫入黑名單。
- * 透過 IMAP（app password）讀信箱，回傳 { scanned, hard, soft, ignored }。
+ * 對方以安全／政策理由拒收（5.7.x，例如寄件網域缺 SPF/DKIM/DMARC）的，信箱本身有效：只把該封標為退信、不列入黑名單。
+ * 透過 IMAP（app password）讀信箱，回傳 { scanned, hard, soft, policy, ignored }。
  */
-export async function scanBounces(): Promise<{ scanned: number; hard: number; soft: number; ignored: number }> {
+export async function scanBounces(): Promise<{ scanned: number; hard: number; soft: number; policy: number; ignored: number }> {
   const since = new Date(Date.now() - 3 * 86400_000).toISOString();
   const { data: recent } = await supabaseAdmin
     .from("outreach_messages")
@@ -17,7 +18,7 @@ export async function scanBounces(): Promise<{ scanned: number; hard: number; so
     .gte("created_at", since)
     .not("to_email", "is", null);
 
-  if (!recent || recent.length === 0) return { scanned: 0, hard: 0, soft: 0, ignored: 0 };
+  if (!recent || recent.length === 0) return { scanned: 0, hard: 0, soft: 0, policy: 0, ignored: 0 };
 
   // 只認我們確實寄過的信箱，避免誤把退信內文引用到的簽名/退訂信箱（如自家地址）也封鎖
   const sentSet = new Set(recent.map((m) => (m.to_email || "").toLowerCase()).filter(Boolean));
@@ -29,7 +30,7 @@ export async function scanBounces(): Promise<{ scanned: number; hard: number; so
 
   const texts = await fetchBounceTexts(3, 80);
 
-  let hard = 0, soft = 0, ignored = 0;
+  let hard = 0, soft = 0, policy = 0, ignored = 0;
   const handled = new Set<string>();
   for (const text of texts) {
     // 精準抽出「真正失敗的收件人」：優先 DSN 標準欄位，再退而求其次用 Gmail 中英文退信措辭
@@ -38,6 +39,23 @@ export async function scanBounces(): Promise<{ scanned: number; hard: number; so
 
     const kind = classifyBounce(text);
     if (kind === "none") { ignored += failed.length; continue; }
+
+    // 對方伺服器以安全／政策理由拒收：信箱有效、問題在寄件端 → 標為退信（可重寄、不再被跟進），但不列入黑名單
+    if (kind === "policy") {
+      for (const email of failed) {
+        handled.add(email);
+        const id = idByEmail.get(email);
+        if (id) {
+          await supabaseAdmin
+            .from("outreach_messages")
+            .update({ status: "bounced", error_detail: "對方伺服器拒收（寄件網域驗證／政策問題；信箱有效，未列入黑名單）" })
+            .eq("id", id)
+            .eq("status", "sent");
+        }
+        policy++;
+      }
+      continue;
+    }
 
     for (const email of failed) {
       handled.add(email);
@@ -53,7 +71,7 @@ export async function scanBounces(): Promise<{ scanned: number; hard: number; so
       kind === "hard" ? hard++ : soft++;
     }
   }
-  return { scanned: texts.length, hard, soft, ignored };
+  return { scanned: texts.length, hard, soft, policy, ignored };
 }
 
 const EMAIL_G = /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g;

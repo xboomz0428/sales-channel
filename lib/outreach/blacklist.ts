@@ -5,18 +5,8 @@ export type BounceType = "hard" | "soft" | "failed";
 // 軟退信累計幾次後改為永久封鎖
 const SOFT_BLOCK_THRESHOLD = 3;
 
-const HARD_RE = /(550|551|553|554)[\s-]|user unknown|no such user|does not exist|doesn'?t exist|mailbox not found|mailbox unavailable|recipient address rejected|address not found|invalid recipient|unknown recipient|no mailbox|account .* does not exist|address rejected|recipient not found|未知的收件|查無此|不存在/i;
-const SOFT_RE = /(421|450|451|452)[\s-]|quota|mailbox full|over quota|temporar|try again|deferred|greylist|timed out|connection refused|rate limit|too many|信箱已滿|暫時/i;
-const DELAY_RE = /delay|delayed|will retry|not yet been delivered|還在嘗試|延遲/i;
-
-/** 判斷退信屬於硬退信、軟退信，或只是延遲通知（none＝不是真退信） */
-export function classifyBounce(text: string): "hard" | "soft" | "none" {
-  const t = text.toLowerCase();
-  if (HARD_RE.test(t)) return "hard";
-  if (DELAY_RE.test(t) && !HARD_RE.test(t) && !SOFT_RE.test(t)) return "none"; // 純延遲通知，先不處理
-  if (SOFT_RE.test(t)) return "soft";
-  return "hard"; // mailer-daemon 退回且無暫時性字眼 → 視為硬退信
-}
+export { classifyBounce } from "@/lib/outreach/bounceClassify";
+export type { BounceKind } from "@/lib/outreach/bounceClassify";
 
 /**
  * 加入/更新黑名單。

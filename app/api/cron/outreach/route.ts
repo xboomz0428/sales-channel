@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireCron, errorResponse } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { dispatchEmail } from "@/lib/outreach/dispatchEmail";
+import { planFollowups, enqueueFollowupPlan } from "@/lib/outreach/followupCore";
 import { runSendBatch } from "@/lib/outreach/runSend";
-import { getSendCaps, sentToday } from "@/lib/outreach/throttle";
+import { getSendCaps, sentToday, remainingDailyBudget } from "@/lib/outreach/throttle";
 import { claimAndSend, kickCampaignDrain } from "@/lib/outreach/drain";
 import { notifyLine } from "@/lib/notify/line";
 import { buildDailyReport } from "@/lib/notify/dailyMetrics";
@@ -16,7 +16,8 @@ export const maxDuration = 300;
  * 電子報自動化排程器（Vercel Cron）
  * Hobby 方案 cron 一天一次，因此這支整合所有自動化工作：
  *  ① 處理到期的排程寄送
- *  ⑦ 處理自動跟進序列（寄出 N 天未開信/未回覆者）
+ *  ⑦ 自動跟進序列：原始信台灣寄出日 + N 天 ≤ 今天、未開信/未回覆者，排入「跟進｜規則名」群發活動，
+ *     由背景接力寄送（受每日上限、額度用完隔天續寄；lib/outreach/followupCore.ts）
  *  ④ 掃描退信並分類清理
  *  ③ 全程套用每日上限與每批上限（節流/暖機）
  *  排空既有 queued 訊息（含手動寄送超出當日額度的部分）
@@ -43,7 +44,7 @@ export async function GET(req: Request) {
       .order("scheduled_at", { ascending: true })
       .limit(20);
     // 模板名稱（template_id 無 FK，需另查）
-    const schedTplIds = [...new Set((dueSchedules || []).map((s: any) => s.template_id).filter(Boolean))];
+    const schedTplIds = [...new Set((dueSchedules || []).map((s: { template_id: string | null }) => s.template_id).filter(Boolean))];
     const schedNameMap = new Map<string, string>();
     if (schedTplIds.length) {
       const { data: tn } = await supabaseAdmin.from("outreach_templates").select("id, name").in("id", schedTplIds);
@@ -88,53 +89,21 @@ export async function GET(req: Request) {
       notes.push(`📧 排程「${tplName}」寄出 ${r.sent} 封${r.failed ? `，失敗 ${r.failed}` : ""}${leftover ? `，排隊 ${leftover}` : ""}${r.skipped ? `，略過重複 ${r.skipped}` : ""}`);
     }
 
-    // ── ⑦ 自動跟進序列 ──────────────────────────────
-    const { data: rules } = await supabaseAdmin.from("followup_rules").select("*").eq("active", true);
-    for (const rule of rules || []) {
-      if (budget <= 0) break;
-      const cutoff = new Date(Date.now() - (rule.days_after || 3) * 86400_000).toISOString();
-      // 找符合觸發模板、已寄出、超過 N 天的原始信
-      const { data: origins } = await supabaseAdmin
-        .from("outreach_messages")
-        .select("id, brand_id, to_email, open_count, status")
-        .eq("template_id", rule.trigger_template_id)
-        .eq("status", "sent")
-        .lte("sent_at", cutoff)
-        .limit(200);
-      if (!origins || origins.length === 0) continue;
-
-      // 已跟進過的原始信（避免重複）
-      const originIds = origins.map((o: any) => o.id);
-      const { data: alreadyFu } = await supabaseAdmin
-        .from("outreach_messages").select("parent_message_id").eq("followup_rule_id", rule.id).in("parent_message_id", originIds);
-      const fuSet = new Set((alreadyFu || []).map((x: any) => x.parent_message_id));
-
-      // 取跟進模板（一次即可，勿在每位收件人迴圈內重查）
-      const { data: fuTpl } = await supabaseAdmin
-        .from("outreach_templates").select("subject, body, body_html").eq("id", rule.followup_template_id).single();
-      if (!fuTpl || !fuTpl.body_html) continue;
-
-      let ruleSent = 0;
-      for (const o of origins) {
-        if (budget <= 0) break;
-        if (fuSet.has(o.id)) continue;
-        // 條件判斷
-        if (rule.condition === "no_open" && (o.open_count || 0) > 0) continue;
-        if (rule.condition === "no_reply" && o.status === "replied") continue;
-        if (!o.to_email) continue;
-        const { data: msg } = await supabaseAdmin.from("outreach_messages").insert({
-          brand_id: o.brand_id,
-          channel: "EM", direction: "out", status: "queued",
-          subject: fuTpl.subject, body: fuTpl.body || "", body_html: fuTpl.body_html,
-          template_id: rule.followup_template_id, to_email: o.to_email,
-          parent_message_id: o.id, followup_rule_id: rule.id,
-        }).select("id").single();
-        if (!msg) continue;
-        const r = await dispatchEmail(msg.id);
-        budget--;
-        if (r.ok) { ruleSent++; totalSent++; } else { totalFailed++; }
+    // ── ⑦ 自動跟進序列：只「排入」成群發活動，由下方「活動續寄」交給背景接力寄送 ──
+    // 不受本次 budget 限制、也不扣 budget：額度用完照樣入佇列，背景寄送受每日上限約束、隔天自動續寄。
+    try {
+      const plans = await planFollowups(supabaseAdmin, new Date());
+      for (const p of plans) {
+        if (p.error) notes.push(`⚠️ 跟進「${p.rule.name}」讀取失敗：${p.error.slice(0, 80)}`);
       }
-      if (ruleSent > 0) notes.push(`🔁 跟進「${rule.name}」寄出 ${ruleSent} 封`);
+      const results = await enqueueFollowupPlan(supabaseAdmin, plans, new Date());
+      for (const r of results) {
+        if (r.queued > 0) notes.push(`🔁 跟進「${r.ruleName}」排入 ${r.queued} 封（背景寄送，進度見儀表板群發活動）`);
+        if (r.error) notes.push(`⚠️ 跟進「${r.ruleName}」排入失敗：${r.error.slice(0, 80)}`);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      notes.push(`⚠️ 跟進排入失敗：${msg.slice(0, 80)}`);
     }
 
     // ── 自癒：卡在「寄送中」超過 15 分鐘（執行被平台中斷）→ 重設回佇列，讓下方補寄 ──
@@ -156,11 +125,15 @@ export async function GET(req: Request) {
     // ── 活動續寄：舊路徑碎片併入活動；對還有排隊的活動觸發背景接力（受今日額度約束，額度用完自然停）──
     try {
       await supabaseAdmin.rpc("merge_legacy_email_batches");
-      if (budget > 0) {
+      // 以「今日剩餘每日額度」判斷，而非本次同步額度 budget（上限 EMAIL_PER_RUN）：
+      // 背景接力自己受每日上限約束；若沿用 budget，當天有到期排程把本次額度用完時，
+      // 這一次排程就不會觸發任何活動（含上方剛排入的跟進活動），即使每日額度還有剩；
+      // 只能等寄送頁／儀表板的看門狗或隔天排程（v3.7.0 驗收指出）
+      if ((await remainingDailyBudget()) > 0) {
         const { data: camps } = await supabaseAdmin.rpc("email_campaigns", { p_limit: 50, p_id: null });
         const origin = new URL(req.url).origin;
         let kicked = 0;
-        for (const c of (camps || []) as any[]) {
+        for (const c of (camps || []) as { id: string; queued: number | null }[]) {
           if ((c.queued || 0) > 0 && (await kickCampaignDrain(origin, c.id, 0))) kicked++;
         }
         if (kicked > 0) notes.push("🚀 觸發 " + kicked + " 個活動背景續寄");
@@ -188,11 +161,14 @@ export async function GET(req: Request) {
     }
 
     // ── ④ 退信掃描清理 ───────────────────────────────
-    let bounce = { scanned: 0, hard: 0, soft: 0, ignored: 0 };
+    let bounce = { scanned: 0, hard: 0, soft: 0, policy: 0, ignored: 0 };
     try {
       bounce = await scanBounces();
       if (bounce.hard + bounce.soft > 0) {
         notes.push(`📥 退信清理：硬退信 ${bounce.hard}、軟退信 ${bounce.soft}`);
+      }
+      if (bounce.policy > 0) {
+        notes.push(`⚠️ ${bounce.policy} 封被對方伺服器拒收（寄件網域驗證／政策問題，未列入黑名單）：請檢查 SPF／DKIM／DMARC`);
       }
     } catch { /* 退信掃描失敗不影響其他工作 */ }
 

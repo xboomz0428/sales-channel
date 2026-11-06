@@ -15,7 +15,7 @@ export async function GET(req: Request) {
     if (r.hard + r.soft > 0) {
       await notifyLine(`【退信清理】硬退信 ${r.hard} 封（已永久排除）、軟退信 ${r.soft} 封。`);
     }
-    return NextResponse.json({ scannedBounceMails: r.scanned, hard: r.hard, soft: r.soft, ignored: r.ignored });
+    return NextResponse.json({ scannedBounceMails: r.scanned, hard: r.hard, soft: r.soft, policy: r.policy, ignored: r.ignored });
   } catch (err) {
     return errorResponse(err);
   }

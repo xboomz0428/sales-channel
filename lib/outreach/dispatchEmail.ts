@@ -171,7 +171,8 @@ export async function dispatchEmail(messageId: string, opts: { allowRetry?: bool
         .eq("id", messageId);
       // 自動加入黑名單：依錯誤訊息判斷硬/軟退信（軟退信未達門檻不立即封鎖）
       const cls = classifyBounce(r.error || "");
-      await addToBlacklist(msg.to_email, cls === "soft" ? "soft" : "failed", (r.error || "寄送失敗").slice(0, 200));
+      // policy（5.7.x：我方登入／驗證／政策問題）不是收件信箱的錯，不列入黑名單
+      if (cls !== "policy") await addToBlacklist(msg.to_email, cls === "soft" ? "soft" : "failed", (r.error || "寄送失敗").slice(0, 200));
       return { ok: false, error: r.error || "寄送失敗" };
     }
 
