@@ -5,6 +5,23 @@ import { getCompany } from "@/lib/companyServer";
 import { resolveEmailProvider, sendViaResend, sendViaSendgrid, sendViaSmtp } from "@/lib/outreach/emailProvider";
 import { addToBlacklist, classifyBounce } from "@/lib/outreach/blacklist";
 
+// 網址沒有 http(s):// 就補 https://
+function ensureHttps(url: string): string {
+  const u = url.trim();
+  return /^https?:\/\//i.test(u) ? u : `https://${u.replace(/^\/+/, "")}`;
+}
+
+// 把 HTML 屬性值裡的實體還原成原字元（只處理連結裡會出現的幾種）
+function decodeHtmlAttr(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&#38;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
 interface DispatchResult {
   ok: boolean;
   error?: string;
@@ -89,6 +106,9 @@ export async function dispatchEmail(messageId: string, opts: { allowRetry?: bool
     公司地址: company.address || "",
     公司統編: company.taxId || "",
     unsubscribe,
+    // 舊版 B2B 模板的 CTA 按鈕用 {{cta_url}}；對應到設定裡的公司網站（沒設就退回官網）。
+    // 設定值常寫成 www.heroherb.co（沒有 https://），這樣的 href 在郵件軟體裡是相對路徑、也不會被改寫成追蹤連結，所以補上協定。
+    cta_url: ensureHttps(company.website || "www.heroherb.co"),
   };
   // 只替換雙括號 {{變數}}；保留 Resend 原生三括號標記（如 {{{RESEND_UNSUBSCRIBE_URL}}}）不動
   const replaceVars = (text: string) =>
@@ -107,10 +127,12 @@ export async function dispatchEmail(messageId: string, opts: { allowRetry?: bool
     const origUrl = m[1];
     // 跳過追蹤像素本身與退訂連結
     if (origUrl.includes("/api/track/") || origUrl.includes("{{unsubscribe}}")) continue;
+    // HTML 屬性裡的 & 會寫成 &amp;（UTM 參數之間），轉址時要還原成 &，否則 utm_medium 之後的參數會讀不到
+    const targetUrl = decodeHtmlAttr(origUrl);
     try {
       const { data: link } = await supabaseAdmin
         .from("email_links")
-        .insert({ message_id: messageId, url: origUrl })
+        .insert({ message_id: messageId, url: targetUrl })
         .select("id")
         .single();
       if (link) {

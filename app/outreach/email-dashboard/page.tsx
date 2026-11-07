@@ -138,7 +138,12 @@ export default function EmailDashboardPage() {
       const res = await fetch('/api/outreach/scan-bounces', { method: 'POST' });
       const j = await res.json();
       if (j.success) {
-        setScanMsg(`✓ 掃描完成：硬退信 ${j.hard} 封（已永久排除）、軟退信 ${j.soft} 封${j.policy ? `、被對方拒收 ${j.policy} 封（寄件網域驗證問題，未封鎖）` : ''}、掃描 ${j.scanned} 封退信通知`);
+        const deferredNote = j.deferred > 0 ? `，另有 ${j.deferred} 封留待下次掃描` : '';
+        if (j.error) {
+          setScanMsg(`⚠️ 掃描中斷：${String(j.error).slice(0, 80)}（已處理 ${j.scanned} 封，下次會從中斷處續掃）${deferredNote}`);
+        } else {
+          setScanMsg(`✓ 掃描完成：硬退信 ${j.hard} 封（已永久排除）、軟退信 ${j.soft} 封${j.policy ? `、被對方拒收 ${j.policy} 封（寄件網域驗證問題，未封鎖）` : ''}、掃描 ${j.scanned} 封退信通知${deferredNote}`);
+        }
         loadData();
       } else {
         setScanMsg(`✕ ${j.error || '掃描失敗'}`);

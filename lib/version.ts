@@ -1,7 +1,7 @@
 // 版本編號與功能更新紀錄
 // 每次發佈新功能時，更新 APP_VERSION 並在 CHANGELOG 最上方新增一筆。
 
-export const APP_VERSION = "3.7.0";
+export const APP_VERSION = "3.8.0";
 
 export interface ChangelogEntry {
   version: string;
@@ -11,6 +11,26 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "3.8.0",
+    date: "2026-11-07",
+    title: "退信掃描擴大範圍並記錄進度；新增退信黑名單管理頁",
+    items: [
+      "退信掃描讀取範圍由近 3 天、最多 80 封通知，改為近 7 天、每次最多處理 150 封，向信箱每批取 100 封；比對的寄出紀錄改為近 7 天，以每頁 1000 列分頁讀取直到某頁不足 1000 列（原本單次查詢、無分頁）",
+      "退信掃描改為記錄進度（設定值 BOUNCE_SCAN_WATERMARK＝信箱 UIDVALIDITY:已處理的最大 UID），每次只讀取 UID 大於進度的退信通知；信箱 UIDVALIDITY 改變時改為不帶進度重讀近 7 天；讀取進度的查詢失敗時中止本次掃描",
+      "退信通知依 UID 由小到大處理：每位收件人先寫黑名單、再把寄送紀錄改為退信；任一寫入失敗時該封不計入、立即停止本次掃描，進度存到它前一封（寄送紀錄仍為 sent 的收件人，下次重掃會再處理）；每處理 25 封存一次進度，掃描結束時再存一次；存進度失敗重試一次，仍失敗時在回傳的 error 欄位說明",
+      "每日排程與 /api/cron/scan-bounces 的 LINE 通知與回應加入掃描中斷原因（error）與留待下次的封數（deferred）；儀表板「立即掃描退信」的結果訊息同步顯示",
+      "寄信時 {{cta_url}} 變數改為對應設定裡的公司網站，沒有 http(s):// 的會補上 https://（未設定時為 www.heroherb.co）；原本不在變數清單內，會被換成空字串，使用該變數的 B2B 模板按鈕沒有連結",
+      "連結追蹤改寫時，先把網址裡的 HTML 實體（&amp; 等）還原再存入 email_links；原本轉址網址帶著 &amp;，utm_medium 之後的 UTM 參數無法被 GA 讀取",
+      "退信掃描新增時間預算（預設 60 秒，從掃描開始計時），超過即停止並存進度，回傳已處理封數與留待下次的封數（deferred）",
+      "addToBlacklist 改為檢查讀取與寫入結果，失敗時回傳 { ok: false, error }（原本吞掉錯誤）",
+      "Gmail 搜尋退信改為只在伺服器不支援 Gmail 搜尋語法時才退回一般日期搜尋（原本在『沒有新退信』時也會退回，改抓收件匣近幾天的信件）",
+      "新增『退信黑名單』頁（側欄 外發管道 → 退信黑名單）：列出 Email、類型（硬退信／軟退信／寄送失敗／手動加入）、累計次數、狀態（已封鎖／觀察中）、最後原因與時間；可搜尋、依狀態與類型篩選、分頁；每列可解除封鎖／重新封鎖、刪除；上方可手動加入要排除的信箱",
+      "新增 API /api/outreach/blacklist（GET 列表、POST 手動加入、PATCH 切換封鎖、DELETE 刪除）；Email 去空白轉小寫，格式不符回 400；解除封鎖時軟退信與失敗次數歸零",
+      "手動加入的信箱之後再收到退信時，類型維持『手動加入』，只更新次數與原因",
+      "新增 tests/bounce-scan.test.mjs（node --test）：進度解析、UID 篩選、分批、分頁讀取、寫入失敗時的進度、時間預算提早停止、每 25 封存進度",
+    ],
+  },
   {
     version: "3.7.0",
     date: "2026-11-06",

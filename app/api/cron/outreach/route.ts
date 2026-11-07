@@ -7,7 +7,7 @@ import { getSendCaps, sentToday, remainingDailyBudget } from "@/lib/outreach/thr
 import { claimAndSend, kickCampaignDrain } from "@/lib/outreach/drain";
 import { notifyLine } from "@/lib/notify/line";
 import { buildDailyReport } from "@/lib/notify/dailyMetrics";
-import { scanBounces } from "@/lib/outreach/scanBounces";
+import { scanBounces, type ScanBouncesResult } from "@/lib/outreach/scanBounces";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -161,9 +161,15 @@ export async function GET(req: Request) {
     }
 
     // ── ④ 退信掃描清理 ───────────────────────────────
-    let bounce = { scanned: 0, hard: 0, soft: 0, policy: 0, ignored: 0 };
+    let bounce: ScanBouncesResult = { scanned: 0, hard: 0, soft: 0, policy: 0, ignored: 0 };
     try {
       bounce = await scanBounces();
+      if (bounce.error) {
+        notes.push(`⚠️ 退信掃描中斷：${bounce.error.slice(0, 80)}`);
+      }
+      if ((bounce.deferred ?? 0) > 0) {
+        notes.push(`ℹ️ 退信通知尚有 ${bounce.deferred} 封留待下次`);
+      }
       if (bounce.hard + bounce.soft > 0) {
         notes.push(`📥 退信清理：硬退信 ${bounce.hard}、軟退信 ${bounce.soft}`);
       }
